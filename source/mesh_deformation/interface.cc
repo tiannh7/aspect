@@ -1449,7 +1449,7 @@ namespace aspect
           // that captures mesh deformation in time. This has to
           // happen after we distribute the mesh_deformation DoFs
           // above.
-          sim.mapping.reset (new MappingQEulerian<dim, LinearAlgebra::Vector> (mesh_deformation_fe.degree,
+          sim.mapping.reset (new MappingQEulerian<dim, LinearAlgebra::Vector> (4,
                                                                                mesh_deformation_dof_handler,
                                                                                mesh_displacements));
         }
