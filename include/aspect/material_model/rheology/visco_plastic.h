@@ -21,6 +21,7 @@
 #ifndef _aspect_material_model_rheology_visco_plastic_h
 #define _aspect_material_model_rheology_visco_plastic_h
 
+#include "aspect/utilities.h"
 #include <aspect/global.h>
 #include <aspect/material_model/interface.h>
 #include <aspect/material_model/utilities.h>
@@ -82,6 +83,18 @@ namespace aspect
 
     };
 
+    //tiannh
+    template <int dim>
+    class CreepAdditionalOutputs : public NamedAdditionalMaterialOutputs<dim>
+    {
+      public:
+        CreepAdditionalOutputs(const unsigned int n_points);
+        std::vector<double> get_nth_output(const unsigned int idx) const override;
+
+        std::vector<double> diffusion_viscosity;
+        std::vector<double> dislocation_viscosity;
+    };
+
     /**
      * A data structure with the output of calculate_isostrain_viscosities.
      */
@@ -106,6 +119,11 @@ namespace aspect
        * The current cohesion.
        */
       std::vector<double> current_cohesions;
+
+      //tiannh
+      std::vector<double> diffusion_viscosity;
+      std::vector<double> dislocation_viscosity;
+
     };
 
     namespace Rheology
@@ -187,6 +205,9 @@ namespace aspect
           void
           create_plastic_outputs (MaterialModel::MaterialModelOutputs<dim> &out) const;
 
+          //tiannh
+          void create_creep_outputs(MaterialModel::MaterialModelOutputs<dim> &out) const;
+
           /**
            * A function that fills the plastic additional output in the
            * MaterialModelOutputs object that is handed over, if it exists.
@@ -198,7 +219,11 @@ namespace aspect
                                     const MaterialModel::MaterialModelInputs<dim> &in,
                                     MaterialModel::MaterialModelOutputs<dim> &out,
                                     const IsostrainViscosities &isostrain_viscosities) const;
-
+          void fill_creep_outputs(const unsigned int point_index,
+                                  const std::vector<double> &volume_fractions,
+                                  const MaterialModel::MaterialModelInputs<dim> &in,
+                                  MaterialModel::MaterialModelOutputs<dim> &out,
+                                  const IsostrainViscosities &isostrain_viscosities) const;
           /**
            * Minimum strain rate used to stabilize the strain rate dependent rheology.
            */
@@ -344,3 +369,5 @@ namespace aspect
   }
 }
 #endif
+
+

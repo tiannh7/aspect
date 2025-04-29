@@ -24,6 +24,7 @@
 #include <aspect/newton.h>
 #include <aspect/adiabatic_conditions/interface.h>
 #include <aspect/gravity_model/interface.h>
+#include <deal.II/base/exceptions.h>
 #include <deal.II/base/signaling_nan.h>
 #include <deal.II/base/parameter_handler.h>
 #include <deal.II/fe/fe_values.h>
@@ -43,6 +44,14 @@ namespace aspect
         names.emplace_back("plastic_yielding");
         return names;
       }
+
+      std::vector<std::string> make_creep_additional_outputs_names()
+      {
+        std::vector<std::string> names;
+        names.emplace_back("diffusion_viscosity");
+        names.emplace_back("dislocation_viscosity");
+        return names;
+      }
     }
 
     template <int dim>
@@ -52,6 +61,13 @@ namespace aspect
         friction_angles(n_points, numbers::signaling_nan<double>()),
         yield_stresses(n_points, numbers::signaling_nan<double>()),
         yielding(n_points, numbers::signaling_nan<double>())
+    {}
+    //tiannh
+    template <int dim>
+    CreepAdditionalOutputs<dim>::CreepAdditionalOutputs(const unsigned int n_points)
+      : NamedAdditionalMaterialOutputs<dim>(make_creep_additional_outputs_names()),
+        diffusion_viscosity(n_points, numbers::signaling_nan<double>()),
+        dislocation_viscosity(n_points, numbers::signaling_nan<double>())
     {}
 
 
@@ -81,6 +97,24 @@ namespace aspect
       // We will never get here, so just return something
       return cohesions;
     }
+    //tiannh
+    template <int dim>
+    std::vector<double>
+    CreepAdditionalOutputs<dim>::get_nth_output(const unsigned int idx) const
+    {
+      AssertIndexRange (idx, 2);
+      switch (idx)
+        {
+          case 0:
+            return diffusion_viscosity;
+
+          case 1:
+            return dislocation_viscosity;
+
+          default:
+            AssertThrow(false, ExcInternalError());
+        }
+    }
 
 
 
@@ -109,6 +143,10 @@ namespace aspect
         output_parameters.composition_viscosities.resize(volume_fractions.size(), numbers::signaling_nan<double>());
         output_parameters.current_friction_angles.resize(volume_fractions.size(), numbers::signaling_nan<double>());
         output_parameters.current_cohesions.resize(volume_fractions.size(), numbers::signaling_nan<double>());
+        //tiannh
+        output_parameters.diffusion_viscosity.resize(volume_fractions.size(), numbers::signaling_nan<double>());
+        output_parameters.dislocation_viscosity.resize(volume_fractions.size(), numbers::signaling_nan<double>());
+
 
         // Assemble stress tensor if elastic behavior is enabled
         SymmetricTensor<2,dim> stress_old = numbers::signaling_nan<SymmetricTensor<2,dim>>();
@@ -196,12 +234,17 @@ namespace aspect
                   {
                     non_yielding_viscosity = compositional_viscosity_prefactors.compute_viscosity(in, viscosity_diffusion, j, i, \
                                                                                                   CompositionalViscosityPrefactors<dim>::ModifiedFlowLaws::diffusion);
+                    //tiannh
+                    output_parameters.diffusion_viscosity[j] = non_yielding_viscosity;
                     break;
                   }
                   case dislocation:
                   {
                     non_yielding_viscosity = compositional_viscosity_prefactors.compute_viscosity(in, viscosity_dislocation, j, i, \
                                                                                                   CompositionalViscosityPrefactors<dim>::ModifiedFlowLaws::dislocation);
+
+                    //tiannh
+                    output_parameters.dislocation_viscosity[j] = non_yielding_viscosity;
                     break;
                   }
                   case frank_kamenetskii:
@@ -218,6 +261,9 @@ namespace aspect
                                                               CompositionalViscosityPrefactors<dim>::ModifiedFlowLaws::diffusion);
                     const double scaled_viscosity_dislocation = compositional_viscosity_prefactors.compute_viscosity(in, viscosity_dislocation, j, i, \
                                                                 CompositionalViscosityPrefactors<dim>::ModifiedFlowLaws::dislocation);
+                    //tiannh
+                    output_parameters.diffusion_viscosity[j] = scaled_viscosity_diffusion;
+                    output_parameters.dislocation_viscosity[j] = scaled_viscosity_dislocation;
                     non_yielding_viscosity = (scaled_viscosity_diffusion * scaled_viscosity_dislocation)/
                                              (scaled_viscosity_diffusion + scaled_viscosity_dislocation);
                     break;
@@ -797,6 +843,18 @@ namespace aspect
           }
       }
 
+      //tiannh
+      template <int dim>
+      void
+      ViscoPlastic<dim>::create_creep_outputs(MaterialModel::MaterialModelOutputs<dim> &out) const
+      {
+        if (out.template get_additional_output<CreepAdditionalOutputs<dim>>() == nullptr)
+          {
+            const unsigned int n_points = out.n_evaluation_points();
+            out.additional_outputs.push_back(std::make_unique<CreepAdditionalOutputs<dim>>(n_points));
+          }
+      }
+
       template <int dim>
       void
       ViscoPlastic<dim>::
@@ -848,6 +906,35 @@ namespace aspect
           }
       }
 
+      template <int dim>
+      void
+      ViscoPlastic<dim>::
+      fill_creep_outputs(const unsigned int i,
+                         const std::vector<double> &volume_fractions,
+                         const MaterialModel::MaterialModelInputs<dim> &in,
+                         MaterialModel::MaterialModelOutputs<dim> &out,
+                         const IsostrainViscosities &isostrain_viscosities) const
+      {
+        CreepAdditionalOutputs<dim> *creep_out = out.template get_additional_output<CreepAdditionalOutputs<dim>>();
+
+        if (creep_out != nullptr)
+          {
+            AssertThrow(in.requests_property(MaterialProperties::viscosity),
+                        ExcMessage("The CreepAdditionalOutputs cannot be filled when the viscosity has not been computed."));
+
+            creep_out->diffusion_viscosity[i] = 0;
+            creep_out->dislocation_viscosity[i] = 0;
+
+            // average over the volume volume fractions
+            for (unsigned int j = 0; j < volume_fractions.size(); ++j)
+              {
+                creep_out->diffusion_viscosity[i] += volume_fractions[j] * isostrain_viscosities.diffusion_viscosity[j];
+                creep_out->dislocation_viscosity[i] += volume_fractions[j] * isostrain_viscosities.dislocation_viscosity[j];
+              }
+          }
+
+      }
+
     }
   }
 }
@@ -870,3 +957,5 @@ namespace aspect
 #undef INSTANTIATE
   }
 }
+
+

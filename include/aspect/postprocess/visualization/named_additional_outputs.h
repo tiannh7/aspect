@@ -68,9 +68,15 @@ namespace aspect
           void
           evaluate_vector_field(const DataPostprocessorInputs::Vector<dim> &input_data,
                                 std::vector<Vector<double>> &computed_quantities) const override;
+          //tiannh
+          static void declare_parameters (ParameterHandler &prm);
+          void parse_parameters (ParameterHandler &prm) override;
 
         private:
           std::vector<std::string> property_names;
+          //tiannh
+          std::vector<std::string> selected_property_names;
+          std::vector<std::pair<unsigned int, unsigned int>> named_output_indices;
       };
     }
   }
