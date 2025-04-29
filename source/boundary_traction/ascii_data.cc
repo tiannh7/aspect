@@ -48,7 +48,7 @@ namespace aspect
                   ExcMessage("Did not find the boundary indicator for the traction ascii data plugin."));
 
       Utilities::AsciiDataBoundary<dim>::initialize(boundary_ids,
-                                                    1);
+                                                    dim);
     }
 
 
@@ -59,10 +59,16 @@ namespace aspect
                        const Point<dim> &position,
                        const Tensor<1,dim> &normal_vector) const
     {
-      const double pressure = Utilities::AsciiDataBoundary<dim>::get_data_component(boundary_indicator,
-                                                                                    position,
-                                                                                    0);
-      return -pressure * normal_vector;
+      Tensor<1,dim> traction;
+      for (unsigned int i=0; i<dim; ++i)
+        traction[i] = Utilities::AsciiDataBoundary<dim>::get_data_component(boundary_indicator,
+                                                                            position,
+                                                                            i);
+
+      if (use_spherical_unit_vectors)
+        traction = Utilities::Coordinates::spherical_to_cartesian_vector(traction, position);
+
+      return traction;
     }
 
 
@@ -84,6 +90,17 @@ namespace aspect
         Utilities::AsciiDataBoundary<dim>::declare_parameters(prm,
                                                               "$ASPECT_SOURCE_DIR/data/boundary-traction/ascii-data/test/",
                                                               "box_2d_%s.%d.txt");
+        prm.enter_subsection("Ascii data model");
+        {
+          prm.declare_entry ("Use spherical unit vectors", "false",
+                             Patterns::Bool (),
+                             "Specify velocity as r, phi, and theta components "
+                             "instead of x, y, and z. Positive velocities point up, east, "
+                             "and north (in 3d) or out and clockwise (in 2d). "
+                             "This setting only makes sense for spherical geometries."
+                            );
+        }
+        prm.leave_subsection();
       }
       prm.leave_subsection();
     }
@@ -96,6 +113,15 @@ namespace aspect
       prm.enter_subsection("Boundary traction model");
       {
         Utilities::AsciiDataBoundary<dim>::parse_parameters(prm);
+        prm.enter_subsection("Ascii data model");
+        {
+          use_spherical_unit_vectors = prm.get_bool("Use spherical unit vectors");
+          if (use_spherical_unit_vectors)
+            AssertThrow (this->get_geometry_model().natural_coordinate_system() == Utilities::Coordinates::spherical,
+                         ExcMessage ("Spherical unit vectors should not be used "
+                                     "when geometry model is not spherical."));
+        }
+        prm.leave_subsection();
       }
       prm.leave_subsection();
     }

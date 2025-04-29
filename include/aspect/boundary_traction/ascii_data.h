@@ -95,6 +95,13 @@ namespace aspect
 
       private:
         std::set<types::boundary_id> boundary_ids;
+
+        /**
+         * Whether to specify velocity in x, y, z components, or
+         * r, phi, theta components.
+         */
+        bool use_spherical_unit_vectors;
+
     };
   }
 }
