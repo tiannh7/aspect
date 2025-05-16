@@ -106,8 +106,8 @@ namespace aspect
         {
           prm.declare_entry ("Use spherical unit vectors", "false",
                              Patterns::Bool (),
-                             "Specify velocity as r, phi, and theta components "
-                             "instead of x, y, and z. Positive velocities point up, east, "
+                             "Specify traction as r, phi, and theta components "
+                             "instead of x, y, and z. Positive tractions point up, east, "
                              "and north (in 3d) or out and clockwise (in 2d). "
                              "This setting only makes sense for spherical geometries."
                             );
