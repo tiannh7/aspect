@@ -23,9 +23,10 @@
 #include <aspect/global.h>
 #include <aspect/utilities.h>
 #include <aspect/melt.h>
+#include <aspect/advection_field.h>
 #include <aspect/volume_of_fluid/handler.h>
 #include <aspect/newton.h>
-#include <aspect/stokes_matrix_free.h>
+#include <aspect/simulator/solver/stokes_matrix_free.h>
 #include <aspect/simulator/solver/stokes_direct.h>
 #include <aspect/mesh_deformation/interface.h>
 #include <aspect/postprocess/particles.h>
@@ -430,17 +431,7 @@ namespace aspect
 
     if (parameters.stokes_solver_type == Parameters<dim>::StokesSolverType::block_gmg)
       {
-        switch (parameters.stokes_velocity_degree)
-          {
-            case 2:
-              stokes_matrix_free = std::make_unique<StokesMatrixFreeHandlerImplementation<dim,2>>(*this, parameters);
-              break;
-            case 3:
-              stokes_matrix_free = std::make_unique<StokesMatrixFreeHandlerImplementation<dim,3>>(*this, parameters);
-              break;
-            default:
-              AssertThrow(false, ExcMessage("The finite element degree for the Stokes system you selected is not supported yet."));
-          }
+        stokes_matrix_free = create_matrix_free_solver<dim>(*this, parameters);
 
         stokes_matrix_free->initialize_simulator(*this);
         stokes_matrix_free->parse_parameters(prm);
@@ -906,7 +897,7 @@ namespace aspect
     template <int dim>
     bool compositional_field_needs_matrix_block(const Introspection<dim> &introspection, const unsigned int composition_index)
     {
-      const typename Simulator<dim>::AdvectionField adv_field (Simulator<dim>::AdvectionField::composition(composition_index));
+      const AdvectionField adv_field (AdvectionField::composition(composition_index));
       switch (adv_field.advection_method(introspection))
         {
           case Parameters<dim>::AdvectionFieldMethod::fem_field:
