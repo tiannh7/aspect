@@ -22,8 +22,10 @@
 #include <aspect/geometry_model/interface.h>
 #include <aspect/utilities.h>
 
+#ifdef ASPECT_WITH_WORLD_BUILDER
 #include <world_builder/grains.h>
 #include <world_builder/world.h>
+#endif
 
 namespace aspect
 {
