@@ -31,7 +31,7 @@
 #include <aspect/simulator/assemblers/stokes.h>
 #include <aspect/simulator/assemblers/advection.h>
 
-#include <aspect/stokes_matrix_free.h>
+#include <aspect/simulator/solver/stokes_matrix_free.h>
 
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/work_stream.h>
@@ -473,7 +473,7 @@ namespace aspect
     // When we solve with melt migration, the pressure block contains
     // both pressures and contains an elliptic operator, so it makes
     // sense to use AMG instead of ILU:
-    if (parameters.include_melt_transport)
+    if (parameters.include_melt_transport || parameters.use_bfbt)
       Mp_preconditioner = std::make_unique<LinearAlgebra::PreconditionAMG>();
     else
       Mp_preconditioner = std::make_unique<LinearAlgebra::PreconditionILU>();
@@ -513,9 +513,18 @@ namespace aspect
 
     if (parameters.include_melt_transport == false)
       {
-        LinearAlgebra::PreconditionILU *Mp_preconditioner_ILU
-          = dynamic_cast<LinearAlgebra::PreconditionILU *> (Mp_preconditioner.get());
-        Mp_preconditioner_ILU->initialize (system_preconditioner_matrix.block(1,1));
+        if (parameters.use_bfbt)
+          {
+            LinearAlgebra::PreconditionAMG *Mp_preconditioner_AMG = dynamic_cast<LinearAlgebra::PreconditionAMG *> (Mp_preconditioner.get());
+            Mp_preconditioner_AMG->initialize (system_preconditioner_matrix.block(1,1));
+          }
+        else
+          {
+            LinearAlgebra::PreconditionILU *Mp_preconditioner_ILU
+              = dynamic_cast<LinearAlgebra::PreconditionILU *> (Mp_preconditioner.get());
+            Mp_preconditioner_ILU->initialize (system_preconditioner_matrix.block(1,1));
+          }
+
       }
     else
       {
