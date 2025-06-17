@@ -240,6 +240,8 @@ namespace aspect
            */
           std::vector<double> minimum_viscosity;
           std::vector<double> maximum_viscosity;
+          std::vector<double> minimum_non_yielding_viscosity;
+          std::vector<double> maximum_non_yielding_viscosity;
 
           /**
            * Enumeration for selecting which type of viscous flow law to use.

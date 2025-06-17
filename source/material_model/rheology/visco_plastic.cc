@@ -328,7 +328,23 @@ namespace aspect
                                                                                        current_friction,
                                                                                        pressure_for_plasticity,
                                                                                        drucker_prager_parameters.max_yield_stress);
+            const double maximum_non_yielding_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                                            phase_function_values,
+                                                                            n_phase_transitions_per_composition,
+                                                                            maximum_non_yielding_viscosity,
+                                                                            j,
+                                                                            MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
 
+            const double minimum_non_yielding_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                                            phase_function_values,
+                                                                            n_phase_transitions_per_composition,
+                                                                            minimum_non_yielding_viscosity,
+                                                                            j,
+                                                                            MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+
+            // limiting non_yielding_viscosity
+            non_yielding_viscosity = std::min(std::max(non_yielding_viscosity, minimum_non_yielding_viscosity_for_composition),
+                                              maximum_non_yielding_viscosity_for_composition);
             // Step 5b: select if the yield viscosity is based on Drucker Prager or a stress limiter rheology
             double effective_viscosity = non_yielding_viscosity;
             switch (yield_mechanism)
@@ -551,7 +567,19 @@ namespace aspect
                            "List with as many components as active "
                            "compositional fields (material data is assumed to "
                            "be in order with the ordering of the fields). ");
+        prm.declare_entry ("Minimum non yielding viscosity", "1e17", Patterns::Anything(),
+                           "Lower cutoff for effective viscosity applied before plasticity (non-yielding phase). "
+                           "Units: \\si{\\pascal\\second}. "
+                           "List with as many components as active compositional fields "
+                           "(material data is assumed to be in order with the ordering of the fields). "
+                           "This limit enforces a minimum viscosity threshold prior to yield/plastic deformation.");
 
+        prm.declare_entry ("Maximum non yielding viscosity", "1e28", Patterns::Anything(),
+                           "Upper cutoff for effective viscosity applied before plasticity (non-yielding phase). "
+                           "Units: \\si{\\pascal\\second}. "
+                           "List with as many components as active compositional fields "
+                           "(material data is assumed to be in order with the ordering of the fields). "
+                           "This limit constrains viscosity values prior to yield/plastic deformation.");
         // Rheological parameters
         prm.declare_entry ("Viscosity averaging scheme", "harmonic",
                            Patterns::Selection("arithmetic|harmonic|geometric|maximum composition"),
@@ -698,7 +726,21 @@ namespace aspect
         for (auto p1 = maximum_viscosity.begin(), p2 = minimum_viscosity.begin();
              p1 != maximum_viscosity.end(); ++p1, ++p2)
           AssertThrow(*p1 >= *p2, ExcMessage("Maximum viscosity should be larger or equal to the minimum viscosity."));
+        options.property_name = "Minimum non yielding viscosity";
+        minimum_non_yielding_viscosity = Utilities::MapParsing::parse_map_to_double_array(prm.get("Minimum non yielding viscosity"),
+                                         options);
 
+        options.property_name = "Maximum non yielding viscosity";
+        maximum_non_yielding_viscosity = Utilities::MapParsing::parse_map_to_double_array(prm.get("Maximum non yielding viscosity"),
+                                         options);
+
+        Assert(maximum_non_yielding_viscosity.size() == minimum_non_yielding_viscosity.size(),
+               ExcMessage("The input parameters 'Maximum non yielding viscosity' and 'Minimum non yielding viscosity' should have the same number of entries."));
+
+        for (auto p1 = maximum_non_yielding_viscosity.begin(), p2 = minimum_non_yielding_viscosity.begin();
+             p1 != maximum_non_yielding_viscosity.end(); ++p1, ++p2)
+          AssertThrow(*p1 >= *p2,
+                      ExcMessage("Maximum non-yielding viscosity should be larger or equal to the minimum non yielding viscosity."));
         viscosity_averaging = MaterialUtilities::parse_compositional_averaging_operation ("Viscosity averaging scheme",
                               prm);
 
