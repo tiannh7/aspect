@@ -71,15 +71,18 @@ namespace aspect
       const unsigned int n_q_points = scratch.finite_element_values.n_quadrature_points;
       const unsigned int advection_dofs_per_cell = data.local_dof_indices.size();
 
+      const bool advection_field_is_temperature = advection_field.is_temperature();
+
       const bool use_supg = (this->get_parameters().advection_stabilization_method
                              == Parameters<dim>::AdvectionStabilizationMethod::supg);
       const bool   use_bdf2_scheme = (this->get_timestep_number() > 1);
-      const double time_step = this->get_timestep();
-      const double old_time_step = this->get_old_timestep();
+      const bool steady = this->get_parameters().solve_initial_steady_thermal_conduction;
+      const bool first_timestep = (this->get_timestep_number() == 0);
+      const double time_step = (steady && first_timestep && advection_field_is_temperature) ? 1e20 : this->get_timestep();
+      const double old_time_step = (steady && first_timestep && advection_field_is_temperature) ? 0.0 : this->get_old_timestep();
       const double bdf2_factor = (use_bdf2_scheme)? ((2*time_step + old_time_step) /
                                                      (time_step + old_time_step)) : 1.0;
 
-      const bool advection_field_is_temperature = advection_field.is_temperature();
       const unsigned int solution_component = advection_field.component_index(introspection);
 
       const FEValuesExtractors::Scalar solution_field = advection_field.scalar_extractor(introspection);

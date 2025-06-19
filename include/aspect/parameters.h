@@ -55,7 +55,7 @@ namespace aspect
   template <int dim>
   struct Parameters
   {
-
+    bool solve_initial_steady_thermal_conduction;
     /**
      * A structure that contains enum values that identify the nonlinear
      * solver in use.

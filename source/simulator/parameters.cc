@@ -50,6 +50,9 @@ namespace aspect
   Parameters<dim>::
   declare_parameters (ParameterHandler &prm)
   {
+    prm.declare_entry("Solve initial steady thermal conduction", "false",
+    Patterns::Bool(),
+    "Whether to solve a steady-state conduction equation for temperature as initial condition.");
     prm.declare_entry ("Dimension", "2",
                        Patterns::Integer (2,3),
                        "The number of space dimensions you want to run this program in. "
@@ -1462,7 +1465,7 @@ namespace aspect
     // parameter
     AssertThrow (prm.get_integer("Dimension") == dim,
                  ExcInternalError());
-
+    solve_initial_steady_thermal_conduction = prm.get_bool("Solve initial steady thermal conduction");
     CFL_number              = prm.get_double ("CFL number");
     use_conduction_timestep = prm.get_bool ("Use conduction timestep");
     convert_to_years        = prm.get_bool ("Use years in output instead of seconds");
