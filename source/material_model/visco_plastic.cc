@@ -274,8 +274,8 @@ namespace aspect
           // has been called.
           // TODO do we even need a separate function? We could compute the PlasticAdditionalOutputs here like
           // the ElasticAdditionalOutputs.
-          if (in.requests_property(MaterialProperties::additional_outputs))
-            rheology->fill_plastic_outputs(i, volume_fractions, plastic_yielding, in, out, isostrain_viscosities);
+          rheology->fill_plastic_outputs(i, volume_fractions, plastic_yielding, in, out, isostrain_viscosities);
+          rheology->fill_creep_outputs(i, volume_fractions, in, out, isostrain_viscosities);
 
           if (this->get_parameters().enable_elasticity)
             {
@@ -451,6 +451,7 @@ namespace aspect
     ViscoPlastic<dim>::create_additional_named_outputs (MaterialModel::MaterialModelOutputs<dim> &out) const
     {
       rheology->create_plastic_outputs(out);
+      rheology->create_creep_outputs (out);
 
       if (this->get_parameters().enable_elasticity)
         rheology->elastic_rheology.create_elastic_outputs(out);

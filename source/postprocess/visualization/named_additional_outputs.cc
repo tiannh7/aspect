@@ -127,12 +127,8 @@ namespace aspect
         const unsigned int n_q_points = input_data.solution_values.size();
         Assert(computed_quantities.size() == n_q_points, ExcInternalError());
 
-        MaterialModel::MaterialModelInputs<dim> in(input_data,
-                                                   this->introspection());
-        MaterialModel::MaterialModelOutputs<dim> out(n_q_points,
-                                                     this->n_compositional_fields());
-
-        in.requested_properties = MaterialModel::MaterialProperties::additional_outputs;
+        MaterialModel::MaterialModelInputs<dim> in(input_data, this->introspection());
+        MaterialModel::MaterialModelOutputs<dim> out(n_q_points, this->n_compositional_fields());
 
         this->get_material_model().create_additional_named_outputs(out);
         this->get_material_model().evaluate(in, out);
