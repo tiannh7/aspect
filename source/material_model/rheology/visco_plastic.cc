@@ -253,6 +253,23 @@ namespace aspect
             // Apply strain weakening to the viscous viscosity.
             non_yielding_viscosity *= weakening_factors[2];
 
+            const double maximum_non_yielding_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                                            phase_function_values,
+                                                                            n_phase_transitions_per_composition,
+                                                                            maximum_non_yielding_viscosity,
+                                                                            j,
+                                                                            MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+
+            const double minimum_non_yielding_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                                            phase_function_values,
+                                                                            n_phase_transitions_per_composition,
+                                                                            minimum_non_yielding_viscosity,
+                                                                            j,
+                                                                            MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+
+            // limiting non_yielding_viscosity
+            non_yielding_viscosity = std::min(std::max(non_yielding_viscosity, minimum_non_yielding_viscosity_for_composition),
+                                              maximum_non_yielding_viscosity_for_composition);
 
             // Step 3: calculate the viscous stress magnitude
             // and strain rate. If requested compute visco-elastic contributions.
@@ -328,23 +345,6 @@ namespace aspect
                                                                                        current_friction,
                                                                                        pressure_for_plasticity,
                                                                                        drucker_prager_parameters.max_yield_stress);
-            const double maximum_non_yielding_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
-                                                                            phase_function_values,
-                                                                            n_phase_transitions_per_composition,
-                                                                            maximum_non_yielding_viscosity,
-                                                                            j,
-                                                                            MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
-
-            const double minimum_non_yielding_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
-                                                                            phase_function_values,
-                                                                            n_phase_transitions_per_composition,
-                                                                            minimum_non_yielding_viscosity,
-                                                                            j,
-                                                                            MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
-
-            // limiting non_yielding_viscosity
-            non_yielding_viscosity = std::min(std::max(non_yielding_viscosity, minimum_non_yielding_viscosity_for_composition),
-                                              maximum_non_yielding_viscosity_for_composition);
             // Step 5b: select if the yield viscosity is based on Drucker Prager or a stress limiter rheology
             double effective_viscosity = non_yielding_viscosity;
             switch (yield_mechanism)
