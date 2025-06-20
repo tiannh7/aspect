@@ -44,38 +44,45 @@ namespace aspect
 
       template <int dim>
       void
-      NamedAdditionalOutputs<dim>::
-      initialize ()
+      NamedAdditionalOutputs<dim>::initialize ()
       {
-        MaterialModel::MaterialModelOutputs<dim> out(0,
-                                                     this->n_compositional_fields());
+        MaterialModel::MaterialModelOutputs<dim> out(0, this->n_compositional_fields());
         this->get_material_model().create_additional_named_outputs(out);
 
         AssertThrow(out.additional_outputs.size() > 0,
                     ExcMessage("You activated the postprocessor <named additional outputs>, but there are no additional outputs "
-                               "provided by the material model. Either remove the postprocessor, or check why no output is provided."));
+                               "provided by the material model."));
 
-        for (unsigned int k=0; k<out.additional_outputs.size(); ++k)
+        property_names.clear();
+        named_output_indices.clear();
+
+        for (unsigned int k = 0; k < out.additional_outputs.size(); ++k)
           {
-            const MaterialModel::NamedAdditionalMaterialOutputs<dim> *result
-              = dynamic_cast<const MaterialModel::NamedAdditionalMaterialOutputs<dim> *> (out.additional_outputs[k].get());
+            const auto *named_output =
+              dynamic_cast<const MaterialModel::NamedAdditionalMaterialOutputs<dim> *>(out.additional_outputs[k].get());
 
-            if (result)
+            if (named_output)
               {
-                std::vector<std::string> names = result->get_names();
+                const std::vector<std::string> names = named_output->get_names();
+                for (unsigned int i = 0; i < names.size(); ++i)
+                  {
+                    std::string sanitized_name = names[i];
+                    std::replace(sanitized_name.begin(), sanitized_name.end(), ' ', '_');
 
-                for (const auto &name : names)
-                  property_names.push_back(name);
+                    if (selected_property_names.empty() ||
+                        std::find(selected_property_names.begin(), selected_property_names.end(), sanitized_name)
+                        != selected_property_names.end())
+                      {
+                        property_names.push_back(sanitized_name);
+                        named_output_indices.emplace_back(k, i);
+                      }
+                  }
               }
           }
 
         AssertThrow(property_names.size() > 0,
-                    ExcMessage("You activated the postprocessor <named additional outputs>, but none of the additional outputs "
-                               "provided by the material model are named outputs. Either remove the postprocessor, or check why no "
-                               "named output is provided."));
-
-        for (auto &property_name : property_names)
-          std::replace(property_name.begin(),property_name.end(),' ', '_');
+                    ExcMessage("You selected the named additional output postprocessor, but none of the selected "
+                               "outputs matched what is provided by the material model."));
       }
 
 
@@ -117,11 +124,8 @@ namespace aspect
       evaluate_vector_field(const DataPostprocessorInputs::Vector<dim> &input_data,
                             std::vector<Vector<double>> &computed_quantities) const
       {
-        const unsigned int n_quadrature_points = input_data.solution_values.size();
-        Assert (computed_quantities.size() == n_quadrature_points,
-                ExcInternalError());
-        Assert (input_data.solution_values[0].size() == this->introspection().n_components,
-                ExcInternalError());
+        const unsigned int n_q_points = input_data.solution_values.size();
+        Assert(computed_quantities.size() == n_q_points, ExcInternalError());
 
         MaterialModel::MaterialModelInputs<dim> in(input_data,
                                                    this->introspection());
@@ -133,25 +137,79 @@ namespace aspect
         this->get_material_model().create_additional_named_outputs(out);
         this->get_material_model().evaluate(in, out);
 
-        unsigned int field_index = 0;
-        for (unsigned int k=0; k<out.additional_outputs.size(); ++k)
+        for (unsigned int idx = 0; idx < named_output_indices.size(); ++idx)
           {
-            const MaterialModel::NamedAdditionalMaterialOutputs<dim> *result
-              = dynamic_cast<const MaterialModel::NamedAdditionalMaterialOutputs<dim> *> (out.additional_outputs[k].get());
+            const auto &[k, i] = named_output_indices[idx];
 
-            if (result)
-              {
-                std::vector<double> outputs(n_quadrature_points);
-                for (unsigned int i=0; i<result->get_names().size(); ++i, ++field_index)
-                  {
-                    outputs = result->get_nth_output(i);
+            const auto *named_output =
+              dynamic_cast<const MaterialModel::NamedAdditionalMaterialOutputs<dim> *>(out.additional_outputs[k].get());
 
-                    for (unsigned int q=0; q<n_quadrature_points; ++q)
-                      computed_quantities[q][field_index] = outputs[q];
-                  }
-              }
+            Assert(named_output != nullptr, ExcInternalError());
+
+            const std::vector<double> values = named_output->get_nth_output(i);
+            for (unsigned int q = 0; q < n_q_points; ++q)
+              computed_quantities[q][idx] = values[q];
           }
       }
+
+      template <int dim>
+      void
+      NamedAdditionalOutputs<dim>::declare_parameters (ParameterHandler &prm)
+      {
+        prm.enter_subsection("Postprocess");
+        {
+          prm.enter_subsection("Visualization");
+          {
+            prm.enter_subsection("Named additional outputs");
+            {
+              const std::string pattern_of_names =
+                "current cohesions|"
+                "current friction angles|"
+                "current yield stresses|"
+                "plastic yielding|"
+                "diffusion viscosity|"
+                "dislocation viscosity|"
+                "elastic shear modulus";
+
+              prm.declare_entry("List of named outputs", "",
+                                Patterns::MultipleSelection(pattern_of_names),
+                                "A comma-separated list of named additional outputs to be visualized. "
+                                "If left empty, all available named outputs will be output.\n\n"
+                                "The following named outputs are available:\n\n" +
+                                pattern_of_names);
+            }
+            prm.leave_subsection();
+          }
+          prm.leave_subsection();
+        }
+        prm.leave_subsection();
+      }
+
+      template <int dim>
+      void
+      NamedAdditionalOutputs<dim>::parse_parameters (ParameterHandler &prm)
+      {
+        prm.enter_subsection("Postprocess");
+        {
+          prm.enter_subsection("Visualization");
+          {
+            prm.enter_subsection("Named additional outputs");
+            {
+              const std::string param_string = prm.get("List of named outputs");
+              if (!param_string.empty())
+                {
+                  selected_property_names = Utilities::split_string_list(param_string);
+                  for (std::string &name : selected_property_names)
+                    std::replace(name.begin(), name.end(), ' ', '_');
+                }
+            }
+            prm.leave_subsection();
+          }
+          prm.leave_subsection();
+        }
+        prm.leave_subsection();
+      }
+
     }
   }
 }
