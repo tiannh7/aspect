@@ -948,7 +948,6 @@ namespace aspect
       ViscoPlastic<dim>::
       fill_creep_outputs(const unsigned int i,
                          const std::vector<double> &volume_fractions,
-                         const MaterialModel::MaterialModelInputs<dim> &in,
                          MaterialModel::MaterialModelOutputs<dim> &out,
                          const IsostrainViscosities &isostrain_viscosities) const
       {
@@ -956,7 +955,7 @@ namespace aspect
 
         if (creep_out != nullptr)
           {
-            AssertThrow(in.requests_property(MaterialProperties::viscosity),
+            AssertThrow(!std::isnan(out.viscosities[0]),
                         ExcMessage("The CreepAdditionalOutputs cannot be filled when the viscosity has not been computed."));
 
             creep_out->diffusion_viscosity[i] = 0;

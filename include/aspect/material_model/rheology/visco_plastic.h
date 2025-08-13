@@ -217,7 +217,6 @@ namespace aspect
                                     const IsostrainViscosities &isostrain_viscosities) const;
           void fill_creep_outputs(const unsigned int point_index,
                                   const std::vector<double> &volume_fractions,
-                                  const MaterialModel::MaterialModelInputs<dim> &in,
                                   MaterialModel::MaterialModelOutputs<dim> &out,
                                   const IsostrainViscosities &isostrain_viscosities) const;
           /**
