@@ -982,6 +982,7 @@ namespace aspect
   {
 #define INSTANTIATE(dim) \
   template class PlasticAdditionalOutputs<dim>; \
+  template class CreepAdditionalOutputs<dim>; \
   \
   namespace Rheology \
   { \
