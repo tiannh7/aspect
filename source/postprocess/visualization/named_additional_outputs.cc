@@ -163,8 +163,8 @@ namespace aspect
                 "current friction angles|"
                 "current yield stresses|"
                 "plastic yielding|"
-                "diffusion viscosity|"
-                "dislocation viscosity|"
+                "viscosity diff|"
+                "viscosity disl|"
                 "elastic shear modulus";
 
               prm.declare_entry("List of named outputs", "",
