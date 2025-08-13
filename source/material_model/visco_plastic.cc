@@ -242,6 +242,13 @@ namespace aspect
                                                         isostrain_viscosities.composition_viscosities,
                                                         in, out, phase_function_values,
                                                         n_phase_transitions_for_each_chemical_composition);
+              // Fill plastic outputs if they exist.
+              // The values in isostrain_viscosities only make sense when the calculate_isostrain_viscosities function
+              // has been called.
+              // TODO do we even need a separate function? We could compute the PlasticAdditionalOutputs here like
+              // the ElasticAdditionalOutputs.
+              rheology->fill_plastic_outputs(i, volume_fractions, plastic_yielding, in, out, isostrain_viscosities);
+              rheology->fill_creep_outputs(i, volume_fractions, in, out, isostrain_viscosities);
             }
           else
             {
@@ -268,14 +275,6 @@ namespace aspect
 
           // Calculate changes in strain invariants and update the reaction terms
           rheology->strain_rheology.fill_reaction_outputs(in, i, rheology->min_strain_rate, plastic_yielding, out);
-
-          // Fill plastic outputs if they exist.
-          // The values in isostrain_viscosities only make sense when the calculate_isostrain_viscosities function
-          // has been called.
-          // TODO do we even need a separate function? We could compute the PlasticAdditionalOutputs here like
-          // the ElasticAdditionalOutputs.
-          rheology->fill_plastic_outputs(i, volume_fractions, plastic_yielding, in, out, isostrain_viscosities);
-          rheology->fill_creep_outputs(i, volume_fractions, in, out, isostrain_viscosities);
 
           if (this->get_parameters().enable_elasticity)
             {
