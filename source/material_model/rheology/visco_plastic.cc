@@ -47,8 +47,8 @@ namespace aspect
       std::vector<std::string> make_creep_additional_outputs_names()
       {
         std::vector<std::string> names;
-        names.emplace_back("diffusion_viscosity");
-        names.emplace_back("dislocation_viscosity");
+        names.emplace_back("viscosity_diff");
+        names.emplace_back("viscosity_disl");
         return names;
       }
     }
@@ -65,8 +65,8 @@ namespace aspect
     template <int dim>
     CreepAdditionalOutputs<dim>::CreepAdditionalOutputs(const unsigned int n_points)
       : NamedAdditionalMaterialOutputs<dim>(make_creep_additional_outputs_names()),
-        diffusion_viscosity(n_points, numbers::signaling_nan<double>()),
-        dislocation_viscosity(n_points, numbers::signaling_nan<double>())
+        viscosity_diff(n_points, numbers::signaling_nan<double>()),
+        viscosity_disl(n_points, numbers::signaling_nan<double>())
     {}
 
 
@@ -105,10 +105,10 @@ namespace aspect
       switch (idx)
         {
           case 0:
-            return diffusion_viscosity;
+            return viscosity_diff;
 
           case 1:
-            return dislocation_viscosity;
+            return viscosity_disl;
 
           default:
             AssertThrow(false, ExcInternalError());
@@ -143,8 +143,8 @@ namespace aspect
         output_parameters.current_friction_angles.resize(volume_fractions.size(), numbers::signaling_nan<double>());
         output_parameters.current_cohesions.resize(volume_fractions.size(), numbers::signaling_nan<double>());
 
-        output_parameters.diffusion_viscosity.resize(volume_fractions.size(), numbers::signaling_nan<double>());
-        output_parameters.dislocation_viscosity.resize(volume_fractions.size(), numbers::signaling_nan<double>());
+        output_parameters.viscosity_diff.resize(volume_fractions.size(), numbers::signaling_nan<double>());
+        output_parameters.viscosity_disl.resize(volume_fractions.size(), numbers::signaling_nan<double>());
 
 
         // Assemble stress tensor if elastic behavior is enabled
@@ -233,7 +233,7 @@ namespace aspect
                   {
                     non_yielding_viscosity = compositional_viscosity_prefactors.compute_viscosity(in, viscosity_diffusion, j, i, \
                                                                                                   CompositionalViscosityPrefactors<dim>::ModifiedFlowLaws::diffusion);
-                    output_parameters.diffusion_viscosity[j] = non_yielding_viscosity;
+                    output_parameters.viscosity_diff[j] = non_yielding_viscosity;
                     break;
                   }
                   case dislocation:
@@ -241,7 +241,7 @@ namespace aspect
                     non_yielding_viscosity = compositional_viscosity_prefactors.compute_viscosity(in, viscosity_dislocation, j, i, \
                                                                                                   CompositionalViscosityPrefactors<dim>::ModifiedFlowLaws::dislocation);
 
-                    output_parameters.dislocation_viscosity[j] = non_yielding_viscosity;
+                    output_parameters.viscosity_disl[j] = non_yielding_viscosity;
                     break;
                   }
                   case frank_kamenetskii:
@@ -259,8 +259,8 @@ namespace aspect
                     const double scaled_viscosity_dislocation = compositional_viscosity_prefactors.compute_viscosity(in, viscosity_dislocation, j, i, \
                                                                 CompositionalViscosityPrefactors<dim>::ModifiedFlowLaws::dislocation);
 
-                    output_parameters.diffusion_viscosity[j] = scaled_viscosity_diffusion;
-                    output_parameters.dislocation_viscosity[j] = scaled_viscosity_dislocation;
+                    output_parameters.viscosity_diff[j] = scaled_viscosity_diffusion;
+                    output_parameters.viscosity_disl[j] = scaled_viscosity_dislocation;
                     non_yielding_viscosity = (scaled_viscosity_diffusion * scaled_viscosity_dislocation)/
                                              (scaled_viscosity_diffusion + scaled_viscosity_dislocation);
                     break;
@@ -958,14 +958,14 @@ namespace aspect
             AssertThrow(!std::isnan(out.viscosities[0]),
                         ExcMessage("The CreepAdditionalOutputs cannot be filled when the viscosity has not been computed."));
 
-            creep_out->diffusion_viscosity[i] = 0;
-            creep_out->dislocation_viscosity[i] = 0;
+            creep_out->viscosity_diff[i] = 0;
+            creep_out->viscosity_disl[i] = 0;
 
             // average over the volume volume fractions
             for (unsigned int j = 0; j < volume_fractions.size(); ++j)
               {
-                creep_out->diffusion_viscosity[i] += volume_fractions[j] * isostrain_viscosities.diffusion_viscosity[j];
-                creep_out->dislocation_viscosity[i] += volume_fractions[j] * isostrain_viscosities.dislocation_viscosity[j];
+                creep_out->viscosity_diff[i] += volume_fractions[j] * isostrain_viscosities.viscosity_diff[j];
+                creep_out->viscosity_disl[i] += volume_fractions[j] * isostrain_viscosities.viscosity_disl[j];
               }
           }
 

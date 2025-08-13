@@ -89,8 +89,8 @@ namespace aspect
         CreepAdditionalOutputs(const unsigned int n_points);
         std::vector<double> get_nth_output(const unsigned int idx) const override;
 
-        std::vector<double> diffusion_viscosity;
-        std::vector<double> dislocation_viscosity;
+        std::vector<double> viscosity_diff;
+        std::vector<double> viscosity_disl;
     };
 
     /**
@@ -118,8 +118,8 @@ namespace aspect
        */
       std::vector<double> current_cohesions;
 
-      std::vector<double> diffusion_viscosity;
-      std::vector<double> dislocation_viscosity;
+      std::vector<double> viscosity_diff;
+      std::vector<double> viscosity_disl;
     };
 
     namespace Rheology
