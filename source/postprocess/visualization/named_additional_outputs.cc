@@ -165,6 +165,7 @@ namespace aspect
                 "plastic yielding|"
                 "viscosity diff|"
                 "viscosity disl|"
+                "viscosity non yielding|"
                 "elastic shear modulus";
 
               prm.declare_entry("List of named outputs", "",
