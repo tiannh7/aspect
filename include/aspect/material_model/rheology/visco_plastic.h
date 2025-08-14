@@ -91,6 +91,7 @@ namespace aspect
 
         std::vector<double> viscosity_diff;
         std::vector<double> viscosity_disl;
+        std::vector<double> viscosity_non_yielding;
     };
 
     /**
@@ -120,6 +121,7 @@ namespace aspect
 
       std::vector<double> viscosity_diff;
       std::vector<double> viscosity_disl;
+      std::vector<double> viscosity_non_yielding;
     };
 
     namespace Rheology
@@ -262,6 +264,10 @@ namespace aspect
           std::vector<double> maximum_viscosity;
           std::vector<double> minimum_non_yielding_viscosity;
           std::vector<double> maximum_non_yielding_viscosity;
+          std::vector<double> minimum_diffusion_viscosity;
+          std::vector<double> maximum_diffusion_viscosity;
+          std::vector<double> minimum_dislocation_viscosity;
+          std::vector<double> maximum_dislocation_viscosity;
 
           /**
            * Enumeration for selecting which type of viscous flow law to use.

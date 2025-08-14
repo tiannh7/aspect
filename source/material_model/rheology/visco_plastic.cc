@@ -49,6 +49,7 @@ namespace aspect
         std::vector<std::string> names;
         names.emplace_back("viscosity_diff");
         names.emplace_back("viscosity_disl");
+        names.emplace_back("viscosity_non_yielding");
         return names;
       }
     }
@@ -66,7 +67,8 @@ namespace aspect
     CreepAdditionalOutputs<dim>::CreepAdditionalOutputs(const unsigned int n_points)
       : NamedAdditionalMaterialOutputs<dim>(make_creep_additional_outputs_names()),
         viscosity_diff(n_points, numbers::signaling_nan<double>()),
-        viscosity_disl(n_points, numbers::signaling_nan<double>())
+        viscosity_disl(n_points, numbers::signaling_nan<double>()),
+        viscosity_non_yielding(n_points, numbers::signaling_nan<double>())
     {}
 
 
@@ -101,7 +103,7 @@ namespace aspect
     std::vector<double>
     CreepAdditionalOutputs<dim>::get_nth_output(const unsigned int idx) const
     {
-      AssertIndexRange (idx, 2);
+      AssertIndexRange (idx, 3);
       switch (idx)
         {
           case 0:
@@ -109,6 +111,9 @@ namespace aspect
 
           case 1:
             return viscosity_disl;
+
+          case 2:
+            return viscosity_non_yielding;
 
           default:
             AssertThrow(false, ExcInternalError());
@@ -145,6 +150,7 @@ namespace aspect
 
         output_parameters.viscosity_diff.resize(volume_fractions.size(), numbers::signaling_nan<double>());
         output_parameters.viscosity_disl.resize(volume_fractions.size(), numbers::signaling_nan<double>());
+        output_parameters.viscosity_non_yielding.resize(volume_fractions.size(), numbers::signaling_nan<double>());
 
 
         // Assemble stress tensor if elastic behavior is enabled
@@ -233,6 +239,22 @@ namespace aspect
                   {
                     non_yielding_viscosity = compositional_viscosity_prefactors.compute_viscosity(in, viscosity_diffusion, j, i, \
                                                                                                   CompositionalViscosityPrefactors<dim>::ModifiedFlowLaws::diffusion);
+                    
+                    const double minimum_diffusion_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                                                 phase_function_values,
+                                                                                 n_phase_transitions_per_composition,
+                                                                                 minimum_diffusion_viscosity,
+                                                                                 j,
+                                                                                 MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+                    const double maximum_diffusion_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                                                 phase_function_values,
+                                                                                 n_phase_transitions_per_composition,
+                                                                                 maximum_diffusion_viscosity,
+                                                                                 j,
+                                                                                 MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+                    
+                    non_yielding_viscosity = std::max(minimum_diffusion_viscosity_for_composition,
+                                                      std::min(maximum_diffusion_viscosity_for_composition, non_yielding_viscosity));
                     output_parameters.viscosity_diff[j] = non_yielding_viscosity;
                     break;
                   }
@@ -240,7 +262,23 @@ namespace aspect
                   {
                     non_yielding_viscosity = compositional_viscosity_prefactors.compute_viscosity(in, viscosity_dislocation, j, i, \
                                                                                                   CompositionalViscosityPrefactors<dim>::ModifiedFlowLaws::dislocation);
+                    
+                    
+                    const double minimum_dislocation_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                                                 phase_function_values,
+                                                                                 n_phase_transitions_per_composition,
+                                                                                 minimum_dislocation_viscosity,
+                                                                                 j,
+                                                                                 MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+                    const double maximum_dislocation_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                                                 phase_function_values,
+                                                                                 n_phase_transitions_per_composition,
+                                                                                 maximum_dislocation_viscosity,
+                                                                                 j,
+                                                                                 MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
 
+                    non_yielding_viscosity = std::max(minimum_dislocation_viscosity_for_composition,
+                                                      std::min(maximum_dislocation_viscosity_for_composition, non_yielding_viscosity));
                     output_parameters.viscosity_disl[j] = non_yielding_viscosity;
                     break;
                   }
@@ -254,11 +292,39 @@ namespace aspect
                   }
                   case composite:
                   {
-                    const double scaled_viscosity_diffusion = compositional_viscosity_prefactors.compute_viscosity(in, viscosity_diffusion, j, i, \
+                    double scaled_viscosity_diffusion = compositional_viscosity_prefactors.compute_viscosity(in, viscosity_diffusion, j, i, \
                                                               CompositionalViscosityPrefactors<dim>::ModifiedFlowLaws::diffusion);
-                    const double scaled_viscosity_dislocation = compositional_viscosity_prefactors.compute_viscosity(in, viscosity_dislocation, j, i, \
+                    double scaled_viscosity_dislocation = compositional_viscosity_prefactors.compute_viscosity(in, viscosity_dislocation, j, i, \
                                                                 CompositionalViscosityPrefactors<dim>::ModifiedFlowLaws::dislocation);
-
+                    
+                    const double minimum_diffusion_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                                                  phase_function_values,
+                                                                                  n_phase_transitions_per_composition,
+                                                                                  minimum_diffusion_viscosity,
+                                                                                  j,
+                                                                                  MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+                    const double maximum_diffusion_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                                                  phase_function_values,
+                                                                                  n_phase_transitions_per_composition,
+                                                                                  maximum_diffusion_viscosity,
+                                                                                  j,
+                                                                                  MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+                    const double minimum_dislocation_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                                                  phase_function_values,
+                                                                                  n_phase_transitions_per_composition,
+                                                                                  minimum_dislocation_viscosity,
+                                                                                  j,
+                                                                                  MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+                    const double maximum_dislocation_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                                                  phase_function_values,
+                                                                                  n_phase_transitions_per_composition,
+                                                                                  maximum_dislocation_viscosity,
+                                                                                  j,
+                                                                                  MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+                    scaled_viscosity_diffusion = std::max(minimum_diffusion_viscosity_for_composition,
+                                                          std::min(maximum_diffusion_viscosity_for_composition, scaled_viscosity_diffusion));
+                    scaled_viscosity_dislocation = std::max(minimum_dislocation_viscosity_for_composition,
+                                                          std::min(maximum_dislocation_viscosity_for_composition, scaled_viscosity_dislocation));
                     output_parameters.viscosity_diff[j] = scaled_viscosity_diffusion;
                     output_parameters.viscosity_disl[j] = scaled_viscosity_dislocation;
                     non_yielding_viscosity = (scaled_viscosity_diffusion * scaled_viscosity_dislocation)/
@@ -347,6 +413,7 @@ namespace aspect
                                                                                            elastic_shear_moduli[j]);
               }
 
+            output_parameters.viscosity_non_yielding[j] = non_yielding_viscosity;
             // Step 3b: calculate non yielding (viscous or viscous + elastic) stress magnitude
             double non_yielding_stress = 2. * non_yielding_viscosity * effective_edot_ii;
 
@@ -616,13 +683,32 @@ namespace aspect
                            "List with as many components as active compositional fields "
                            "(material data is assumed to be in order with the ordering of the fields). "
                            "This limit enforces a minimum viscosity threshold prior to yield/plastic deformation.");
-
         prm.declare_entry ("Maximum non yielding viscosity", "1e28", Patterns::Anything(),
                            "Upper cutoff for effective viscosity applied before plasticity (non-yielding phase). "
                            "Units: \\si{\\pascal\\second}. "
                            "List with as many components as active compositional fields "
                            "(material data is assumed to be in order with the ordering of the fields). "
                            "This limit constrains viscosity values prior to yield/plastic deformation.");
+        prm.declare_entry ("Minimum viscosity for diffusion creep", "1e17", Patterns::Anything(),
+                           "Lower cutoff for effective viscosity applied during diffusion (non-yielding phase). "
+                           "Units: \\si{\\pascal\\second}. "
+                           "List with as many components as active compositional fields "
+                           "(material data is assumed to be in order with the ordering of the fields). ");
+        prm.declare_entry ("Maximum viscosity for diffusion creep", "1e35", Patterns::Anything(),
+                           "Upper cutoff for effective viscosity applied during diffusion (non-yielding phase). "
+                           "Units: \\si{\\pascal\\second}. "
+                           "List with as many components as active compositional fields "
+                           "(material data is assumed to be in order with the ordering of the fields). ");
+        prm.declare_entry ("Minimum viscosity for dislocation creep", "1e17", Patterns::Anything(),
+                           "Lower cutoff for effective viscosity applied during dislocation (non-yielding phase). "
+                           "Units: \\si{\\pascal\\second}. "
+                           "List with as many components as active compositional fields "
+                           "(material data is assumed to be in order with the ordering of the fields). ");
+        prm.declare_entry ("Maximum viscosity for dislocation creep", "1e35", Patterns::Anything(),
+                           "Upper cutoff for effective viscosity applied during dislocation (non-yielding phase). "
+                           "Units: \\si{\\pascal\\second}. "
+                           "List with as many components as active compositional fields "
+                           "(material data is assumed to be in order with the ordering of the fields). ");
         // Rheological parameters
         prm.declare_entry ("Viscosity averaging scheme", "harmonic",
                            Patterns::Selection("arithmetic|harmonic|geometric|maximum composition"),
@@ -779,11 +865,38 @@ namespace aspect
 
         Assert(maximum_non_yielding_viscosity.size() == minimum_non_yielding_viscosity.size(),
                ExcMessage("The input parameters 'Maximum non yielding viscosity' and 'Minimum non yielding viscosity' should have the same number of entries."));
-
+        
         for (auto p1 = maximum_non_yielding_viscosity.begin(), p2 = minimum_non_yielding_viscosity.begin();
              p1 != maximum_non_yielding_viscosity.end(); ++p1, ++p2)
           AssertThrow(*p1 >= *p2,
                       ExcMessage("Maximum non-yielding viscosity should be larger or equal to the minimum non yielding viscosity."));
+        options.property_name = "Minimum viscosity for diffusion creep";
+        minimum_diffusion_viscosity = Utilities::MapParsing::parse_map_to_double_array(prm.get("Minimum viscosity for diffusion creep"),
+                                                                               options);
+
+        options.property_name = "Maximum viscosity for diffusion creep";
+        maximum_diffusion_viscosity = Utilities::MapParsing::parse_map_to_double_array(prm.get("Maximum viscosity for diffusion creep"),
+                                                                               options);
+        Assert(maximum_diffusion_viscosity.size() == minimum_diffusion_viscosity.size(),
+               ExcMessage("The input parameters 'Maximum viscosity for diffusion creep' and 'Minimum viscosity for diffusion creep' should have the same number of entries."));
+
+        for (auto p1 = maximum_diffusion_viscosity.begin(), p2 = minimum_diffusion_viscosity.begin();
+             p1 != maximum_diffusion_viscosity.end(); ++p1, ++p2)
+          AssertThrow(*p1 >= *p2,
+                      ExcMessage("Maximum diffusion viscosity should be larger or equal to the minimum diffusion viscosity."));
+        options.property_name = "Minimum viscosity for dislocation creep";
+        minimum_dislocation_viscosity = Utilities::MapParsing::parse_map_to_double_array(prm.get("Minimum viscosity for dislocation creep"),
+                                                                                 options);
+        options.property_name = "Maximum viscosity for dislocation creep";
+        maximum_dislocation_viscosity = Utilities::MapParsing::parse_map_to_double_array(prm.get("Maximum viscosity for dislocation creep"),
+                                                                                 options);
+        Assert(maximum_dislocation_viscosity.size() == minimum_dislocation_viscosity.size(),
+               ExcMessage("The input parameters 'Maximum viscosity for dislocation creep' and 'Minimum viscosity for dislocation creep' should have the same number of entries."));
+
+        for (auto p1 = maximum_dislocation_viscosity.begin(), p2 = minimum_dislocation_viscosity.begin();
+             p1 != maximum_dislocation_viscosity.end(); ++p1, ++p2)
+          AssertThrow(*p1 >= *p2,
+                      ExcMessage("Maximum dislocation viscosity should be larger or equal to the minimum dislocation viscosity."));
         viscosity_averaging = MaterialUtilities::parse_compositional_averaging_operation ("Viscosity averaging scheme",
                               prm);
 
@@ -958,14 +1071,16 @@ namespace aspect
             AssertThrow(!std::isnan(out.viscosities[0]),
                         ExcMessage("The CreepAdditionalOutputs cannot be filled when the viscosity has not been computed."));
 
-            creep_out->viscosity_diff[i] = 0;
-            creep_out->viscosity_disl[i] = 0;
+            creep_out->viscosity_diff[i] = 0.;
+            creep_out->viscosity_disl[i] = 0.;
+            creep_out->viscosity_non_yielding[i] = 0.;
 
             // average over the volume volume fractions
             for (unsigned int j = 0; j < volume_fractions.size(); ++j)
               {
                 creep_out->viscosity_diff[i] += volume_fractions[j] * isostrain_viscosities.viscosity_diff[j];
                 creep_out->viscosity_disl[i] += volume_fractions[j] * isostrain_viscosities.viscosity_disl[j];
+                creep_out->viscosity_non_yielding[i] += volume_fractions[j] * isostrain_viscosities.viscosity_non_yielding[j];
               }
           }
 
