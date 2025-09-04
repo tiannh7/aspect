@@ -551,6 +551,9 @@ namespace aspect
 
     // subsection: Advection solver parameters
     unsigned int                   advection_gmres_restart_length;
+    unsigned int                   advection_gmres_max_iterations;
+    double                         advection_preconditioner_strength;
+
 
     // subsection: Stokes solver parameters
     bool                           use_direct_stokes_solver;

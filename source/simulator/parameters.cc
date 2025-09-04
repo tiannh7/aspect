@@ -413,6 +413,12 @@ namespace aspect
                            "increasing this number increases the memory usage "
                            "of the advection solver, and makes individual "
                            "iterations more expensive.");
+        prm.declare_entry ("GMRES solver maximum iterations", "1000",
+                           Patterns::Integer(1),
+                           "This is the maximum number of iterations for the GMRES solver.");
+        prm.declare_entry ("GMRES solver preconditioner strength", "1e-5",
+                           Patterns::Double(0.0, 1.0),
+                           "This is the strength of the preconditioner used in the GMRES solver.");
       }
       prm.leave_subsection();
 
@@ -1532,6 +1538,8 @@ namespace aspect
       prm.enter_subsection ("Advection solver parameters");
       {
         advection_gmres_restart_length     = prm.get_integer("GMRES solver restart length");
+        advection_gmres_max_iterations     = prm.get_integer("GMRES solver max iterations");
+        advection_preconditioner_strength  = prm.get_double("GMRES solver preconditioner strength");
       }
       prm.leave_subsection ();
 
