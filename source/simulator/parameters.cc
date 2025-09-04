@@ -1538,7 +1538,7 @@ namespace aspect
       prm.enter_subsection ("Advection solver parameters");
       {
         advection_gmres_restart_length     = prm.get_integer("GMRES solver restart length");
-        advection_gmres_max_iterations     = prm.get_integer("GMRES solver max iterations");
+        advection_gmres_max_iterations     = prm.get_integer("GMRES solver maximum iterations");
         advection_preconditioner_strength  = prm.get_double("GMRES solver preconditioner strength");
       }
       prm.leave_subsection ();
