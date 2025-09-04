@@ -611,7 +611,7 @@ namespace aspect
     const double tolerance = std::max(1e-50,
                                       advection_solver_tolerance*system_rhs.block(block_idx).l2_norm());
 
-    SolverControl solver_control (1000, tolerance);
+    SolverControl solver_control (parameters.advection_gmres_max_iterations, tolerance);
 
     solver_control.enable_history_data();
 
@@ -697,7 +697,7 @@ namespace aspect
             // this increases the number of iterations needed, but helps in rare situations,
             // especially when SUPG is used.
             pcout << "retrying linear solve with different preconditioner..." << std::endl;
-            build_advection_preconditioner(advection_field, preconditioner, 1e-5);
+            build_advection_preconditioner(advection_field, preconditioner, parameters.advection_preconditioner_strength);
             solver.solve (system_matrix.block(block_idx,block_idx),
                           distributed_solution.block(block_idx),
                           system_rhs.block(block_idx),
