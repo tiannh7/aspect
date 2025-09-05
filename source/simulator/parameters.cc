@@ -51,8 +51,8 @@ namespace aspect
   declare_parameters (ParameterHandler &prm)
   {
     prm.declare_entry("Solve initial steady thermal conduction", "false",
-    Patterns::Bool(),
-    "Whether to solve a steady-state conduction equation for temperature as initial condition.");
+                      Patterns::Bool(),
+                      "Whether to solve a steady-state conduction equation for temperature as initial condition.");
     prm.declare_entry ("Dimension", "2",
                        Patterns::Integer (2,3),
                        "The number of space dimensions you want to run this program in. "
@@ -577,12 +577,40 @@ namespace aspect
       prm.enter_subsection ("AMG parameters");
       {
         prm.declare_entry ("AMG smoother type", "Chebyshev",
-                           Patterns::Selection ("Chebyshev|symmetric Gauss-Seidel"),
-                           "This parameter sets the type of smoother for the AMG. "
-                           "The default is strongly recommended for any normal runs "
-                           "with ASPECT. There are some indications that the symmetric "
-                           "Gauss-Seidel might be better and more stable for the Newton "
-                           "solver. For extensive benchmarking of various settings of the "
+                           Patterns::Selection ("Aztec|IFPACK|Jacobi|ML symmetric Gauss-Seidel|"
+                                                "symmetric Gauss-Seidel|ML Gauss-Seidel|Gauss-Seidel|"
+                                                "block Gauss-Seidel|symmetric block Gauss-Seidel|"
+                                                "Chebyshev|MLS|Hiptmair|Amesos-KLU|Amesos-Superlu|"
+                                                "Amesos-UMFPACK|Amesos-Superludist|Amesos-MUMPS|"
+                                                "user-defined|SuperLU|IFPACK-Chebyshev|self|"
+                                                "do-nothing|IC|ICT|ILU|ILUT|Block Chebyshev|"
+                                                "IFPACK-Block Chebyshev"),
+                           "This parameter sets the type of smoother for the AMG. The available options are:\n"
+                           "\\begin{itemize}\n"
+                           "\\item 'Chebyshev': Polynomial smoother, efficient and robust (default, strongly recommended)\n"
+                           "\\item 'symmetric Gauss-Seidel': Symmetric point relaxation, good for symmetric problems\n"
+                           "\\item 'Gauss-Seidel': Forward point relaxation\n"
+                           "\\item 'ML symmetric Gauss-Seidel': ML-specific symmetric Gauss-Seidel\n"
+                           "\\item 'Jacobi': Simple diagonal scaling, most basic smoother\n"
+                           "\\item 'ILU': Incomplete LU factorization, robust for difficult problems\n"
+                           "\\item 'ILUT': ILU with threshold dropping\n"
+                           "\\item 'IC': Incomplete Cholesky factorization\n"
+                           "\\item 'ICT': IC with threshold dropping\n"
+                           "\\item 'IFPACK': Use IFPACK package smoothers\n"
+                           "\\item 'IFPACK-Chebyshev': IFPACK's Chebyshev smoother\n"
+                           "\\item 'Block Chebyshev': Block version of Chebyshev\n"
+                           "\\item 'IFPACK-Block Chebyshev': IFPACK's block Chebyshev\n"
+                           "\\item 'block Gauss-Seidel': Block version of Gauss-Seidel\n"
+                           "\\item 'symmetric block Gauss-Seidel': Symmetric block Gauss-Seidel\n"
+                           "\\item Direct solvers (for coarse level): 'Amesos-KLU', 'Amesos-MUMPS', 'Amesos-UMFPACK', 'Amesos-Superlu', 'Amesos-Superludist'\n"
+                           "\\item Other options: 'Aztec', 'MLS', 'Hiptmair', 'SuperLU', 'self', 'do-nothing', 'user-defined'\n"
+                           "\\end{itemize}\n"
+                           "For Stokes problems in geodynamics, 'Chebyshev' is typically most efficient. "
+                           "For problems with high viscosity contrasts, 'ILU' or 'symmetric Gauss-Seidel' "
+                           "may provide better convergence. For Newton solver applications, "
+                           "'symmetric Gauss-Seidel' has shown some advantages. "
+                           "Note that some options require additional Trilinos packages. "
+                           "For extensive benchmarking of various settings of the "
                            "AMG parameters in this section for the Stokes problem and others, "
                            "see https://github.com/geodynamics/aspect/pull/234.");
 
@@ -613,6 +641,58 @@ namespace aspect
         prm.declare_entry ("AMG output details", "false",
                            Patterns::Bool(),
                            "Turns on extra information on the AMG solver. Note that this will generate much more output.");
+        prm.declare_entry ("AMG elliptic", "true",
+                           Patterns::Bool(),
+                           "Determines whether the AMG preconditioner should be optimized for "
+                           "elliptic problems (ML option smoothed aggregation SA, using a "
+                           "Chebyshev smoother) or for non-elliptic problems (ML option "
+                           "non-symmetric smoothed aggregation NSSA, smoother is SSOR with "
+                           "underrelaxation). For the Stokes system in geodynamics, this should "
+                           "typically be set to true.");
+
+        prm.declare_entry ("AMG higher order elements", "true",
+                           Patterns::Bool(),
+                           "Determines whether the matrix that the preconditioner is built upon "
+                           "is generated from linear or higher-order elements. Set to true if "
+                           "using Q2 or higher velocity elements. This affects the aggregation "
+                           "strategy used by the AMG algorithm.");
+
+        prm.declare_entry ("AMG n cycles", "1",
+                           Patterns::Integer(1),
+                           "Defines how many multigrid cycles should be performed by the "
+                           "preconditioner. The default value of 1 corresponds to a V-cycle. "
+                           "Setting this to 2 will perform a W-cycle, which is more expensive "
+                           "but may provide better convergence for difficult problems.");
+
+        prm.declare_entry ("AMG w cycle", "false",
+                           Patterns::Bool(),
+                           "Defines whether a W-cycle should be used instead of the standard "
+                           "setting of a V-cycle. W-cycles perform more work but can provide "
+                           "better convergence for problems with high-contrast coefficients. "
+                           "This parameter is only relevant if 'AMG n cycles' is set to 2.");
+
+        prm.declare_entry ("AMG smoother overlap", "0",
+                           Patterns::Integer(0),
+                           "Determines the overlap in the SSOR/Chebyshev error smoother when run "
+                           "in parallel. A value of 0 means no overlap, while higher values "
+                           "increase communication but may improve convergence. Values of 1-2 "
+                           "are typically sufficient when overlap is beneficial.");
+
+        prm.declare_entry ("AMG coarse type", "Amesos-KLU",
+                           Patterns::Selection("Aztec|IFPACK|Jacobi|ML symmetric Gauss-Seidel|"
+                                               "symmetric Gauss-Seidel|ML Gauss-Seidel|Gauss-Seidel|"
+                                               "block Gauss-Seidel|symmetric block Gauss-Seidel|"
+                                               "Chebyshev|MLS|Hiptmair|Amesos-KLU|Amesos-Superlu|"
+                                               "Amesos-UMFPACK|Amesos-Superludist|Amesos-MUMPS|"
+                                               "user-defined|SuperLU|IFPACK-Chebyshev|self|"
+                                               "do-nothing|IC|ICT|ILU|ILUT|Block Chebyshev|"
+                                               "IFPACK-Block Chebyshev"),
+                           "Determines which solver to use on the coarsest level. Direct solvers "
+                           "like 'Amesos-KLU', 'Amesos-MUMPS', or 'Amesos-UMFPACK' are typically "
+                           "most robust. For very large problems, iterative methods like "
+                           "'symmetric Gauss-Seidel' or 'Chebyshev' may be more memory efficient. "
+                           "Note that some options require additional Trilinos packages to be "
+                           "available (e.g., MUMPS, UMFPACK).");
       }
       prm.leave_subsection ();
       prm.enter_subsection ("Operator splitting parameters");
@@ -1553,23 +1633,29 @@ namespace aspect
         stokes_krylov_type = StokesKrylovType::parse(prm.get("Krylov method for cheap solver steps"));
         idr_s_parameter    = prm.get_integer("IDR(s) parameter");
 
-        linear_stokes_solver_tolerance  = prm.get_double ("Linear solver tolerance");
-        n_cheap_stokes_solver_steps     = prm.get_integer ("Number of cheap Stokes solver steps");
-        n_expensive_stokes_solver_steps = prm.get_integer ("Maximum number of expensive Stokes solver steps");
-        linear_solver_A_block_tolerance = prm.get_double ("Linear solver A block tolerance");
-        use_full_A_block_preconditioner = prm.get_bool ("Use full A block as preconditioner");
+        linear_stokes_solver_tolerance    = prm.get_double ("Linear solver tolerance");
+        n_cheap_stokes_solver_steps       = prm.get_integer ("Number of cheap Stokes solver steps");
+        n_expensive_stokes_solver_steps   = prm.get_integer ("Maximum number of expensive Stokes solver steps");
+        linear_solver_A_block_tolerance   = prm.get_double ("Linear solver A block tolerance");
+        use_full_A_block_preconditioner   = prm.get_bool ("Use full A block as preconditioner");
         force_nonsymmetric_A_block_solver = prm.get_bool("Force nonsymmetric A block solver");
-        linear_solver_S_block_tolerance = prm.get_double ("Linear solver S block tolerance");
-        stokes_gmres_restart_length     = prm.get_integer("GMRES solver restart length");
+        linear_solver_S_block_tolerance   = prm.get_double ("Linear solver S block tolerance");
+        stokes_gmres_restart_length       = prm.get_integer("GMRES solver restart length");
       }
       prm.leave_subsection ();
 
       prm.enter_subsection ("AMG parameters");
       {
-        AMG_smoother_type                      = prm.get ("AMG smoother type");
-        AMG_smoother_sweeps                    = prm.get_integer ("AMG smoother sweeps");
-        AMG_aggregation_threshold              = prm.get_double ("AMG aggregation threshold");
-        AMG_output_details                     = prm.get_bool ("AMG output details");
+        AMG_smoother_type         = prm.get ("AMG smoother type");
+        AMG_smoother_sweeps       = prm.get_integer ("AMG smoother sweeps");
+        AMG_aggregation_threshold = prm.get_double ("AMG aggregation threshold");
+        AMG_output_details        = prm.get_bool ("AMG output details");
+        AMG_elliptic              = prm.get_bool ("AMG elliptic");
+        AMG_higher_order_elements = prm.get_bool ("AMG higher order elements");
+        AMG_n_cycles              = prm.get_integer ("AMG n cycles");
+        AMG_w_cycle               = prm.get_bool ("AMG w cycle");
+        AMG_smoother_overlap      = prm.get_integer ("AMG smoother overlap");
+        AMG_coarse_type           = prm.get ("AMG coarse type");
       }
       prm.leave_subsection ();
       prm.enter_subsection ("Operator splitting parameters");
@@ -2389,3 +2475,5 @@ namespace aspect
 
 #undef INSTANTIATE
 }
+
+

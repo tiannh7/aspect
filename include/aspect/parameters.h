@@ -577,6 +577,13 @@ namespace aspect
     double                         AMG_aggregation_threshold;
     bool                           AMG_output_details;
 
+    bool                           AMG_elliptic;
+    bool                           AMG_higher_order_elements;
+    unsigned int                   AMG_n_cycles;
+    bool                           AMG_w_cycle;
+    unsigned int                   AMG_smoother_overlap;
+    std::string                    AMG_coarse_type;
+
     // subsection: Operator splitting parameters
     typename ReactionSolverType::Kind reaction_solver_type;
     double                         ARKode_relative_tolerance;

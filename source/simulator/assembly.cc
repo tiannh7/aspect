@@ -481,9 +481,9 @@ namespace aspect
     Amg_preconditioner = std::make_unique<LinearAlgebra::PreconditionAMG>();
 
     LinearAlgebra::PreconditionAMG::AdditionalData Amg_data;
-    Amg_data.constant_modes = constant_modes;
-    Amg_data.elliptic = true;
-    Amg_data.higher_order_elements = true;
+    Amg_data.constant_modes        = constant_modes;
+    Amg_data.elliptic              = parameters.AMG_elliptic;
+    Amg_data.higher_order_elements = parameters.AMG_higher_order_elements;
 
     // set the AMG parameters in a way that minimizes the run
     // time. compared to some of the deal.II tutorial programs, we
@@ -494,10 +494,14 @@ namespace aspect
     // for extensive benchmarking of various settings of these
     // parameters and others, see
     // https://github.com/geodynamics/aspect/pull/234
-    Amg_data.smoother_type = parameters.AMG_smoother_type.c_str();
-    Amg_data.smoother_sweeps = parameters.AMG_smoother_sweeps;
+    Amg_data.smoother_type         = parameters.AMG_smoother_type.c_str();
+    Amg_data.smoother_sweeps       = parameters.AMG_smoother_sweeps;
     Amg_data.aggregation_threshold = parameters.AMG_aggregation_threshold;
-    Amg_data.output_details = parameters.AMG_output_details;
+    Amg_data.output_details        = parameters.AMG_output_details;
+    Amg_data.coarse_type           = parameters.AMG_coarse_type.c_str();
+    Amg_data.smoother_overlap      = parameters.AMG_smoother_overlap;
+    Amg_data.n_cycles              = parameters.AMG_n_cycles;
+    Amg_data.w_cycle               = parameters.AMG_w_cycle;
 
     /*  The stabilization term for the free surface (Kaus et. al., 2010)
      *  makes changes to the system matrix which are of the same form as
