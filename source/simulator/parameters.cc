@@ -695,6 +695,38 @@ namespace aspect
                            "available (e.g., MUMPS, UMFPACK).");
       }
       prm.leave_subsection ();
+
+      prm.enter_subsection ("Direct solver parameters");
+      {
+        prm.declare_entry ("Direct solver type", "Amesos_Klu",
+                           Patterns::Selection("Amesos_Klu|Amesos_Superlu|Amesos_Umfpack|Amesos_Mumps|"
+                                               "Amesos_Superludist|Amesos_Pardiso|Amesos_Lapack|"
+                                               "Amesos_Scalapack|Amesos_Taucs|Amesos_Dscpack"),
+                           "This parameter sets the type of direct solver used for the Stokes system when "
+                           "'Use direct solver for Stokes system' is set to true. The available options are:\n"
+                           "\\begin{itemize}\n"
+                           "\\item 'Amesos_Klu': KLU direct solver, efficient for small to medium sized problems (default)\n"
+                           "\\item 'Amesos_Superlu': SuperLU direct solver, good general purpose solver\n"
+                           "\\item 'Amesos_Umfpack': UMFPACK direct solver, efficient for sparse unsymmetric matrices\n"
+                           "\\item 'Amesos_Mumps': MUMPS direct solver, efficient for medium to large sized problems\n"
+                           "\\item 'Amesos_Superludist': SuperLU_DIST direct solver for distributed memory machines\n"
+                           "\\item 'Amesos_Pardiso': PARDISO direct solver, high performance for symmetric/unsymmetric problems\n"
+                           "\\item 'Amesos_Lapack': LAPACK direct solver, for dense matrices\n"
+                           "\\item 'Amesos_Scalapack': ScaLAPACK direct solver, for distributed dense matrices\n"
+                           "\\item 'Amesos_Taucs': TAUCS direct solver, specialized for symmetric matrices\n"
+                           "\\item 'Amesos_Dscpack': DSCPACK direct solver, for symmetric matrices\n"
+                           "\\end{itemize}\n"
+                           "The default value 'Amesos_Klu' is strongly recommended for most applications. "
+                           "Note that the availability of these solvers depends on which third-party packages "
+                           "were enabled when configuring Trilinos. For high viscosity contrast problems, "
+                           "'Amesos_Mumps' or 'Amesos_Pardiso' may provide better performance.");
+
+      prm.declare_entry ("Direct solver output details", "false",
+                           Patterns::Bool(),
+                           "If true, the direct solver will output detailed information about its "
+                           "solution process.");
+      }
+      prm.leave_subsection ();
       prm.enter_subsection ("Operator splitting parameters");
       {
         prm.declare_entry ("Reaction solver type", "ARKode",
@@ -1658,6 +1690,12 @@ namespace aspect
         AMG_coarse_type           = prm.get ("AMG coarse type");
       }
       prm.leave_subsection ();
+      prm.enter_subsection ("Direct solver parameters");
+      {
+        direct_solver_type    = prm.get ("Direct solver type");
+        direct_output_details = prm.get_bool ("Direct solver output details");
+      }
+      prm.leave_subsection ();
       prm.enter_subsection ("Operator splitting parameters");
       {
         reaction_solver_type                   = ReactionSolverType::parse(prm.get("Reaction solver type"));
@@ -2475,5 +2513,6 @@ namespace aspect
 
 #undef INSTANTIATE
 }
+
 
 

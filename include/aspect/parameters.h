@@ -584,6 +584,10 @@ namespace aspect
     unsigned int                   AMG_smoother_overlap;
     std::string                    AMG_coarse_type;
 
+    // subsection: Direct solver parameters
+    std::string                    direct_solver_type;
+    bool                           direct_output_details;
+
     // subsection: Operator splitting parameters
     typename ReactionSolverType::Kind reaction_solver_type;
     double                         ARKode_relative_tolerance;

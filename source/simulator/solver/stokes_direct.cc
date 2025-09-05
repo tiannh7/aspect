@@ -131,7 +131,10 @@ namespace aspect
 
       SolverControl cn;
       // TODO: can we re-use the direct solver?
-      TrilinosWrappers::SolverDirect solver(cn);
+      TrilinosWrappers::SolverDirect::AdditionalData additional_data;
+      additional_data.solver_type = this->get_parameters().direct_solver_type;
+      additional_data.output_solver_details = this->get_parameters().direct_output_details;
+      TrilinosWrappers::SolverDirect solver(cn, additional_data);
       try
         {
           solver.solve(system_matrix.block(velocity_and_pressure_block,velocity_and_pressure_block),
