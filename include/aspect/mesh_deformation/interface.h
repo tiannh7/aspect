@@ -538,7 +538,8 @@ namespace aspect
         std::set<types::boundary_id> boundary_indicators_requiring_stabilization;
 
         bool include_initial_topography;
-
+        bool use_amg_solver_for_laplace;
+        
         /**
          * Stabilization parameter for the free surface. Should be between
          * zero and one. A value of zero means no stabilization.  See Kaus
