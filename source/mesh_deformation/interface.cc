@@ -346,7 +346,7 @@ namespace aspect
                            "The format is id1: object1 \\& object2, id2: object3 \\& object2, where "
                            "objects are one of " + std::get<dim>(registered_plugins).get_description_string());
         
-        prm.declare_entry("Use AMG solver for laplace", "true",
+        prm.declare_entry("Use AMG solver for laplace", "false",
                            Patterns::Bool(),
                            "Use an AMG solver for the Laplace equation that computes the mesh "
                            "deformation.");
