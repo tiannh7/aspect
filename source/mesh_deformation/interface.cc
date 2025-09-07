@@ -942,7 +942,8 @@ namespace aspect
       SolverCG<LinearAlgebra::Vector> cg(solver_control);
 
       cg.solve (mesh_matrix, solution, rhs, preconditioner_stiffness);
-      this->get_pcout() << "   Solving mesh displacement system... " << solver_control.last_step() <<" iterations."<< std::endl;
+      this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
+      this->get_pcout() << solver_control.last_step() << " iterations." << std::endl;
 
       mesh_velocity_constraints.distribute (solution);
 
@@ -1220,7 +1221,8 @@ namespace aspect
 
       mesh_velocity_constraints.set_zero(solution);
       cg.solve(laplace_operator, solution, rhs, preconditioner);
-      this->get_pcout() << "   Solving mesh displacement system... " << solver_control_mf.last_step() <<" iterations."<< std::endl;
+      this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
+      this->get_pcout() << solver_control_mf.last_step() << " iterations." << std::endl;
 
       mesh_velocity_constraints.distribute(solution);
       solution.update_ghost_values();
