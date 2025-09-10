@@ -436,6 +436,9 @@ namespace aspect
          */
         void compute_mesh_displacements_gmg ();
 
+        template <unsigned int mesh_deformation_fe_degree>
+        void compute_mesh_displacements_gmg_impl();
+
         /**
          * Set up the vector with initial displacements of the mesh
          * due to the initial topography, as supplied by the initial
@@ -603,6 +606,7 @@ namespace aspect
         std::set<types::boundary_id> boundary_indicators_requiring_stabilization;
 
         bool include_initial_topography;
+
 
         /**
          * Stabilization parameter for the free surface. Should be between

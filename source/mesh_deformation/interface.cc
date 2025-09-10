@@ -27,6 +27,7 @@
 #include <aspect/simulator/solver/matrix_free_operators.h>
 #include <aspect/simulator/solver/stokes_matrix_free.h>
 
+#include <deal.II/base/patterns.h>
 #include <deal.II/dofs/dof_renumbering.h>
 #include <deal.II/dofs/dof_accessor.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -36,6 +37,8 @@
 #include <deal.II/fe/mapping_q1_eulerian.h>
 #include <deal.II/fe/mapping_q_eulerian.h>
 
+#include <deal.II/lac/generic_linear_algebra.h>
+#include <deal.II/lac/solver_gmres.h>
 #include <deal.II/lac/sparsity_tools.h>
 
 #include <deal.II/numerics/vector_tools.h>
@@ -223,7 +226,7 @@ namespace aspect
     template <int dim>
     MeshDeformationHandler<dim>::MeshDeformationHandler (Simulator<dim> &simulator)
       : sim(simulator),  // reference to the simulator that owns the MeshDeformationHandler
-        mesh_deformation_fe (FE_Q<dim>(sim.parameters.stokes_velocity_degree),dim),
+        mesh_deformation_fe (FE_Q<dim>(sim.parameters.mesh_deformation_polynomial_degree),dim),
         mesh_deformation_dof_handler (sim.triangulation),
         include_initial_topography(false)
     {
@@ -370,7 +373,6 @@ namespace aspect
                            "\n\n"
                            "The format is id1: object1 \\& object2, id2: object3 \\& object2, where "
                            "objects are one of " + std::get<dim>(registered_plugins).get_description_string());
-
         prm.enter_subsection ("Free surface");
         {
           prm.declare_entry("Free surface stabilization theta", "0.5",
@@ -961,10 +963,10 @@ namespace aspect
                                                                   ComponentMask(dim, true));
 #endif
       Amg_data.elliptic = true;
-      Amg_data.higher_order_elements = false;
+      Amg_data.higher_order_elements = this->get_parameters().mesh_deformation_polynomial_degree > 1 ? true : false;
       Amg_data.smoother_sweeps = 2;
       Amg_data.aggregation_threshold = 0.02;
-      preconditioner_stiffness.initialize(mesh_matrix);
+      preconditioner_stiffness.initialize(mesh_matrix, Amg_data);
 
       // we solve with higher accuracy in the initial timestep:
       const double tolerance
@@ -972,7 +974,9 @@ namespace aspect
           * ((this->simulator_is_past_initialization()) ? 1.0 : 1e-5);
 
       SolverControl solver_control(5*rhs.size(), tolerance * rhs.l2_norm());
-      SolverCG<LinearAlgebra::Vector> cg(solver_control);
+      // SolverCG<LinearAlgebra::Vector> cg(solver_control);
+      SolverGMRES<LinearAlgebra::Vector>::AdditionalData gmres_data(200);
+      SolverGMRES<LinearAlgebra::Vector> gmres(solver_control, gmres_data);
 
       try
         {
@@ -990,6 +994,7 @@ namespace aspect
                                                            exc,
                                                            this->get_mpi_communicator());
         }
+
 
       mesh_velocity_constraints.distribute (solution);
 
@@ -1013,10 +1018,28 @@ namespace aspect
 
     }
 
-
-
     template <int dim>
     void MeshDeformationHandler<dim>::compute_mesh_displacements_gmg()
+    {
+      switch (this->get_parameters().mesh_deformation_polynomial_degree)
+        {
+          case 1:
+            compute_mesh_displacements_gmg_impl<1>();
+            break;
+          case 2:
+            compute_mesh_displacements_gmg_impl<2>();
+            break;
+          case 3:
+            compute_mesh_displacements_gmg_impl<3>();
+            break;
+          default:
+            throw std::runtime_error("Unsupported mesh deformation polynomial degree!");
+        }
+    }
+
+    template <int dim>
+    template <unsigned int mesh_deformation_fe_degree>
+    void MeshDeformationHandler<dim>::compute_mesh_displacements_gmg_impl()
     {
       // Same as compute_mesh_displacements, but using matrix-free GMG
       // instead of matrix-based AMG.
@@ -1030,10 +1053,10 @@ namespace aspect
       // 3. Although this gmg solver is much faster than the amg solver, it's only tested for
       //    limited free surface cases.
 
-      Assert(mesh_deformation_fe.degree == 1, ExcNotImplemented());
+      // Assert(mesh_deformation_fe.degree == 1, ExcNotImplemented());
       // To be efficient, the operations performed in the matrix-free implementation require
       // knowledge of loop lengths at compile time, which are given by the degree of the finite element.
-      const unsigned int mesh_deformation_fe_degree = 1;
+      // const unsigned int mesh_deformation_fe_degree = 1;
 
       using SystemOperatorType = dealii::MatrixFreeOperators::
                                  LaplaceOperator<dim, mesh_deformation_fe_degree, mesh_deformation_fe_degree + 1, dim>;
@@ -1263,7 +1286,9 @@ namespace aspect
 
       SolverControl solver_control_mf(5 * rhs.size(),
                                       tolerance * rhs.l2_norm());
-      SolverCG<dealii::LinearAlgebra::distributed::Vector<double>> cg(solver_control_mf);
+      // SolverCG<dealii::LinearAlgebra::distributed::Vector<double>> cg(solver_control_mf);
+      SolverGMRES<dealii::LinearAlgebra::distributed::Vector<double>>::AdditionalData gmres_data(200);
+      SolverGMRES<dealii::LinearAlgebra::distributed::Vector<double>> gmres(solver_control_mf, gmres_data);
 
       mesh_velocity_constraints.set_zero(solution);
 
@@ -1448,7 +1473,7 @@ namespace aspect
       // above.
       if (dynamic_cast<const MappingQEulerian<dim, LinearAlgebra::Vector>*>(&(this->get_mapping())) == nullptr)
         {
-          sim.mapping.reset (new MappingQEulerian<dim, LinearAlgebra::Vector> (this->get_geometry_model().has_curved_elements() ? 4 : 1,
+          sim.mapping.reset (new MappingQEulerian<dim, LinearAlgebra::Vector> (this->get_geometry_model().has_curved_elements() ? (mesh_deformation_fe.degree+1) : 1,
                                                                                mesh_deformation_dof_handler,
                                                                                mesh_displacements));
 
