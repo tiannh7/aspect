@@ -928,7 +928,7 @@ namespace aspect
                                                                   ComponentMask(dim, true));
 #endif
       Amg_data.elliptic = true;
-      Amg_data.higher_order_elements = true;
+      Amg_data.higher_order_elements = this->get_parameters().mesh_deformation_polynomial_degree > 1 ? true : false;
       Amg_data.smoother_sweeps = 2;
       Amg_data.aggregation_threshold = 0.02;
       preconditioner_stiffness.initialize(mesh_matrix, Amg_data);
