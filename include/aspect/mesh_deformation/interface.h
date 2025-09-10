@@ -598,7 +598,6 @@ namespace aspect
 
         bool include_initial_topography;
 
-        int  mesh_deformation_polynomial_degree;
 
         /**
          * Stabilization parameter for the free surface. Should be between

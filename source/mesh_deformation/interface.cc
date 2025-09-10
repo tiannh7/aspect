@@ -215,7 +215,7 @@ namespace aspect
     template <int dim>
     MeshDeformationHandler<dim>::MeshDeformationHandler (Simulator<dim> &simulator)
       : sim(simulator),  // reference to the simulator that owns the MeshDeformationHandler
-        mesh_deformation_fe (FE_Q<dim>(sim.parameters.stokes_velocity_degree),dim),
+        mesh_deformation_fe (FE_Q<dim>(sim.parameters.mesh_deformation_polynomial_degree),dim),
         mesh_deformation_dof_handler (sim.triangulation),
         include_initial_topography(false)
     {
@@ -362,9 +362,6 @@ namespace aspect
                            "\n\n"
                            "The format is id1: object1 \\& object2, id2: object3 \\& object2, where "
                            "objects are one of " + std::get<dim>(registered_plugins).get_description_string());
-        prm.declare_entry("Mesh deformation polynomial degree", "2",
-                          Patterns::Integer(1),
-                          "The polynomial degree used for mesh deformation.");
         prm.enter_subsection ("Free surface");
         {
           prm.declare_entry("Free surface stabilization theta", "0.5",
@@ -495,8 +492,6 @@ namespace aspect
 
         for (const auto &boundary_id : tangential_mesh_deformation_boundary_indicators)
           zero_mesh_deformation_boundary_indicators.erase(boundary_id);
-
-        mesh_deformation_polynomial_degree = prm.get_integer("Mesh deformation polynomial degree");
 
         prm.enter_subsection ("Free surface");
         {
@@ -977,7 +972,7 @@ namespace aspect
     template <int dim>
     void MeshDeformationHandler<dim>::compute_mesh_displacements_gmg()
     {
-      switch (mesh_deformation_polynomial_degree)
+      switch (this->get_parameters().mesh_deformation_polynomial_degree)
         {
           case 1:
             compute_mesh_displacements_gmg_impl<1>();
