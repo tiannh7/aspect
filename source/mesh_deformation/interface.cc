@@ -37,6 +37,8 @@
 #include <deal.II/fe/mapping_q1_eulerian.h>
 #include <deal.II/fe/mapping_q_eulerian.h>
 
+#include <deal.II/lac/generic_linear_algebra.h>
+#include <deal.II/lac/solver_gmres.h>
 #include <deal.II/lac/sparsity_tools.h>
 
 #include <deal.II/numerics/vector_tools.h>
@@ -945,6 +947,10 @@ namespace aspect
       this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
       this->get_pcout() << solver_control.last_step() << " iterations." << std::endl;
 
+      // SolverGMRES<LinearAlgebra::Vector>::AdditionalData gmres_data(100);
+      // SolverGMRES<LinearAlgebra::Vector> gmres(solver_control, gmres_data);
+      // gmres.solve (mesh_matrix, solution, rhs, preconditioner_stiffness);
+
       mesh_velocity_constraints.distribute (solution);
 
       // Update the mesh velocity vector
@@ -1406,7 +1412,7 @@ namespace aspect
       // above.
       if (dynamic_cast<const MappingQEulerian<dim, LinearAlgebra::Vector>*>(&(this->get_mapping())) == nullptr)
         {
-          sim.mapping.reset (new MappingQEulerian<dim, LinearAlgebra::Vector> (this->get_geometry_model().has_curved_elements() ? 4 : 1,
+          sim.mapping.reset (new MappingQEulerian<dim, LinearAlgebra::Vector> (this->get_geometry_model().has_curved_elements() ? mesh_deformation_fe.degree : 1,
                                                                                mesh_deformation_dof_handler,
                                                                                mesh_displacements));
 
