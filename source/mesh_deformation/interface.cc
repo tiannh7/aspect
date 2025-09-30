@@ -217,7 +217,7 @@ namespace aspect
     template <int dim>
     MeshDeformationHandler<dim>::MeshDeformationHandler (Simulator<dim> &simulator)
       : sim(simulator),  // reference to the simulator that owns the MeshDeformationHandler
-        mesh_deformation_fe (FE_Q<dim>(sim.parameters.stokes_velocity_degree),dim),
+        mesh_deformation_fe (FE_Q<dim>(sim.parameters.mesh_deformation_polynomial_degree),dim),
         mesh_deformation_dof_handler (sim.triangulation),
         include_initial_topography(false)
     {
@@ -1412,7 +1412,7 @@ namespace aspect
       // above.
       if (dynamic_cast<const MappingQEulerian<dim, LinearAlgebra::Vector>*>(&(this->get_mapping())) == nullptr)
         {
-          sim.mapping.reset (new MappingQEulerian<dim, LinearAlgebra::Vector> (this->get_geometry_model().has_curved_elements() ? mesh_deformation_fe.degree : 1,
+          sim.mapping.reset (new MappingQEulerian<dim, LinearAlgebra::Vector> (this->get_geometry_model().has_curved_elements() ? (mesh_deformation_fe.degree+1) : 1,
                                                                                mesh_deformation_dof_handler,
                                                                                mesh_displacements));
 
