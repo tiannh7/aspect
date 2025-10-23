@@ -1412,7 +1412,7 @@ namespace aspect
       // above.
       if (dynamic_cast<const MappingQEulerian<dim, LinearAlgebra::Vector>*>(&(this->get_mapping())) == nullptr)
         {
-          sim.mapping.reset (new MappingQEulerian<dim, LinearAlgebra::Vector> (this->get_geometry_model().has_curved_elements() ? (mesh_deformation_fe.degree+1) : 1,
+          sim.mapping.reset (new MappingQEulerian<dim, LinearAlgebra::Vector> (this->get_geometry_model().has_curved_elements() ? 4 : 1,
                                                                                mesh_deformation_dof_handler,
                                                                                mesh_displacements));
 
