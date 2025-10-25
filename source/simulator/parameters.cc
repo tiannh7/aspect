@@ -1019,8 +1019,8 @@ namespace aspect
                          "valid choice. "
                          "Units: None.");
       prm.declare_entry("Mesh deformation polynomial degree", "2",
-                          Patterns::Integer(1),
-                          "The polynomial degree used for mesh deformation.");
+                        Patterns::Integer(1),
+                        "The polynomial degree used for mesh deformation.");
       prm.declare_entry ("Use locally conservative discretization", "false",
                          Patterns::Bool (),
                          "Whether to use a Stokes discretization that is locally "
