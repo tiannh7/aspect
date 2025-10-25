@@ -970,8 +970,16 @@ namespace aspect
       {
         // Get the path to the data files. If it contains a reference
         // to $ASPECT_SOURCE_DIR, replace it by what CMake has given us
-        // as a #define
+        // as a #define. Ensure the directory path ends with a path
+        // separator so later concatenation with file names works even if
+        // the user omitted the trailing '/'.
         data_directory = Utilities::expand_ASPECT_SOURCE_DIR(prm.get ("Data directory"));
+        if (!data_directory.empty())
+          {
+            const char last_char = data_directory.back();
+            if (last_char != '/')
+              data_directory.push_back('/');
+          }
         data_file_name    = prm.get ("Data file name");
         scale_factor      = prm.get_double ("Scale factor");
       }
