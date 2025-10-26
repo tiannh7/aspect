@@ -941,15 +941,15 @@ namespace aspect
           * ((this->simulator_is_past_initialization()) ? 1.0 : 1e-5);
 
       SolverControl solver_control(5*rhs.size(), tolerance * rhs.l2_norm());
-      SolverCG<LinearAlgebra::Vector> cg(solver_control);
+      // SolverCG<LinearAlgebra::Vector> cg(solver_control);
+      SolverGMRES<LinearAlgebra::Vector>::AdditionalData gmres_data(200);
+      SolverGMRES<LinearAlgebra::Vector> gmres(solver_control, gmres_data);
 
       this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
-      cg.solve (mesh_matrix, solution, rhs, preconditioner_stiffness);
+      // cg.solve (mesh_matrix, solution, rhs, preconditioner_stiffness);
+      gmres.solve (mesh_matrix, solution, rhs, preconditioner_stiffness);
       this->get_pcout() << solver_control.last_step() << " iterations." << std::endl;
 
-      // SolverGMRES<LinearAlgebra::Vector>::AdditionalData gmres_data(100);
-      // SolverGMRES<LinearAlgebra::Vector> gmres(solver_control, gmres_data);
-      // gmres.solve (mesh_matrix, solution, rhs, preconditioner_stiffness);
 
       mesh_velocity_constraints.distribute (solution);
 
@@ -1242,8 +1242,8 @@ namespace aspect
       SolverControl solver_control_mf(5 * rhs.size(),
                                       tolerance * rhs.l2_norm());
       // SolverCG<dealii::LinearAlgebra::distributed::Vector<double>> cg(solver_control_mf);
-      SolverGMRES<dealii::LinearAlgebra::distributed::Vector<double>> gmres(solver_control_mf);
-      SolverGMRES<dealii::LinearAlgebra::distributed::Vector<double>>::AdditionalData gmres_data(100);
+      SolverGMRES<dealii::LinearAlgebra::distributed::Vector<double>>::AdditionalData gmres_data(200);
+      SolverGMRES<dealii::LinearAlgebra::distributed::Vector<double>> gmres(solver_control_mf, gmres_data);
 
       mesh_velocity_constraints.set_zero(solution);
       this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
