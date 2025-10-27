@@ -59,6 +59,9 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <ctime>
+#include <sstream>
+#include <iomanip>
 
 
 namespace aspect
@@ -394,10 +397,40 @@ namespace aspect
       {
         if (parameters.timing_output_frequency == 0)
           {
-            computing_timer.print_summary ();
-            pcout << "-- Total wallclock time elapsed including restarts: "
-                  << std::round(wall_timer.wall_time()+total_walltime_until_last_snapshot)
-                  << 's' << std::endl;
+            {
+              // Print a human-readable timestamp and time since last
+              // timing report, then print the existing timer summary.
+              const std::time_t now_time = std::time(nullptr);
+              const std::tm local_tm = *std::localtime(&now_time);
+              std::ostringstream time_ss;
+              time_ss << std::put_time(&local_tm, "%Y-%m-%d %H:%M:%S");
+
+              const double total_wall = wall_timer.wall_time()+total_walltime_until_last_snapshot;
+
+              // Keep track of the last reported total wallclock time so we can
+              // report the time elapsed since the previous timing print. Use a
+              // static variable local to this block so we do not have to add
+              // members to the Simulator class.
+              static double last_timing_total_wallclock = 0.0;
+
+              const double delta = (last_timing_total_wallclock == 0.0) ? total_wall : (total_wall - last_timing_total_wallclock);
+
+              // Compute wallclock duration for the timestep if we recorded the
+              // start time at the beginning of the timestep. Otherwise fall back
+              // to the delta between timing reports.
+              const double step_duration = (last_timestep_wallclock_start > 0.0)
+                                           ? (total_wall - last_timestep_wallclock_start)
+                                           : delta;
+
+              pcout << "-- Timing report at: " << time_ss.str() << std::endl;
+              computing_timer.print_summary ();
+              pcout << "-- Total wallclock time elapsed including restarts: "
+                    << std::fixed << std::setprecision(3) << total_wall << 's' << std::endl;
+              pcout << "-- Time since last timing report: " << std::fixed << std::setprecision(3) << delta << "s" << std::endl;
+              pcout << "-- Wallclock time spent in this timestep: " << std::fixed << std::setprecision(3) << step_duration << "s" << std::endl;
+
+              last_timing_total_wallclock = total_wall;
+            }
           }
 
         output_statistics();
@@ -509,10 +542,32 @@ namespace aspect
     // if requested output a summary of the current timing information
     if (write_timing_output)
       {
-        computing_timer.print_summary ();
-        pcout << "-- Total wallclock time elapsed including restarts: "
-              << std::round(wall_timer.wall_time()+total_walltime_until_last_snapshot)
-              << 's' << std::endl;
+        {
+          const std::time_t now_time = std::time(nullptr);
+          const std::tm local_tm = *std::localtime(&now_time);
+          std::ostringstream time_ss;
+          time_ss << std::put_time(&local_tm, "%Y-%m-%d %H:%M:%S");
+
+
+          const double total_wall = wall_timer.wall_time()+total_walltime_until_last_snapshot;
+
+          static double last_timing_total_wallclock = 0.0;
+
+          const double delta = (last_timing_total_wallclock == 0.0) ? total_wall : (total_wall - last_timing_total_wallclock);
+
+          const double step_duration = (last_timestep_wallclock_start > 0.0)
+                                       ? (total_wall - last_timestep_wallclock_start)
+                                       : delta;
+
+          pcout << "-- Timing report at: " << time_ss.str() << std::endl;
+          computing_timer.print_summary ();
+          pcout << "-- Total wallclock time elapsed including restarts: "
+                << std::fixed << std::setprecision(3) << total_wall << 's' << std::endl;
+          pcout << "-- Time since last timing report: " << std::fixed << std::setprecision(3) << delta << "s" << std::endl;
+          pcout << "-- Wallclock time spent in this timestep: " << std::fixed << std::setprecision(3) << step_duration << "s" << std::endl;
+
+          last_timing_total_wallclock = total_wall;
+        }
       }
   }
 
