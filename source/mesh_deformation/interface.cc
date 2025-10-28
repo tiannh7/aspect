@@ -38,8 +38,12 @@
 #include <deal.II/fe/mapping_q_eulerian.h>
 
 #include <deal.II/lac/generic_linear_algebra.h>
+#include <deal.II/lac/solver_cg.h>
+#include <deal.II/lac/solver_bicgstab.h>
 #include <deal.II/lac/solver_gmres.h>
 #include <deal.II/lac/sparsity_tools.h>
+#include <algorithm>
+#include <cctype>
 
 #include <deal.II/numerics/vector_tools.h>
 
@@ -228,7 +232,8 @@ namespace aspect
       : sim(simulator),  // reference to the simulator that owns the MeshDeformationHandler
         mesh_deformation_fe (FE_Q<dim>(sim.parameters.mesh_deformation_polynomial_degree),dim),
         mesh_deformation_dof_handler (sim.triangulation),
-        include_initial_topography(false)
+        include_initial_topography(false),
+        mesh_deformation_solver("gmres")
     {
     }
 
@@ -388,6 +393,10 @@ namespace aspect
                             "implicit.");
         }
         prm.leave_subsection ();
+        prm.declare_entry("Krylov subspace method", "gmres",
+                          Patterns::Selection("cg|gmres|bicgstab"),
+                          "The Krylov subspace method to use when solving the mesh deformation\n"
+                          "linear system. Options: cg, gmres, bicgstab.");
       }
       prm.leave_subsection ();
 
@@ -401,6 +410,19 @@ namespace aspect
     {
       prm.enter_subsection ("Mesh deformation");
       {
+        // Read Krylov subspace method selection for mesh deformation linear system
+        {
+          std::string solver = prm.get("Krylov subspace method");
+          std::transform(solver.begin(), solver.end(), solver.begin(), [](unsigned char c)
+          {
+            return std::tolower(c);
+          });
+          AssertThrow(solver == "cg" || solver == "gmres" || solver == "bicgstab",
+                      ExcMessage("The value '" + solver + "' for the parameter 'Krylov subspace method' is not valid. "
+                                 "Valid options are: cg, gmres, bicgstab."));
+          mesh_deformation_solver = solver;
+        }
+
         // Create the map of prescribed mesh movement boundary indicators
         // Each boundary indicator can carry a number of mesh deformation plugin names.
         const std::vector<std::string> x_mesh_deformation_boundary_indicators
@@ -974,26 +996,31 @@ namespace aspect
           * ((this->simulator_is_past_initialization()) ? 1.0 : 1e-5);
 
       SolverControl solver_control(5*rhs.size(), tolerance * rhs.l2_norm());
-      // SolverCG<LinearAlgebra::Vector> cg(solver_control);
-      SolverGMRES<LinearAlgebra::Vector>::AdditionalData gmres_data(200);
-      SolverGMRES<LinearAlgebra::Vector> gmres(solver_control, gmres_data);
 
-      try
+      this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
+
+      if (mesh_deformation_solver == "cg")
         {
+          SolverCG<LinearAlgebra::Vector> cg(solver_control);
           cg.solve (mesh_matrix, solution, rhs, preconditioner_stiffness);
-          this->get_pcout() << "   Solving mesh displacement system... " << solver_control.last_step() <<" iterations."<< std::endl;
         }
-      catch (const std::exception &exc)
+      else if (mesh_deformation_solver == "bicgstab")
         {
-          // if the solver fails, report the error from processor 0 with some additional
-          // information about its location, and throw a quiet exception on all other
-          // processors
-          Utilities::throw_linear_solver_failure_exception("iterative mesh displacement solver",
-                                                           "MeshDeformationHandler::compute_mesh_displacements()",
-                                                           std::vector<SolverControl> {solver_control},
-                                                           exc,
-                                                           this->get_mpi_communicator());
+          SolverBicgstab<LinearAlgebra::Vector> bicg(solver_control);
+          bicg.solve(mesh_matrix, solution, rhs, preconditioner_stiffness);
         }
+      else if (mesh_deformation_solver == "gmres")
+        {
+          SolverGMRES<LinearAlgebra::Vector>::AdditionalData gmres_data(200);
+          SolverGMRES<LinearAlgebra::Vector> gmres(solver_control, gmres_data);
+          gmres.solve (mesh_matrix, solution, rhs, preconditioner_stiffness);
+        }
+      else
+        {
+          AssertThrow(false, ExcMessage("Invalid mesh deformation solver: " + mesh_deformation_solver));
+        }
+
+      this->get_pcout() << solver_control.last_step() << " iterations." << std::endl;
 
 
       mesh_velocity_constraints.distribute (solution);
@@ -1286,28 +1313,32 @@ namespace aspect
 
       SolverControl solver_control_mf(5 * rhs.size(),
                                       tolerance * rhs.l2_norm());
-      // SolverCG<dealii::LinearAlgebra::distributed::Vector<double>> cg(solver_control_mf);
-      SolverGMRES<dealii::LinearAlgebra::distributed::Vector<double>>::AdditionalData gmres_data(200);
-      SolverGMRES<dealii::LinearAlgebra::distributed::Vector<double>> gmres(solver_control_mf, gmres_data);
 
       mesh_velocity_constraints.set_zero(solution);
+      this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
 
-      try
+      if (mesh_deformation_solver == "cg")
         {
+          SolverCG<dealii::LinearAlgebra::distributed::Vector<double>> cg(solver_control_mf);
           cg.solve(laplace_operator, solution, rhs, preconditioner);
-          this->get_pcout() << "   Solving mesh displacement system... " << solver_control_mf.last_step() <<" iterations."<< std::endl;
         }
-      catch (const std::exception &exc)
+      else if (mesh_deformation_solver == "bicgstab")
         {
-          // if the solver fails, report the error from processor 0 with some additional
-          // information about its location, and throw a quiet exception on all other
-          // processors
-          Utilities::throw_linear_solver_failure_exception("iterative mesh displacement solver",
-                                                           "MeshDeformationHandler::compute_mesh_displacements_gmg()",
-                                                           std::vector<SolverControl> {solver_control_mf},
-                                                           exc,
-                                                           this->get_mpi_communicator());
+          SolverBicgstab<dealii::LinearAlgebra::distributed::Vector<double>> bicg(solver_control_mf);
+          bicg.solve(laplace_operator, solution, rhs, preconditioner);
         }
+      else if (mesh_deformation_solver == "gmres")
+        {
+          SolverGMRES<dealii::LinearAlgebra::distributed::Vector<double>>::AdditionalData gmres_data(200);
+          SolverGMRES<dealii::LinearAlgebra::distributed::Vector<double>> gmres(solver_control_mf, gmres_data);
+          gmres.solve(laplace_operator, solution, rhs, preconditioner);
+        }
+      else
+        {
+          AssertThrow(false, ExcMessage("Invalid mesh deformation solver: " + mesh_deformation_solver));
+        }
+
+      this->get_pcout() << solver_control_mf.last_step() << " iterations." << std::endl;
 
       mesh_velocity_constraints.distribute(solution);
       solution.update_ghost_values();
