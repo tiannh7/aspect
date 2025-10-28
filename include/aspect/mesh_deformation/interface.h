@@ -607,6 +607,12 @@ namespace aspect
         double surface_theta;
 
         /**
+         * Name of the linear solver to use for the mesh deformation linear
+         * system. Valid options are: "cg", "gmres", "bicgstab".
+         */
+        std::string mesh_deformation_solver;
+
+        /**
          * If required, store a mapping for each multigrid level.
          */
         MGLevelObject<std::unique_ptr<Mapping<dim>>> level_mappings;
