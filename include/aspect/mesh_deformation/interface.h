@@ -445,6 +445,34 @@ namespace aspect
         void compute_mesh_displacements_gmg_impl();
 
         /**
+         * Update mesh displacements using the specified time integration scheme.
+         * This function implements different time stepping methods including
+         * explicit Euler, implicit Euler, and Crank-Nicolson.
+         */
+        void update_mesh_displacements_with_time_integration(const LinearAlgebra::Vector &mesh_velocity);
+
+        /**
+         * Solve implicit time integration scheme using nonlinear iteration.
+         * This function implements fixed-point iteration for implicit Euler
+         * and Crank-Nicolson schemes.
+         */
+        void solve_implicit_time_integration();
+
+        /**
+         * Check convergence of nonlinear iterations for implicit schemes.
+         * Returns true if the solution has converged within tolerance.
+         */
+        bool check_nonlinear_convergence(const LinearAlgebra::Vector &displacement_old,
+                                         const LinearAlgebra::Vector &displacement_new) const;
+
+        /**
+         * Update mesh geometry during nonlinear iterations.
+         * This is a lightweight update that only changes coordinates
+         * without rebuilding matrices.
+         */
+        void update_mesh_geometry_for_iteration();
+
+        /**
          * Set up the vector with initial displacements of the mesh
          * due to the initial topography, as supplied by the initial
          * topography plugin based on the surface coordinates of the
@@ -529,6 +557,12 @@ namespace aspect
         LinearAlgebra::Vector fs_mesh_velocity;
 
         /**
+         * Vector for storing the mesh velocity from the previous time step.
+         * This is needed for time averaged integration scheme.
+         */
+        LinearAlgebra::Vector old_fs_mesh_velocity;
+
+        /**
          * IndexSet for the locally owned DoFs for the mesh system
          */
         IndexSet mesh_locally_owned;
@@ -605,6 +639,44 @@ namespace aspect
          * et. al. 2010 for more details.
          */
         double surface_theta;
+
+        /**
+         * Enumeration for time integration schemes
+         */
+        enum TimeIntegrationScheme
+        {
+          explicit_euler,      // Forward Euler: u_{n+1} = u_n + dt * v_n
+          time_averaged,       // Time averaged: u_{n+1} = u_n + dt/2 * (v_{n-1} + v_n)
+          implicit_euler,      // True implicit Euler: u_{n+1} = u_n + dt * v_{n+1} (nonlinear iteration)
+          crank_nicolson       // True Crank-Nicolson: u_{n+1} = u_n + dt/2 * (v_n + v_{n+1}) (nonlinear iteration)
+        };
+
+        /**
+         * The time integration scheme used for mesh displacement updates.
+         */
+        TimeIntegrationScheme time_integration_scheme;
+
+        /**
+         * Maximum number of nonlinear iterations for implicit time integration schemes.
+         */
+        unsigned int max_nonlinear_iterations;
+
+        /**
+         * Tolerance for nonlinear convergence in implicit time integration schemes.
+         */
+        double nonlinear_tolerance;
+
+        /**
+         * Relaxation parameter for nonlinear iterations (0 < relaxation <= 1).
+         * Lower values provide better stability but slower convergence.
+         */
+        double relaxation_parameter;
+
+        /**
+         * Flag to track whether we are currently inside nonlinear iterations.
+         * Used to adjust output indentation.
+         */
+        mutable bool in_nonlinear_iteration;
 
         /**
          * Name of the linear solver to use for the mesh deformation linear

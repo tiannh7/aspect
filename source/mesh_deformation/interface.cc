@@ -224,6 +224,11 @@ namespace aspect
         mesh_deformation_fe (FE_Q<dim>(sim.parameters.mesh_deformation_polynomial_degree),dim),
         mesh_deformation_dof_handler (sim.triangulation),
         include_initial_topography(false),
+        time_integration_scheme(TimeIntegrationScheme::explicit_euler),
+        max_nonlinear_iterations(10),
+        nonlinear_tolerance(1e-6),
+        relaxation_parameter(1.0),
+        in_nonlinear_iteration(false),
         mesh_deformation_solver("gmres")
     {
     }
@@ -382,6 +387,28 @@ namespace aspect
                             "the free surface is stabilized with this term, "
                             "where zero is no stabilization, and one is fully "
                             "implicit.");
+          prm.declare_entry("Time integration scheme", "explicit euler",
+                            Patterns::Selection("explicit euler|time averaged|implicit euler|crank nicolson"),
+                            "The time integration scheme used to update mesh displacements. "
+                            "Options are: 'explicit euler' (first-order forward Euler), "
+                            "'time averaged' (uses average of current and previous velocities), "
+                            "'implicit euler' (first-order implicit with nonlinear iteration), "
+                            "'crank nicolson' (second-order Crank-Nicolson with nonlinear iteration). "
+                            "Default is 'explicit euler' for backward compatibility. "
+                            "Implicit schemes provide better stability for large time steps.");
+          prm.declare_entry("Nonlinear max iterations", "10",
+                            Patterns::Integer(1),
+                            "Maximum number of nonlinear iterations for implicit time integration schemes. "
+                            "Only used when Time integration scheme is 'implicit euler' or 'crank nicolson'.");
+          prm.declare_entry("Nonlinear tolerance", "1e-6",
+                            Patterns::Double(0),
+                            "Tolerance for nonlinear convergence in implicit time integration schemes. "
+                            "Iteration stops when the relative change in mesh displacement is below this value.");
+          prm.declare_entry("Relaxation parameter", "1.0",
+                            Patterns::Double(0, 1),
+                            "Relaxation parameter for nonlinear iterations (0 < value <= 1). "
+                            "Lower values provide better stability but slower convergence. "
+                            "Only used for implicit time integration schemes.");
         }
         prm.leave_subsection ();
         prm.declare_entry("Krylov subspace method", "gmres",
@@ -519,6 +546,25 @@ namespace aspect
         prm.enter_subsection ("Free surface");
         {
           surface_theta = prm.get_double("Free surface stabilization theta");
+
+          // Parse time integration scheme
+          const std::string scheme = prm.get("Time integration scheme");
+          if (scheme == "explicit euler")
+            time_integration_scheme = TimeIntegrationScheme::explicit_euler;
+          else if (scheme == "time averaged")
+            time_integration_scheme = TimeIntegrationScheme::time_averaged;
+          else if (scheme == "implicit euler")
+            time_integration_scheme = TimeIntegrationScheme::implicit_euler;
+          else if (scheme == "crank nicolson")
+            time_integration_scheme = TimeIntegrationScheme::crank_nicolson;
+          else
+            AssertThrow(false, ExcMessage("Unknown time integration scheme: " + scheme +
+                                          ". Valid options are: 'explicit euler', 'time averaged', 'implicit euler', 'crank nicolson'."));
+
+          // Parse nonlinear iteration parameters
+          max_nonlinear_iterations = prm.get_integer("Nonlinear max iterations");
+          nonlinear_tolerance = prm.get_double("Nonlinear tolerance");
+          relaxation_parameter = prm.get_double("Relaxation parameter");
         }
         prm.leave_subsection ();
 
@@ -564,15 +610,29 @@ namespace aspect
 
       old_mesh_displacements = mesh_displacements;
 
-      // Make the constraints for the elliptic problem.
-      make_constraints();
+      // Save the previous mesh velocity for time averaged and Crank-Nicolson schemes
+      old_fs_mesh_velocity = fs_mesh_velocity;
 
-      // Assemble and solve the vector Laplace problem which determines
-      // the mesh displacements in the interior of the domain
-      if (this->is_stokes_matrix_free())
-        compute_mesh_displacements_gmg();
+      // Choose between explicit and implicit solution methods
+      if (time_integration_scheme == TimeIntegrationScheme::implicit_euler ||
+          time_integration_scheme == TimeIntegrationScheme::crank_nicolson)
+        {
+          // Use nonlinear iteration for implicit schemes
+          solve_implicit_time_integration();
+        }
       else
-        compute_mesh_displacements();
+        {
+          // Use standard explicit approach
+          // Make the constraints for the elliptic problem.
+          make_constraints();
+
+          // Assemble and solve the vector Laplace problem which determines
+          // the mesh displacements in the interior of the domain
+          if (this->is_stokes_matrix_free())
+            compute_mesh_displacements_gmg();
+          else
+            compute_mesh_displacements();
+        }
 
       // Interpolate the mesh velocity into the same
       // finite element space as used in the Stokes solve, which
@@ -963,7 +1023,10 @@ namespace aspect
 
       SolverControl solver_control(5*rhs.size(), tolerance * rhs.l2_norm());
 
-      this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
+      if (in_nonlinear_iteration)
+        this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
+      else
+        this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
 
       if (mesh_deformation_solver == "cg")
         {
@@ -990,20 +1053,20 @@ namespace aspect
       // Update the mesh velocity vector
       fs_mesh_velocity = solution;
 
-      // Update the mesh displacement vector
-      if (this->simulator_is_past_initialization())
+      // Update the mesh displacement vector using the specified time integration scheme
+      // Only do this for explicit schemes; implicit schemes handle time integration separately
+      if (this->simulator_is_past_initialization() &&
+          (time_integration_scheme == TimeIntegrationScheme::explicit_euler ||
+           time_integration_scheme == TimeIntegrationScheme::time_averaged))
         {
-          // during the simulation, we add dt*solution
-          LinearAlgebra::Vector distributed_mesh_displacements(mesh_locally_owned, sim.mpi_communicator);
-          distributed_mesh_displacements = mesh_displacements;
-          distributed_mesh_displacements.add(this->get_timestep(), solution);
-          mesh_displacements = distributed_mesh_displacements;
+          update_mesh_displacements_with_time_integration(solution);
         }
-      else
+      else if (!this->simulator_is_past_initialization())
         {
           // In the initial step we apply 100% of the initial displacement
           mesh_displacements = solution;
         }
+      // For implicit schemes, displacement update is handled by solve_implicit_time_integration()
 
       if (this->is_stokes_matrix_free())
         update_multilevel_deformation();
@@ -1277,7 +1340,10 @@ namespace aspect
                                       tolerance * rhs.l2_norm());
 
       mesh_velocity_constraints.set_zero(solution);
-      this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
+      if (in_nonlinear_iteration)
+        this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
+      else
+        this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
 
       if (mesh_deformation_solver == "cg")
         {
@@ -1309,20 +1375,20 @@ namespace aspect
       // Update the mesh velocity vector
       fs_mesh_velocity = solution_tmp;
 
-      // Update the mesh displacement vector
-      if (this->simulator_is_past_initialization())
+      // Update the mesh displacement vector using the specified time integration scheme
+      // Only do this for explicit schemes; implicit schemes handle time integration separately
+      if (this->simulator_is_past_initialization() &&
+          (time_integration_scheme == TimeIntegrationScheme::explicit_euler ||
+           time_integration_scheme == TimeIntegrationScheme::time_averaged))
         {
-          // during the simulation, we add dt*solution
-          LinearAlgebra::Vector distributed_mesh_displacements(mesh_locally_owned, sim.mpi_communicator);
-          distributed_mesh_displacements = mesh_displacements;
-          distributed_mesh_displacements.add(this->get_timestep(), solution_tmp);
-          mesh_displacements = distributed_mesh_displacements;
+          update_mesh_displacements_with_time_integration(solution_tmp);
         }
-      else
+      else if (!this->simulator_is_past_initialization())
         {
           // In the initial step we apply 100% of the initial displacement
           mesh_displacements = solution_tmp;
         }
+      // For implicit schemes, displacement update is handled by solve_implicit_time_integration()
 
       update_multilevel_deformation();
     }
@@ -1385,6 +1451,285 @@ namespace aspect
 
       distributed_initial_topography.compress(VectorOperation::insert);
       initial_topography = distributed_initial_topography;
+    }
+
+
+    template <int dim>
+    void MeshDeformationHandler<dim>::update_mesh_displacements_with_time_integration(const LinearAlgebra::Vector &mesh_velocity)
+    {
+      LinearAlgebra::Vector distributed_mesh_displacements(mesh_locally_owned, sim.mpi_communicator);
+      distributed_mesh_displacements = mesh_displacements;
+
+      const double dt = this->get_timestep();
+
+      switch (time_integration_scheme)
+        {
+          case TimeIntegrationScheme::explicit_euler:
+          {
+            // Explicit Forward Euler: u_{n+1} = u_n + dt * v_n
+            // Uses current velocity field to predict next displacement
+            distributed_mesh_displacements.add(dt, mesh_velocity);
+            break;
+          }
+
+          case TimeIntegrationScheme::time_averaged:
+          {
+            // Time Averaged: u_{n+1} = u_n + dt/2 * (v_{n-1} + v_n)
+            // Use average of previous and current velocities for improved stability
+            // Note: This is NOT true Crank-Nicolson, which would need v_{n+1}
+            LinearAlgebra::Vector velocity_avg(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
+            velocity_avg = mesh_velocity;
+
+            // Add contribution from previous velocity (if available and not first time step)
+            if (old_fs_mesh_velocity.size() > 0 && this->get_timestep_number() > 0)
+              {
+                LinearAlgebra::Vector old_velocity(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
+                old_velocity = old_fs_mesh_velocity;
+                velocity_avg.add(1.0, old_velocity);
+                velocity_avg *= 0.5;  // Average of previous and current
+              }
+            else
+              {
+                // First time step: use current velocity only (equivalent to explicit Euler)
+                // velocity_avg is already equal to mesh_velocity
+              }
+
+            distributed_mesh_displacements.add(dt, velocity_avg);
+            break;
+          }
+
+          case TimeIntegrationScheme::implicit_euler:
+          case TimeIntegrationScheme::crank_nicolson:
+          {
+            // These cases are handled by solve_implicit_time_integration()
+            // and should not reach here in normal execution
+            AssertThrow(false, ExcMessage("Implicit schemes should be handled by solve_implicit_time_integration()"));
+            break;
+          }
+
+          default:
+            AssertThrow(false, ExcMessage("Unknown time integration scheme."));
+        }
+
+      mesh_displacements = distributed_mesh_displacements;
+    }
+
+
+    template <int dim>
+    void MeshDeformationHandler<dim>::solve_implicit_time_integration()
+    {
+      const double dt = this->get_timestep();
+      const unsigned int timestep_number = this->get_timestep_number();
+
+      std::string scheme_name = (time_integration_scheme == TimeIntegrationScheme::implicit_euler) ?
+                                "Implicit Euler" : "Crank-Nicolson";
+      this->get_pcout() << "   Solving implicit mesh deformation (" << scheme_name
+                        << ") with nonlinear iteration..." << std::endl;
+
+      // Set flag to indicate we are in nonlinear iteration
+      in_nonlinear_iteration = true;
+
+      // Initialize displacement vectors with proper parallel distribution (matching mesh_displacements)
+      LinearAlgebra::Vector displacement_iteration(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
+      LinearAlgebra::Vector displacement_old_iteration(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
+
+      // Copy current mesh displacements as initial guess
+      displacement_iteration = mesh_displacements;
+
+      // Store the initial mesh state
+      LinearAlgebra::Vector initial_mesh_displacements = mesh_displacements;
+
+      bool converged = false;
+
+      for (unsigned int iteration = 0; iteration < max_nonlinear_iterations; ++iteration)
+        {
+          this->get_pcout() << "       Nonlinear iteration " << iteration;
+
+          // Store displacement from previous iteration
+          displacement_old_iteration = displacement_iteration;
+
+          // Update mesh geometry with current displacement guess
+          mesh_displacements = displacement_iteration;
+          update_mesh_geometry_for_iteration();
+
+          // ** TRUE IMPLICIT METHOD: Re-solve Stokes equations with updated mesh geometry **
+          if (iteration > 0)  // Skip first iteration to avoid unnecessary Stokes solve
+            {
+              this->get_pcout() << " [Re-solving Stokes with updated mesh]" << std::endl;
+              // Note: The following Stokes output will have standard ASPECT indentation (3 spaces)
+
+              // Force rebuild of Stokes matrix and preconditioner due to mesh change
+              sim.rebuild_stokes_matrix = true;
+              sim.rebuild_stokes_preconditioner = true;
+
+              // Re-solve the Stokes equations with the updated mesh geometry
+              // This gives us v^{n+1} that depends on the current mesh displacement
+              sim.assemble_and_solve_stokes();
+            }
+          else
+            {
+              this->get_pcout() << std::endl;
+            }
+
+          // Make constraints and solve for mesh velocity (now depends on updated Stokes solution)
+          make_constraints();
+
+          if (this->is_stokes_matrix_free())
+            compute_mesh_displacements_gmg();
+          else
+            compute_mesh_displacements();
+
+          // Compute new displacement based on integration scheme
+          LinearAlgebra::Vector new_displacement(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
+          new_displacement = old_mesh_displacements;  // Start with u^n
+
+          if (time_integration_scheme == TimeIntegrationScheme::implicit_euler)
+            {
+              // Implicit Euler: u^{n+1} = u^n + dt * v^{n+1}
+              new_displacement.add(dt, fs_mesh_velocity);
+            }
+          else if (time_integration_scheme == TimeIntegrationScheme::crank_nicolson)
+            {
+              // Crank-Nicolson: u^{n+1} = u^n + dt/2 * (v^n + v^{n+1})
+              LinearAlgebra::Vector velocity_avg(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
+
+              if (timestep_number > 0 && old_fs_mesh_velocity.size() > 0)
+                {
+                  // Use v^n (previous velocity) and v^{n+1} (current velocity)
+                  velocity_avg = old_fs_mesh_velocity;     // v^n
+                  velocity_avg.add(1.0, fs_mesh_velocity); // v^n + v^{n+1}
+                  velocity_avg *= 0.5;                     // (v^n + v^{n+1})/2
+                  velocity_avg.compress(VectorOperation::add);
+                }
+              else
+                {
+                  // First time step: fall back to implicit Euler
+                  velocity_avg = fs_mesh_velocity;
+                }
+
+              new_displacement.add(dt, velocity_avg);
+            }
+
+          // Compress the new displacement after all operations
+          new_displacement.compress(VectorOperation::add);
+
+          // Apply relaxation
+          if (relaxation_parameter < 1.0)
+            {
+              LinearAlgebra::Vector relaxed_displacement(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
+              relaxed_displacement = displacement_old_iteration;
+              relaxed_displacement *= (1.0 - relaxation_parameter);
+
+              LinearAlgebra::Vector temp_displacement(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
+              temp_displacement = new_displacement;
+              temp_displacement *= relaxation_parameter;
+
+              relaxed_displacement.add(1.0, temp_displacement);
+              relaxed_displacement.compress(VectorOperation::add);
+              displacement_iteration = relaxed_displacement;
+            }
+          else
+            {
+              displacement_iteration = new_displacement;
+            }
+
+          // Check convergence only after first iteration
+          if (iteration > 0)
+            {
+              converged = check_nonlinear_convergence(displacement_old_iteration, displacement_iteration);
+
+              if (converged)
+                {
+                  this->get_pcout() << "    - converged." << std::endl;
+                  break;
+                }
+              else
+                {
+                  // Compute and display residual norm for monitoring
+                  LinearAlgebra::Vector residual_owned(mesh_locally_owned, sim.mpi_communicator);
+                  residual_owned = displacement_iteration;
+                  residual_owned.sadd(1.0, -1.0, displacement_old_iteration);
+
+                  LinearAlgebra::Vector displacement_owned(mesh_locally_owned, sim.mpi_communicator);
+                  displacement_owned = displacement_iteration;
+
+                  const double residual_norm = residual_owned.l2_norm();
+                  const double displacement_norm = displacement_owned.l2_norm();
+                  const double relative_residual = (displacement_norm > 0) ? residual_norm / displacement_norm : residual_norm;
+
+                  this->get_pcout() << "    - residual: " << relative_residual << std::endl;
+                }
+            }
+          else
+            {
+              // First iteration, just display that we're starting
+              this->get_pcout() << "    - initial." << std::endl;
+            }
+        }
+
+      if (!converged)
+        {
+          this->get_pcout() << "   Warning: Nonlinear iteration did not converge after "
+                            << max_nonlinear_iterations << " iterations." << std::endl;
+        }
+
+      // Set final displacement
+      mesh_displacements = displacement_iteration;
+
+      // Final mesh geometry update
+      update_mesh_geometry_for_iteration();
+
+      // Reset flag to indicate we are no longer in nonlinear iteration
+      in_nonlinear_iteration = false;
+    }
+
+
+    template <int dim>
+    bool MeshDeformationHandler<dim>::check_nonlinear_convergence(const LinearAlgebra::Vector &displacement_old,
+                                                                  const LinearAlgebra::Vector &displacement_new) const
+    {
+      // Create vectors without ghost entries for norm computation
+      LinearAlgebra::Vector residual(mesh_locally_owned, sim.mpi_communicator);
+      LinearAlgebra::Vector displacement_new_local(mesh_locally_owned, sim.mpi_communicator);
+      LinearAlgebra::Vector displacement_old_local(mesh_locally_owned, sim.mpi_communicator);
+
+      // Copy only locally owned parts
+      displacement_new_local = displacement_new;
+      displacement_old_local = displacement_old;
+
+      // Compute residual = displacement_new - displacement_old
+      residual = displacement_new_local;
+      residual.sadd(1.0, -1.0, displacement_old_local);
+
+      const double residual_norm = residual.l2_norm();
+      const double displacement_norm = displacement_new_local.l2_norm();
+
+      // Use relative tolerance if displacement is large enough, otherwise absolute
+      const double tolerance = (displacement_norm > 1e-12) ?
+                               nonlinear_tolerance * displacement_norm :
+                               nonlinear_tolerance;
+
+      return residual_norm < tolerance;
+    }
+
+
+    template <int dim>
+    void MeshDeformationHandler<dim>::update_mesh_geometry_for_iteration()
+    {
+      // Update the mapping with new mesh displacements
+      // This is a lightweight update that only changes the mesh coordinates
+      // without rebuilding the full finite element structures
+
+      // The MappingQEulerian will automatically use the updated mesh_displacements
+      // when we call any mapping-related functions
+
+      // For matrix-free methods, we also need to update the multilevel displacements
+      if (this->is_stokes_matrix_free())
+        update_multilevel_deformation();
+
+      // Note: We don't set rebuild_stokes_matrix here because we want to avoid
+      // full matrix rebuilds during the nonlinear iteration. The final rebuild
+      // happens in the main execute() function.
     }
 
 
@@ -1558,6 +1903,7 @@ namespace aspect
       old_mesh_displacements.reinit(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
       initial_topography.reinit(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
       fs_mesh_velocity.reinit(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
+      old_fs_mesh_velocity.reinit(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
 
       // if we are just starting, we need to set the initial topography.
       if (this->simulator_is_past_initialization() == false ||
