@@ -164,6 +164,23 @@ namespace aspect
               old_solution.block(adv_field.block_index(introspection)) = solution.block(adv_field.block_index(introspection));
             }
 
+          // Fast path: at the very first step with dt==0 and zero initial values,
+          // the RHS is zero. In this case, skip assembling the temperature matrix.
+          if (timestep_number == 0 && time_step == 0.0)
+            {
+              const unsigned int block_idx = adv_field.block_index(introspection);
+              LinearAlgebra::Vector tmp(introspection.index_sets.system_partitioning[block_idx], mpi_communicator);
+              tmp = old_solution.block(block_idx);
+              if (tmp.l2_norm() <= std::numeric_limits<double>::min())
+                {
+                  system_rhs.block(block_idx) = 0;
+                  if (residual)
+                    *residual = 0.0;
+                  current_residual = solve_advection(adv_field);
+                  break;
+                }
+            }
+
           assemble_advection_system (adv_field);
 
           if (residual)
@@ -272,7 +289,23 @@ namespace aspect
                   old_solution.block(adv_field.block_index(introspection)) = solution.block(adv_field.block_index(introspection));
                 }
 
-              assemble_advection_system (adv_field);
+              // Fast path: at the very first step with dt==0 and zero initial values,
+              // the RHS is zero. In this case, skip assembling the composition matrix.
+              bool assembled_this_field = true;
+              if (timestep_number == 0 && time_step == 0.0)
+                {
+                  const unsigned int block_idx = adv_field.block_index(introspection);
+                  LinearAlgebra::Vector tmp(introspection.index_sets.system_partitioning[block_idx], mpi_communicator);
+                  tmp = old_solution.block(block_idx);
+                  if (tmp.l2_norm() <= std::numeric_limits<double>::min())
+                    {
+                      assembled_this_field = false;
+                      system_rhs.block(block_idx) = 0;
+                    }
+                }
+
+              if (assembled_this_field)
+                assemble_advection_system (adv_field);
 
               if (residual)
                 (*residual)[c] = system_rhs.block(introspection.block_indices.compositional_fields[c]).l2_norm();
@@ -314,7 +347,7 @@ namespace aspect
 
               // Release the contents of the matrix block we used again:
               const unsigned int block_idx = adv_field.block_index(introspection);
-              if (adv_field.sparsity_pattern_block_index(introspection)!=block_idx)
+              if (assembled_this_field && adv_field.sparsity_pattern_block_index(introspection)!=block_idx)
                 system_matrix.block(block_idx, block_idx).clear();
 
               // No need to call the post_advection_solver signal here: It is
