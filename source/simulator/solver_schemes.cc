@@ -164,29 +164,43 @@ namespace aspect
               old_solution.block(adv_field.block_index(introspection)) = solution.block(adv_field.block_index(introspection));
             }
 
-          // Fast path: at the very first step with dt==0 and zero initial values,
-          // the RHS is zero. In this case, skip assembling the temperature matrix.
+          // Fast path: at the very first step with dt==0, the solution should not change.
+          // We can skip assembling and solving.
+          bool skip_solve = false;
           if (timestep_number == 0 && time_step == 0.0)
             {
-              const unsigned int block_idx = adv_field.block_index(introspection);
-              LinearAlgebra::Vector tmp(introspection.index_sets.system_partitioning[block_idx], mpi_communicator);
-              tmp = old_solution.block(block_idx);
-              if (tmp.l2_norm() <= std::numeric_limits<double>::min())
-                {
-                  system_rhs.block(block_idx) = 0;
-                  if (residual)
-                    *residual = 0.0;
-                  current_residual = solve_advection(adv_field);
-                  break;
-                }
+              skip_solve = true;
             }
 
-          assemble_advection_system (adv_field);
+          if (!skip_solve)
+            {
+              assemble_advection_system (adv_field);
 
-          if (residual)
-            *residual = system_rhs.block(introspection.block_indices.temperature).l2_norm();
+              if (residual)
+                *residual = system_rhs.block(introspection.block_indices.temperature).l2_norm();
 
-          current_residual = solve_advection(adv_field);
+              current_residual = solve_advection(adv_field);
+            }
+          else
+            {
+              // Just copy old solution to new solution (should be there already but to be safe)
+              const unsigned int block_idx = adv_field.block_index(introspection);
+              solution.block(block_idx) = old_solution.block(block_idx);
+
+              pcout << "   Skipping temperature solve because timestep is zero." << std::endl;
+
+              if (residual)
+                *residual = 0.0;
+              current_residual = 0.0;
+
+              // Signal successful solver and signal residual of zero
+              SolverControl solver_control(1000, 1e-10);
+              solver_control.check(0, 0.0);
+              signals.post_advection_solver(*this,
+                                            adv_field.is_temperature(),
+                                            adv_field.compositional_variable,
+                                            solver_control);
+            }
           break;
         }
 
@@ -289,28 +303,47 @@ namespace aspect
                   old_solution.block(adv_field.block_index(introspection)) = solution.block(adv_field.block_index(introspection));
                 }
 
-              // Fast path: at the very first step with dt==0 and zero initial values,
-              // the RHS is zero. In this case, skip assembling the composition matrix.
-              bool assembled_this_field = true;
+              // Fast path: at the very first step with dt==0, the solution should not change.
+              // We can skip assembling and solving.
+              bool skip_solve = false;
               if (timestep_number == 0 && time_step == 0.0)
                 {
-                  const unsigned int block_idx = adv_field.block_index(introspection);
-                  LinearAlgebra::Vector tmp(introspection.index_sets.system_partitioning[block_idx], mpi_communicator);
-                  tmp = old_solution.block(block_idx);
-                  if (tmp.l2_norm() <= std::numeric_limits<double>::min())
-                    {
-                      assembled_this_field = false;
-                      system_rhs.block(block_idx) = 0;
-                    }
+                  skip_solve = true;
                 }
 
-              if (assembled_this_field)
-                assemble_advection_system (adv_field);
+              bool assembled_this_field = false;
+              if (!skip_solve)
+                {
+                  assemble_advection_system (adv_field);
+                  assembled_this_field = true;
 
-              if (residual)
-                (*residual)[c] = system_rhs.block(introspection.block_indices.compositional_fields[c]).l2_norm();
+                  if (residual)
+                    (*residual)[c] = system_rhs.block(introspection.block_indices.compositional_fields[c]).l2_norm();
 
-              current_residual[c] = solve_advection(adv_field);
+                  current_residual[c] = solve_advection(adv_field);
+                }
+              else
+                {
+                  // Just copy old solution to new solution (should be there already but to be safe)
+                  const unsigned int block_idx = adv_field.block_index(introspection);
+                  solution.block(block_idx) = old_solution.block(block_idx);
+
+                  pcout << "   Skipping "
+                        << introspection.name_for_compositional_index(adv_field.compositional_variable)
+                        << " solve because timestep is zero." << std::endl;
+
+                  if (residual)
+                    (*residual)[c] = 0.0;
+                  current_residual[c] = 0.0;
+
+                  // Signal successful solver and signal residual of zero
+                  SolverControl solver_control(1000, 1e-10);
+                  solver_control.check(0, 0.0);
+                  signals.post_advection_solver(*this,
+                                                adv_field.is_temperature(),
+                                                adv_field.compositional_variable,
+                                                solver_control);
+                }
 
               // When using the entropy formulation (See Dannberg et al., 2022 and the entropy_adiabat benchmark),
               // each components have their own entropy fields.

@@ -963,26 +963,37 @@ namespace aspect
 
       SolverControl solver_control(5*rhs.size(), tolerance * rhs.l2_norm());
 
-      this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
-
-      if (mesh_deformation_solver == "cg")
+      // check if matrix and/or RHS are zero
+      // note: to avoid a warning, we compare against numeric_limits<double>::min() instead of 0 here
+      if (rhs.l2_norm() <= std::numeric_limits<double>::min())
         {
-          SolverCG<LinearAlgebra::Vector> cg(solver_control);
-          cg.solve (mesh_matrix, solution, rhs, preconditioner_stiffness);
-        }
-      else if (mesh_deformation_solver == "bicgstab")
-        {
-          SolverBicgstab<LinearAlgebra::Vector> bicg(solver_control);
-          bicg.solve(mesh_matrix, solution, rhs, preconditioner_stiffness);
+          this->get_pcout() << "   Skipping mesh displacement solve because RHS is zero." << std::endl;
+          solution = 0;
+          solver_control.check(0, 0.0);
         }
       else
         {
-          SolverGMRES<LinearAlgebra::Vector>::AdditionalData gmres_data(200);
-          SolverGMRES<LinearAlgebra::Vector> gmres(solver_control, gmres_data);
-          gmres.solve (mesh_matrix, solution, rhs, preconditioner_stiffness);
-        }
+          this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
 
-      this->get_pcout() << solver_control.last_step() << " iterations." << std::endl;
+          if (mesh_deformation_solver == "cg")
+            {
+              SolverCG<LinearAlgebra::Vector> cg(solver_control);
+              cg.solve (mesh_matrix, solution, rhs, preconditioner_stiffness);
+            }
+          else if (mesh_deformation_solver == "bicgstab")
+            {
+              SolverBicgstab<LinearAlgebra::Vector> bicg(solver_control);
+              bicg.solve(mesh_matrix, solution, rhs, preconditioner_stiffness);
+            }
+          else
+            {
+              SolverGMRES<LinearAlgebra::Vector>::AdditionalData gmres_data(200);
+              SolverGMRES<LinearAlgebra::Vector> gmres(solver_control, gmres_data);
+              gmres.solve (mesh_matrix, solution, rhs, preconditioner_stiffness);
+            }
+
+          this->get_pcout() << solver_control.last_step() << " iterations." << std::endl;
+        }
 
 
       mesh_velocity_constraints.distribute (solution);
@@ -1277,26 +1288,38 @@ namespace aspect
                                       tolerance * rhs.l2_norm());
 
       mesh_velocity_constraints.set_zero(solution);
-      this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
 
-      if (mesh_deformation_solver == "cg")
+      // check if matrix and/or RHS are zero
+      // note: to avoid a warning, we compare against numeric_limits<double>::min() instead of 0 here
+      if (rhs.l2_norm() <= std::numeric_limits<double>::min())
         {
-          SolverCG<dealii::LinearAlgebra::distributed::Vector<double>> cg(solver_control_mf);
-          cg.solve(laplace_operator, solution, rhs, preconditioner);
-        }
-      else if (mesh_deformation_solver == "bicgstab")
-        {
-          SolverBicgstab<dealii::LinearAlgebra::distributed::Vector<double>> bicg(solver_control_mf);
-          bicg.solve(laplace_operator, solution, rhs, preconditioner);
+          this->get_pcout() << "   Skipping mesh displacement solve because RHS is zero." << std::endl;
+          solution = 0;
+          solver_control_mf.check(0, 0.0);
         }
       else
         {
-          SolverGMRES<dealii::LinearAlgebra::distributed::Vector<double>>::AdditionalData gmres_data(200);
-          SolverGMRES<dealii::LinearAlgebra::distributed::Vector<double>> gmres(solver_control_mf, gmres_data);
-          gmres.solve(laplace_operator, solution, rhs, preconditioner);
-        }
+          this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
 
-      this->get_pcout() << solver_control_mf.last_step() << " iterations." << std::endl;
+          if (mesh_deformation_solver == "cg")
+            {
+              SolverCG<dealii::LinearAlgebra::distributed::Vector<double>> cg(solver_control_mf);
+              cg.solve(laplace_operator, solution, rhs, preconditioner);
+            }
+          else if (mesh_deformation_solver == "bicgstab")
+            {
+              SolverBicgstab<dealii::LinearAlgebra::distributed::Vector<double>> bicg(solver_control_mf);
+              bicg.solve(laplace_operator, solution, rhs, preconditioner);
+            }
+          else
+            {
+              SolverGMRES<dealii::LinearAlgebra::distributed::Vector<double>>::AdditionalData gmres_data(200);
+              SolverGMRES<dealii::LinearAlgebra::distributed::Vector<double>> gmres(solver_control_mf, gmres_data);
+              gmres.solve(laplace_operator, solution, rhs, preconditioner);
+            }
+
+          this->get_pcout() << solver_control_mf.last_step() << " iterations." << std::endl;
+        }
 
       mesh_velocity_constraints.distribute(solution);
       solution.update_ghost_values();
