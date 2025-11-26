@@ -239,7 +239,7 @@ namespace aspect
                   {
                     non_yielding_viscosity = compositional_viscosity_prefactors.compute_viscosity(in, viscosity_diffusion, j, i, \
                                                                                                   CompositionalViscosityPrefactors<dim>::ModifiedFlowLaws::diffusion);
-                    
+
                     const double minimum_diffusion_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
                                                                                  phase_function_values,
                                                                                  n_phase_transitions_per_composition,
@@ -252,7 +252,7 @@ namespace aspect
                                                                                  maximum_diffusion_viscosity,
                                                                                  j,
                                                                                  MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
-                    
+
                     non_yielding_viscosity = std::max(minimum_diffusion_viscosity_for_composition,
                                                       std::min(maximum_diffusion_viscosity_for_composition, non_yielding_viscosity));
                     output_parameters.viscosity_diff[j] = non_yielding_viscosity;
@@ -262,20 +262,20 @@ namespace aspect
                   {
                     non_yielding_viscosity = compositional_viscosity_prefactors.compute_viscosity(in, viscosity_dislocation, j, i, \
                                                                                                   CompositionalViscosityPrefactors<dim>::ModifiedFlowLaws::dislocation);
-                    
-                    
+
+
                     const double minimum_dislocation_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
-                                                                                 phase_function_values,
-                                                                                 n_phase_transitions_per_composition,
-                                                                                 minimum_dislocation_viscosity,
-                                                                                 j,
-                                                                                 MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+                                                                                   phase_function_values,
+                                                                                   n_phase_transitions_per_composition,
+                                                                                   minimum_dislocation_viscosity,
+                                                                                   j,
+                                                                                   MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
                     const double maximum_dislocation_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
-                                                                                 phase_function_values,
-                                                                                 n_phase_transitions_per_composition,
-                                                                                 maximum_dislocation_viscosity,
-                                                                                 j,
-                                                                                 MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+                                                                                   phase_function_values,
+                                                                                   n_phase_transitions_per_composition,
+                                                                                   maximum_dislocation_viscosity,
+                                                                                   j,
+                                                                                   MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
 
                     non_yielding_viscosity = std::max(minimum_dislocation_viscosity_for_composition,
                                                       std::min(maximum_dislocation_viscosity_for_composition, non_yielding_viscosity));
@@ -293,38 +293,38 @@ namespace aspect
                   case composite:
                   {
                     double scaled_viscosity_diffusion = compositional_viscosity_prefactors.compute_viscosity(in, viscosity_diffusion, j, i, \
-                                                              CompositionalViscosityPrefactors<dim>::ModifiedFlowLaws::diffusion);
+                                                        CompositionalViscosityPrefactors<dim>::ModifiedFlowLaws::diffusion);
                     double scaled_viscosity_dislocation = compositional_viscosity_prefactors.compute_viscosity(in, viscosity_dislocation, j, i, \
-                                                                CompositionalViscosityPrefactors<dim>::ModifiedFlowLaws::dislocation);
-                    
+                                                          CompositionalViscosityPrefactors<dim>::ModifiedFlowLaws::dislocation);
+
                     const double minimum_diffusion_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
-                                                                                  phase_function_values,
-                                                                                  n_phase_transitions_per_composition,
-                                                                                  minimum_diffusion_viscosity,
-                                                                                  j,
-                                                                                  MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+                                                                                 phase_function_values,
+                                                                                 n_phase_transitions_per_composition,
+                                                                                 minimum_diffusion_viscosity,
+                                                                                 j,
+                                                                                 MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
                     const double maximum_diffusion_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
-                                                                                  phase_function_values,
-                                                                                  n_phase_transitions_per_composition,
-                                                                                  maximum_diffusion_viscosity,
-                                                                                  j,
-                                                                                  MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+                                                                                 phase_function_values,
+                                                                                 n_phase_transitions_per_composition,
+                                                                                 maximum_diffusion_viscosity,
+                                                                                 j,
+                                                                                 MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
                     const double minimum_dislocation_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
-                                                                                  phase_function_values,
-                                                                                  n_phase_transitions_per_composition,
-                                                                                  minimum_dislocation_viscosity,
-                                                                                  j,
-                                                                                  MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+                                                                                   phase_function_values,
+                                                                                   n_phase_transitions_per_composition,
+                                                                                   minimum_dislocation_viscosity,
+                                                                                   j,
+                                                                                   MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
                     const double maximum_dislocation_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
-                                                                                  phase_function_values,
-                                                                                  n_phase_transitions_per_composition,
-                                                                                  maximum_dislocation_viscosity,
-                                                                                  j,
-                                                                                  MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+                                                                                   phase_function_values,
+                                                                                   n_phase_transitions_per_composition,
+                                                                                   maximum_dislocation_viscosity,
+                                                                                   j,
+                                                                                   MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
                     scaled_viscosity_diffusion = std::max(minimum_diffusion_viscosity_for_composition,
                                                           std::min(maximum_diffusion_viscosity_for_composition, scaled_viscosity_diffusion));
                     scaled_viscosity_dislocation = std::max(minimum_dislocation_viscosity_for_composition,
-                                                          std::min(maximum_dislocation_viscosity_for_composition, scaled_viscosity_dislocation));
+                                                            std::min(maximum_dislocation_viscosity_for_composition, scaled_viscosity_dislocation));
                     output_parameters.viscosity_diff[j] = scaled_viscosity_diffusion;
                     output_parameters.viscosity_disl[j] = scaled_viscosity_dislocation;
                     non_yielding_viscosity = (scaled_viscosity_diffusion * scaled_viscosity_dislocation)/
@@ -865,18 +865,18 @@ namespace aspect
 
         Assert(maximum_non_yielding_viscosity.size() == minimum_non_yielding_viscosity.size(),
                ExcMessage("The input parameters 'Maximum non yielding viscosity' and 'Minimum non yielding viscosity' should have the same number of entries."));
-        
+
         for (auto p1 = maximum_non_yielding_viscosity.begin(), p2 = minimum_non_yielding_viscosity.begin();
              p1 != maximum_non_yielding_viscosity.end(); ++p1, ++p2)
           AssertThrow(*p1 >= *p2,
                       ExcMessage("Maximum non-yielding viscosity should be larger or equal to the minimum non yielding viscosity."));
         options.property_name = "Minimum viscosity for diffusion creep";
         minimum_diffusion_viscosity = Utilities::MapParsing::parse_map_to_double_array(prm.get("Minimum viscosity for diffusion creep"),
-                                                                               options);
+                                                                                       options);
 
         options.property_name = "Maximum viscosity for diffusion creep";
         maximum_diffusion_viscosity = Utilities::MapParsing::parse_map_to_double_array(prm.get("Maximum viscosity for diffusion creep"),
-                                                                               options);
+                                                                                       options);
         Assert(maximum_diffusion_viscosity.size() == minimum_diffusion_viscosity.size(),
                ExcMessage("The input parameters 'Maximum viscosity for diffusion creep' and 'Minimum viscosity for diffusion creep' should have the same number of entries."));
 
@@ -886,10 +886,10 @@ namespace aspect
                       ExcMessage("Maximum diffusion viscosity should be larger or equal to the minimum diffusion viscosity."));
         options.property_name = "Minimum viscosity for dislocation creep";
         minimum_dislocation_viscosity = Utilities::MapParsing::parse_map_to_double_array(prm.get("Minimum viscosity for dislocation creep"),
-                                                                                 options);
+                                        options);
         options.property_name = "Maximum viscosity for dislocation creep";
         maximum_dislocation_viscosity = Utilities::MapParsing::parse_map_to_double_array(prm.get("Maximum viscosity for dislocation creep"),
-                                                                                 options);
+                                        options);
         Assert(maximum_dislocation_viscosity.size() == minimum_dislocation_viscosity.size(),
                ExcMessage("The input parameters 'Maximum viscosity for dislocation creep' and 'Minimum viscosity for dislocation creep' should have the same number of entries."));
 

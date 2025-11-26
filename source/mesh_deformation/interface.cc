@@ -27,6 +27,7 @@
 #include <aspect/simulator/solver/matrix_free_operators.h>
 #include <aspect/simulator/solver/stokes_matrix_free.h>
 
+#include <deal.II/base/patterns.h>
 #include <deal.II/dofs/dof_renumbering.h>
 #include <deal.II/dofs/dof_accessor.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -36,7 +37,13 @@
 #include <deal.II/fe/mapping_q1_eulerian.h>
 #include <deal.II/fe/mapping_q_eulerian.h>
 
+#include <deal.II/lac/generic_linear_algebra.h>
+#include <deal.II/lac/solver_cg.h>
+#include <deal.II/lac/solver_bicgstab.h>
+#include <deal.II/lac/solver_gmres.h>
 #include <deal.II/lac/sparsity_tools.h>
+#include <algorithm>
+#include <cctype>
 
 #include <deal.II/numerics/vector_tools.h>
 
@@ -51,6 +58,8 @@ namespace aspect
       :
       free_surface_theta(stabilization_theta)
     {}
+
+
 
     template <int dim>
     void
@@ -175,6 +184,20 @@ namespace aspect
 
 
     template <int dim>
+    void
+    Interface<dim>::save (std::map<std::string,std::string> &) const
+    {}
+
+
+
+    template <int dim>
+    void
+    Interface<dim>::load (const std::map<std::string,std::string> &)
+    {}
+
+
+
+    template <int dim>
     Tensor<1,dim>
     Interface<dim>::
     compute_initial_deformation_on_boundary(const types::boundary_id /*boundary_indicator*/,
@@ -198,9 +221,10 @@ namespace aspect
     template <int dim>
     MeshDeformationHandler<dim>::MeshDeformationHandler (Simulator<dim> &simulator)
       : sim(simulator),  // reference to the simulator that owns the MeshDeformationHandler
-        mesh_deformation_fe (FE_Q<dim>(sim.parameters.stokes_velocity_degree),dim),
+        mesh_deformation_fe (FE_Q<dim>(sim.parameters.mesh_deformation_polynomial_degree),dim),
         mesh_deformation_dof_handler (sim.triangulation),
-        include_initial_topography(false)
+        include_initial_topography(false),
+        mesh_deformation_solver("gmres")
     {
     }
 
@@ -345,11 +369,11 @@ namespace aspect
                            "\n\n"
                            "The format is id1: object1 \\& object2, id2: object3 \\& object2, where "
                            "objects are one of " + std::get<dim>(registered_plugins).get_description_string());
-        
+
         prm.declare_entry("Use AMG solver for laplace", "false",
-                           Patterns::Bool(),
-                           "Use an AMG solver for the Laplace equation that computes the mesh "
-                           "deformation.");
+                          Patterns::Bool(),
+                          "Use an AMG solver for the Laplace equation that computes the mesh "
+                          "deformation.");
         prm.enter_subsection ("Free surface");
         {
           prm.declare_entry("Free surface stabilization theta", "0.5",
@@ -365,6 +389,10 @@ namespace aspect
                             "implicit.");
         }
         prm.leave_subsection ();
+        prm.declare_entry("Krylov subspace method", "gmres",
+                          Patterns::Selection("cg|gmres|bicgstab"),
+                          "The Krylov subspace method to use when solving the mesh deformation\n"
+                          "linear system. Options: cg, gmres, bicgstab.");
       }
       prm.leave_subsection ();
 
@@ -378,6 +406,18 @@ namespace aspect
     {
       prm.enter_subsection ("Mesh deformation");
       {
+        // Read Krylov subspace method selection for mesh deformation linear system
+        {
+          std::string solver = prm.get("Krylov subspace method");
+          std::transform(solver.begin(), solver.end(), solver.begin(), [](unsigned char c)
+          {
+            return std::tolower(c);
+          });
+          AssertThrow(solver == "cg" || solver == "gmres" || solver == "bicgstab",
+                      ExcMessage("Invalid value for <Mesh deformation>/Krylov subspace method: " + solver));
+          mesh_deformation_solver = solver;
+        }
+
         // Create the map of prescribed mesh movement boundary indicators
         // Each boundary indicator can carry a number of mesh deformation plugin names.
         const std::vector<std::string> x_mesh_deformation_boundary_indicators
@@ -480,7 +520,7 @@ namespace aspect
 
         for (const auto &boundary_id : tangential_mesh_deformation_boundary_indicators)
           zero_mesh_deformation_boundary_indicators.erase(boundary_id);
-        
+
         use_amg_solver_for_laplace = prm.get_bool("Use AMG solver for laplace");
         prm.enter_subsection ("Free surface");
         {
@@ -499,8 +539,8 @@ namespace aspect
             {
               mesh_deformation_objects[boundary_and_object_names.first].push_back(
                 std::unique_ptr<Interface<dim>> (std::get<dim>(registered_plugins)
-                                                 .create_plugin (object_name,
-                                                                 "Mesh deformation::Model names")));
+                                                  .create_plugin (object_name,
+                                                                  "Mesh deformation::Model names")));
 
               if (SimulatorAccess<dim> *sim = dynamic_cast<SimulatorAccess<dim>*>(mesh_deformation_objects[boundary_and_object_names.first].back().get()))
                 sim->initialize_simulator (this->get_simulator());
@@ -610,11 +650,11 @@ namespace aspect
       this->get_signals().post_compute_no_normal_flux_constraints(sim.triangulation);
 
       // Ask all plugins to add their constraints.
-      // For the moment add constraints from all plugins into one matrix, then
-      // merge that matrix with the existing constraints (respecting the existing
-      // constraints as more important)
+      // For the moment add constraints from all plugins into one object, then
+      // merge that object with the existing constraints (respecting the existing
+      // constraints as more important).
 #if DEAL_II_VERSION_GTE(9,7,0)
-      AffineConstraints<double> plugin_constraints(mesh_vertex_constraints.get_local_lines(),
+      AffineConstraints<double> plugin_constraints(mesh_deformation_dof_handler.locally_owned_dofs(),
                                                    mesh_vertex_constraints.get_local_lines());
 #else
       AffineConstraints<double> plugin_constraints(mesh_vertex_constraints.get_local_lines());
@@ -622,13 +662,12 @@ namespace aspect
 
       for (const auto &boundary_id : mesh_deformation_objects)
         {
-          std::set<types::boundary_id> boundary_id_set;
-          boundary_id_set.insert(boundary_id.first);
+          const std::set<types::boundary_id> boundary_id_set = { boundary_id.first };
 
           for (const auto &model : boundary_id.second)
             {
 #if DEAL_II_VERSION_GTE(9,7,0)
-              AffineConstraints<double> current_plugin_constraints(mesh_vertex_constraints.get_local_lines(),
+              AffineConstraints<double> current_plugin_constraints(mesh_deformation_dof_handler.locally_owned_dofs(),
                                                                    mesh_vertex_constraints.get_local_lines());
 #else
               AffineConstraints<double> current_plugin_constraints(mesh_vertex_constraints.get_local_lines());
@@ -637,7 +676,7 @@ namespace aspect
               model->compute_velocity_constraints_on_boundary(mesh_deformation_dof_handler,
                                                               current_plugin_constraints,
                                                               boundary_id_set);
-              if ((this->is_stokes_matrix_free()))
+              if (this->is_stokes_matrix_free())
                 {
                   mg_constrained_dofs.make_zero_boundary_constraints(mesh_deformation_dof_handler,
                                                                      boundary_id_set);
@@ -664,14 +703,15 @@ namespace aspect
                         {
                           // Add the inhomogeneity of the current plugin to the existing constraints
                           const double inhomogeneity = plugin_constraints.get_inhomogeneity(local_line);
-                          plugin_constraints.set_inhomogeneity(local_line, current_plugin_constraints.get_inhomogeneity(local_line) + inhomogeneity);
+                          plugin_constraints.set_inhomogeneity(local_line,
+                                                               current_plugin_constraints.get_inhomogeneity(local_line) + inhomogeneity);
                         }
                     }
                 }
             }
         }
 
-      mesh_velocity_constraints.merge(plugin_constraints,AffineConstraints<double>::left_object_wins);
+      mesh_velocity_constraints.merge(plugin_constraints, AffineConstraints<double>::left_object_wins);
       mesh_velocity_constraints.close();
     }
 
@@ -900,19 +940,27 @@ namespace aspect
       mesh_matrix.compress (VectorOperation::add);
 
       // Make the AMG preconditioner
+#if !DEAL_II_VERSION_GTE(9,7,0)
       std::vector<std::vector<bool>> constant_modes;
       DoFTools::extract_constant_modes (mesh_deformation_dof_handler,
                                         ComponentMask(dim, true),
                                         constant_modes);
+#endif
+
       // TODO: think about keeping object between time steps
       LinearAlgebra::PreconditionAMG preconditioner_stiffness;
       LinearAlgebra::PreconditionAMG::AdditionalData Amg_data;
+#if !DEAL_II_VERSION_GTE(9,7,0)
       Amg_data.constant_modes = constant_modes;
+#else
+      Amg_data.constant_modes = DoFTools::extract_constant_modes (mesh_deformation_dof_handler,
+                                                                  ComponentMask(dim, true));
+#endif
       Amg_data.elliptic = true;
-      Amg_data.higher_order_elements = false;
+      Amg_data.higher_order_elements = this->get_parameters().mesh_deformation_polynomial_degree > 1 ? true : false;
       Amg_data.smoother_sweeps = 2;
       Amg_data.aggregation_threshold = 0.02;
-      preconditioner_stiffness.initialize(mesh_matrix);
+      preconditioner_stiffness.initialize(mesh_matrix, Amg_data);
 
       // we solve with higher accuracy in the initial timestep:
       const double tolerance
@@ -920,10 +968,39 @@ namespace aspect
           * ((this->simulator_is_past_initialization()) ? 1.0 : 1e-5);
 
       SolverControl solver_control(5*rhs.size(), tolerance * rhs.l2_norm());
-      SolverCG<LinearAlgebra::Vector> cg(solver_control);
 
-      cg.solve (mesh_matrix, solution, rhs, preconditioner_stiffness);
-      this->get_pcout() << "   Solving mesh displacement system... " << solver_control.last_step() <<" iterations."<< std::endl;
+      // check if matrix and/or RHS are zero
+      // note: to avoid a warning, we compare against numeric_limits<double>::min() instead of 0 here
+      if (rhs.l2_norm() <= std::numeric_limits<double>::min())
+        {
+          this->get_pcout() << "   Skipping mesh displacement solve because RHS is zero." << std::endl;
+          solution = 0;
+          solver_control.check(0, 0.0);
+        }
+      else
+        {
+          this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
+
+          if (mesh_deformation_solver == "cg")
+            {
+              SolverCG<LinearAlgebra::Vector> cg(solver_control);
+              cg.solve (mesh_matrix, solution, rhs, preconditioner_stiffness);
+            }
+          else if (mesh_deformation_solver == "bicgstab")
+            {
+              SolverBicgstab<LinearAlgebra::Vector> bicg(solver_control);
+              bicg.solve(mesh_matrix, solution, rhs, preconditioner_stiffness);
+            }
+          else
+            {
+              SolverGMRES<LinearAlgebra::Vector>::AdditionalData gmres_data(200);
+              SolverGMRES<LinearAlgebra::Vector> gmres(solver_control, gmres_data);
+              gmres.solve (mesh_matrix, solution, rhs, preconditioner_stiffness);
+            }
+
+          this->get_pcout() << solver_control.last_step() << " iterations." << std::endl;
+        }
+
 
       mesh_velocity_constraints.distribute (solution);
 
@@ -949,10 +1026,28 @@ namespace aspect
         update_multilevel_deformation();
     }
 
-
-
     template <int dim>
     void MeshDeformationHandler<dim>::compute_mesh_displacements_gmg()
+    {
+      switch (this->get_parameters().mesh_deformation_polynomial_degree)
+        {
+          case 1:
+            compute_mesh_displacements_gmg_impl<1>();
+            break;
+          case 2:
+            compute_mesh_displacements_gmg_impl<2>();
+            break;
+          case 3:
+            compute_mesh_displacements_gmg_impl<3>();
+            break;
+          default:
+            throw std::runtime_error("Unsupported mesh deformation polynomial degree!");
+        }
+    }
+
+    template <int dim>
+    template <unsigned int mesh_deformation_fe_degree>
+    void MeshDeformationHandler<dim>::compute_mesh_displacements_gmg_impl()
     {
       // Same as compute_mesh_displacements, but using matrix-free GMG
       // instead of matrix-based AMG.
@@ -966,10 +1061,10 @@ namespace aspect
       // 3. Although this gmg solver is much faster than the amg solver, it's only tested for
       //    limited free surface cases.
 
-      Assert(mesh_deformation_fe.degree == 1, ExcNotImplemented());
+      // Assert(mesh_deformation_fe.degree == 1, ExcNotImplemented());
       // To be efficient, the operations performed in the matrix-free implementation require
       // knowledge of loop lengths at compile time, which are given by the degree of the finite element.
-      const unsigned int mesh_deformation_fe_degree = 1;
+      // const unsigned int mesh_deformation_fe_degree = 1;
 
       using SystemOperatorType = dealii::MatrixFreeOperators::
                                  LaplaceOperator<dim, mesh_deformation_fe_degree, mesh_deformation_fe_degree + 1, dim>;
@@ -984,7 +1079,7 @@ namespace aspect
       const UpdateFlags update_flags(update_values | update_JxW_values | update_gradients);
       additional_data.mapping_update_flags = update_flags;
       std::shared_ptr<MatrixFree<dim, double>> system_mf_storage
-                                            = std::make_shared<MatrixFree<dim, double>>();
+        = std::make_shared<MatrixFree<dim, double>>();
       system_mf_storage->reinit(*sim.mapping,
                                 mesh_deformation_dof_handler,
                                 mesh_velocity_constraints,
@@ -1117,7 +1212,7 @@ namespace aspect
           additional_data.mapping_update_flags = update_flags;
           additional_data.mg_level = level;
           std::shared_ptr<MatrixFree<dim, double>> mg_mf_storage_level
-                                                = std::make_shared<MatrixFree<dim, double>>();
+            = std::make_shared<MatrixFree<dim, double>>();
 
           mg_mf_storage_level->reinit(mapping,
                                       mesh_deformation_dof_handler,
@@ -1197,11 +1292,40 @@ namespace aspect
 
       SolverControl solver_control_mf(5 * rhs.size(),
                                       tolerance * rhs.l2_norm());
-      SolverCG<dealii::LinearAlgebra::distributed::Vector<double>> cg(solver_control_mf);
 
       mesh_velocity_constraints.set_zero(solution);
-      cg.solve(laplace_operator, solution, rhs, preconditioner);
-      this->get_pcout() << "   Solving mesh displacement system... " << solver_control_mf.last_step() <<" iterations."<< std::endl;
+
+      // check if matrix and/or RHS are zero
+      // note: to avoid a warning, we compare against numeric_limits<double>::min() instead of 0 here
+      if (rhs.l2_norm() <= std::numeric_limits<double>::min())
+        {
+          this->get_pcout() << "   Skipping mesh displacement solve because RHS is zero." << std::endl;
+          solution = 0;
+          solver_control_mf.check(0, 0.0);
+        }
+      else
+        {
+          this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
+
+          if (mesh_deformation_solver == "cg")
+            {
+              SolverCG<dealii::LinearAlgebra::distributed::Vector<double>> cg(solver_control_mf);
+              cg.solve(laplace_operator, solution, rhs, preconditioner);
+            }
+          else if (mesh_deformation_solver == "bicgstab")
+            {
+              SolverBicgstab<dealii::LinearAlgebra::distributed::Vector<double>> bicg(solver_control_mf);
+              bicg.solve(laplace_operator, solution, rhs, preconditioner);
+            }
+          else
+            {
+              SolverGMRES<dealii::LinearAlgebra::distributed::Vector<double>>::AdditionalData gmres_data(200);
+              SolverGMRES<dealii::LinearAlgebra::distributed::Vector<double>> gmres(solver_control_mf, gmres_data);
+              gmres.solve(laplace_operator, solution, rhs, preconditioner);
+            }
+
+          this->get_pcout() << solver_control_mf.last_step() << " iterations." << std::endl;
+        }
 
       mesh_velocity_constraints.distribute(solution);
       solution.update_ghost_values();
@@ -1245,7 +1369,7 @@ namespace aspect
       else
         {
           const std::vector<Point<dim>> support_points
-                                     = mesh_deformation_fe.base_element(0).get_unit_support_points();
+            = mesh_deformation_fe.base_element(0).get_unit_support_points();
 
           const Quadrature<dim> quad(support_points);
           const UpdateFlags update_flags = UpdateFlags(update_quadrature_points);
@@ -1301,7 +1425,7 @@ namespace aspect
       distributed_mesh_velocity.reinit(sim.introspection.index_sets.system_partitioning, sim.mpi_communicator);
 
       const std::vector<Point<dim>> support_points
-                                 = sim.finite_element.base_element(sim.introspection.component_indices.velocities[0]).get_unit_support_points();
+        = sim.finite_element.base_element(sim.introspection.component_indices.velocities[0]).get_unit_support_points();
 
       const Quadrature<dim> quad(support_points);
       const UpdateFlags update_flags = UpdateFlags(update_values | update_JxW_values);
@@ -1516,7 +1640,7 @@ namespace aspect
       // to transfer to the MG levels below. The conversion is done by
       // going through a ReadWriteVector.
       dealii::LinearAlgebra::distributed::Vector<double> displacements(mesh_deformation_dof_handler.locally_owned_dofs(),
-                                                                       this->get_triangulation().get_communicator());
+                                                                       this->get_mpi_communicator());
       dealii::LinearAlgebra::ReadWriteVector<double> rwv;
       rwv.reinit(mesh_displacements);
       displacements.import_elements(rwv, VectorOperation::insert);
@@ -1542,7 +1666,7 @@ namespace aspect
 
     template <int dim>
     const std::map<types::boundary_id, std::vector<std::string>> &
-                                                              MeshDeformationHandler<dim>::get_active_mesh_deformation_names () const
+    MeshDeformationHandler<dim>::get_active_mesh_deformation_names () const
     {
       return mesh_deformation_object_names;
     }
@@ -1649,10 +1773,10 @@ namespace aspect
     {
       template <>
       std::list<internal::Plugins::PluginList<MeshDeformation::Interface<2>>::PluginInfo> *
-                                                                          internal::Plugins::PluginList<MeshDeformation::Interface<2>>::plugins = nullptr;
+      internal::Plugins::PluginList<MeshDeformation::Interface<2>>::plugins = nullptr;
       template <>
       std::list<internal::Plugins::PluginList<MeshDeformation::Interface<3>>::PluginInfo> *
-                                                                          internal::Plugins::PluginList<MeshDeformation::Interface<3>>::plugins = nullptr;
+      internal::Plugins::PluginList<MeshDeformation::Interface<3>>::plugins = nullptr;
     }
   }
 
@@ -1671,4 +1795,3 @@ namespace aspect
 #undef INSTANTIATE
   }
 }
-

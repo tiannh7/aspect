@@ -721,7 +721,7 @@ namespace aspect
                            "were enabled when configuring Trilinos. For high viscosity contrast problems, "
                            "'Amesos_Mumps' or 'Amesos_Pardiso' may provide better performance.");
 
-      prm.declare_entry ("Direct solver output details", "false",
+        prm.declare_entry ("Direct solver output details", "false",
                            Patterns::Bool(),
                            "If true, the direct solver will output detailed information about its "
                            "solution process.");
@@ -1115,6 +1115,9 @@ namespace aspect
                          "as $Q_1$ is the lowest order element, while $DGQ_0$ is a "
                          "valid choice. "
                          "Units: None.");
+      prm.declare_entry("Mesh deformation polynomial degree", "2",
+                        Patterns::Integer(1),
+                        "The polynomial degree used for mesh deformation.");
       prm.declare_entry ("Use locally conservative discretization", "false",
                          Patterns::Bool (),
                          "Whether to use a Stokes discretization that is locally "
@@ -1972,6 +1975,8 @@ namespace aspect
       composition_degrees    = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_unsigned_int(Utilities::split_string_list(prm.get("Composition polynomial degree"))),
                                                                        n_compositional_fields,
                                                                        "Composition polynomial degree");
+
+      mesh_deformation_polynomial_degree = prm.get_integer("Mesh deformation polynomial degree");
       if (n_compositional_fields > 0)
         max_composition_degree = *std::max_element(composition_degrees.begin(), composition_degrees.end());
       else
@@ -2513,6 +2518,3 @@ namespace aspect
 
 #undef INSTANTIATE
 }
-
-
-
