@@ -527,6 +527,20 @@ namespace aspect
                              "has not been tested in non-Cartesian geometries and currently requires "
                              "the use of a Cartesian geometry model."));
 
+    // If the geometry is non-Cartesian, warn for any discontinuous
+    // discretizations that are enabled
+    if (geometry_model->natural_coordinate_system() != Utilities::Coordinates::CoordinateSystem::cartesian)
+      {
+        if (parameters.use_discontinuous_temperature_discretization)
+          pcout << "Warning: Using discontinuous temperature discretization on a non-Cartesian geometry. "
+                << "The DG limiter is not supported in this configuration; expect possible larger overshoots.\n";
+
+        for (unsigned int c = 0; c < introspection.n_compositional_fields; ++c)
+          if (c < parameters.use_discontinuous_composition_discretization.size() && parameters.use_discontinuous_composition_discretization[c])
+            pcout << "Warning: Using discontinuous composition discretization for compositional field " << c << " on a non-Cartesian geometry. "
+                  << "The DG limiter is not supported in this configuration; expect possible larger overshoots.\n";
+      }
+
     std::set<types::boundary_id> open_velocity_boundary_indicators
       = geometry_model->get_used_boundary_indicators();
     for (const auto p : boundary_velocity_manager.get_prescribed_boundary_velocity_indicators())
