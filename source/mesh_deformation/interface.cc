@@ -27,6 +27,7 @@
 #include <aspect/simulator/solver/matrix_free_operators.h>
 #include <aspect/simulator/solver/stokes_matrix_free.h>
 
+#include <deal.II/base/patterns.h>
 #include <deal.II/dofs/dof_renumbering.h>
 #include <deal.II/dofs/dof_accessor.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -36,7 +37,13 @@
 #include <deal.II/fe/mapping_q1_eulerian.h>
 #include <deal.II/fe/mapping_q_eulerian.h>
 
+#include <deal.II/lac/generic_linear_algebra.h>
+#include <deal.II/lac/solver_cg.h>
+#include <deal.II/lac/solver_bicgstab.h>
+#include <deal.II/lac/solver_gmres.h>
 #include <deal.II/lac/sparsity_tools.h>
+#include <algorithm>
+#include <cctype>
 
 #include <deal.II/numerics/vector_tools.h>
 
@@ -200,13 +207,11 @@ namespace aspect
     template <int dim>
     MeshDeformationHandler<dim>::MeshDeformationHandler (Simulator<dim> &simulator)
       : sim(simulator),  // reference to the simulator that owns the MeshDeformationHandler
-        mesh_deformation_fe (FE_Q<dim>(1),dim), // Q1 elements which describe the mesh geometry
+        mesh_deformation_fe (FE_Q<dim>(sim.parameters.mesh_deformation_polynomial_degree),dim),
         mesh_deformation_dof_handler (sim.triangulation),
-        include_initial_topography(false)
+        include_initial_topography(false),
+        mesh_deformation_solver("gmres")
     {
-      // Now reset the mapping of the simulator to be something that captures mesh deformation in time.
-      sim.mapping = std::make_unique<MappingQ1Eulerian<dim, LinearAlgebra::Vector>> (mesh_deformation_dof_handler,
-                                                                                      mesh_displacements);
     }
 
 
@@ -350,7 +355,6 @@ namespace aspect
                            "\n\n"
                            "The format is id1: object1 \\& object2, id2: object3 \\& object2, where "
                            "objects are one of " + std::get<dim>(registered_plugins).get_description_string());
-
         prm.enter_subsection ("Free surface");
         {
           prm.declare_entry("Free surface stabilization theta", "0.5",
@@ -366,6 +370,10 @@ namespace aspect
                             "implicit.");
         }
         prm.leave_subsection ();
+        prm.declare_entry("Krylov subspace method", "gmres",
+                          Patterns::Selection("cg|gmres|bicgstab"),
+                          "The Krylov subspace method to use when solving the mesh deformation\n"
+                          "linear system. Options: cg, gmres, bicgstab.");
       }
       prm.leave_subsection ();
 
@@ -379,6 +387,18 @@ namespace aspect
     {
       prm.enter_subsection ("Mesh deformation");
       {
+        // Read Krylov subspace method selection for mesh deformation linear system
+        {
+          std::string solver = prm.get("Krylov subspace method");
+          std::transform(solver.begin(), solver.end(), solver.begin(), [](unsigned char c)
+          {
+            return std::tolower(c);
+          });
+          AssertThrow(solver == "cg" || solver == "gmres" || solver == "bicgstab",
+                      ExcMessage("Invalid value for <Mesh deformation>/Krylov subspace method: " + solver));
+          mesh_deformation_solver = solver;
+        }
+
         // Create the map of prescribed mesh movement boundary indicators
         // Each boundary indicator can carry a number of mesh deformation plugin names.
         const std::vector<std::string> x_mesh_deformation_boundary_indicators
@@ -919,10 +939,10 @@ namespace aspect
                                                                   ComponentMask(dim, true));
 #endif
       Amg_data.elliptic = true;
-      Amg_data.higher_order_elements = false;
+      Amg_data.higher_order_elements = this->get_parameters().mesh_deformation_polynomial_degree > 1 ? true : false;
       Amg_data.smoother_sweeps = 2;
       Amg_data.aggregation_threshold = 0.02;
-      preconditioner_stiffness.initialize(mesh_matrix);
+      preconditioner_stiffness.initialize(mesh_matrix, Amg_data);
 
       // we solve with higher accuracy in the initial timestep:
       const double tolerance
@@ -930,24 +950,39 @@ namespace aspect
           * ((this->simulator_is_past_initialization()) ? 1.0 : 1e-5);
 
       SolverControl solver_control(5*rhs.size(), tolerance * rhs.l2_norm());
-      SolverCG<LinearAlgebra::Vector> cg(solver_control);
 
-      try
+      // check if matrix and/or RHS are zero
+      // note: to avoid a warning, we compare against numeric_limits<double>::min() instead of 0 here
+      if (rhs.l2_norm() <= std::numeric_limits<double>::min())
         {
-          cg.solve (mesh_matrix, solution, rhs, preconditioner_stiffness);
-          this->get_pcout() << "   Solving mesh displacement system... " << solver_control.last_step() <<" iterations."<< std::endl;
+          this->get_pcout() << "   Skipping mesh displacement solve because RHS is zero." << std::endl;
+          solution = 0;
+          solver_control.check(0, 0.0);
         }
-      catch (const std::exception &exc)
+      else
         {
-          // if the solver fails, report the error from processor 0 with some additional
-          // information about its location, and throw a quiet exception on all other
-          // processors
-          Utilities::throw_linear_solver_failure_exception("iterative mesh displacement solver",
-                                                           "MeshDeformationHandler::compute_mesh_displacements()",
-                                                           std::vector<SolverControl> {solver_control},
-                                                           exc,
-                                                           this->get_mpi_communicator());
+          this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
+
+          if (mesh_deformation_solver == "cg")
+            {
+              SolverCG<LinearAlgebra::Vector> cg(solver_control);
+              cg.solve (mesh_matrix, solution, rhs, preconditioner_stiffness);
+            }
+          else if (mesh_deformation_solver == "bicgstab")
+            {
+              SolverBicgstab<LinearAlgebra::Vector> bicg(solver_control);
+              bicg.solve(mesh_matrix, solution, rhs, preconditioner_stiffness);
+            }
+          else
+            {
+              SolverGMRES<LinearAlgebra::Vector>::AdditionalData gmres_data(200);
+              SolverGMRES<LinearAlgebra::Vector> gmres(solver_control, gmres_data);
+              gmres.solve (mesh_matrix, solution, rhs, preconditioner_stiffness);
+            }
+
+          this->get_pcout() << solver_control.last_step() << " iterations." << std::endl;
         }
+
 
       mesh_velocity_constraints.distribute (solution);
 
@@ -971,10 +1006,28 @@ namespace aspect
 
     }
 
-
-
     template <int dim>
     void MeshDeformationHandler<dim>::compute_mesh_displacements_gmg()
+    {
+      switch (this->get_parameters().mesh_deformation_polynomial_degree)
+        {
+          case 1:
+            compute_mesh_displacements_gmg_impl<1>();
+            break;
+          case 2:
+            compute_mesh_displacements_gmg_impl<2>();
+            break;
+          case 3:
+            compute_mesh_displacements_gmg_impl<3>();
+            break;
+          default:
+            throw std::runtime_error("Unsupported mesh deformation polynomial degree!");
+        }
+    }
+
+    template <int dim>
+    template <unsigned int mesh_deformation_fe_degree>
+    void MeshDeformationHandler<dim>::compute_mesh_displacements_gmg_impl()
     {
       // Same as compute_mesh_displacements, but using matrix-free GMG
       // instead of matrix-based AMG.
@@ -988,10 +1041,10 @@ namespace aspect
       // 3. Although this gmg solver is much faster than the amg solver, it's only tested for
       //    limited free surface cases.
 
-      Assert(mesh_deformation_fe.degree == 1, ExcNotImplemented());
+      // Assert(mesh_deformation_fe.degree == 1, ExcNotImplemented());
       // To be efficient, the operations performed in the matrix-free implementation require
       // knowledge of loop lengths at compile time, which are given by the degree of the finite element.
-      const unsigned int mesh_deformation_fe_degree = 1;
+      // const unsigned int mesh_deformation_fe_degree = 1;
 
       using SystemOperatorType = dealii::MatrixFreeOperators::
                                  LaplaceOperator<dim, mesh_deformation_fe_degree, mesh_deformation_fe_degree + 1, dim>;
@@ -1219,25 +1272,39 @@ namespace aspect
 
       SolverControl solver_control_mf(5 * rhs.size(),
                                       tolerance * rhs.l2_norm());
-      SolverCG<dealii::LinearAlgebra::distributed::Vector<double>> cg(solver_control_mf);
 
       mesh_velocity_constraints.set_zero(solution);
 
-      try
+      // check if matrix and/or RHS are zero
+      // note: to avoid a warning, we compare against numeric_limits<double>::min() instead of 0 here
+      if (rhs.l2_norm() <= std::numeric_limits<double>::min())
         {
-          cg.solve(laplace_operator, solution, rhs, preconditioner);
-          this->get_pcout() << "   Solving mesh displacement system... " << solver_control_mf.last_step() <<" iterations."<< std::endl;
+          this->get_pcout() << "   Skipping mesh displacement solve because RHS is zero." << std::endl;
+          solution = 0;
+          solver_control_mf.check(0, 0.0);
         }
-      catch (const std::exception &exc)
+      else
         {
-          // if the solver fails, report the error from processor 0 with some additional
-          // information about its location, and throw a quiet exception on all other
-          // processors
-          Utilities::throw_linear_solver_failure_exception("iterative mesh displacement solver",
-                                                           "MeshDeformationHandler::compute_mesh_displacements_gmg()",
-                                                           std::vector<SolverControl> {solver_control_mf},
-                                                           exc,
-                                                           this->get_mpi_communicator());
+          this->get_pcout() << "   Solving mesh displacement system... " << std::flush;
+
+          if (mesh_deformation_solver == "cg")
+            {
+              SolverCG<dealii::LinearAlgebra::distributed::Vector<double>> cg(solver_control_mf);
+              cg.solve(laplace_operator, solution, rhs, preconditioner);
+            }
+          else if (mesh_deformation_solver == "bicgstab")
+            {
+              SolverBicgstab<dealii::LinearAlgebra::distributed::Vector<double>> bicg(solver_control_mf);
+              bicg.solve(laplace_operator, solution, rhs, preconditioner);
+            }
+          else
+            {
+              SolverGMRES<dealii::LinearAlgebra::distributed::Vector<double>>::AdditionalData gmres_data(200);
+              SolverGMRES<dealii::LinearAlgebra::distributed::Vector<double>> gmres(solver_control_mf, gmres_data);
+              gmres.solve(laplace_operator, solution, rhs, preconditioner);
+            }
+
+          this->get_pcout() << solver_control_mf.last_step() << " iterations." << std::endl;
         }
 
       mesh_velocity_constraints.distribute(solution);
@@ -1398,6 +1465,22 @@ namespace aspect
       // cells are created.
       DoFRenumbering::hierarchical (mesh_deformation_dof_handler);
 
+      // If necessary reset the mapping of the simulator to something
+      // that captures mesh deformation in time. This has to
+      // happen after we distribute the mesh_deformation DoFs
+      // above.
+      if (dynamic_cast<const MappingQEulerian<dim, LinearAlgebra::Vector>*>(&(this->get_mapping())) == nullptr)
+        {
+          sim.mapping.reset (new MappingQEulerian<dim, LinearAlgebra::Vector> (this->get_geometry_model().has_curved_elements() ? 4 : 1,
+                                                                               mesh_deformation_dof_handler,
+                                                                               mesh_displacements));
+
+          for (auto &pm : sim.particle_managers)
+            pm.get_particle_handler().initialize(this->get_triangulation(),
+                                                 this->get_mapping(),
+                                                 pm.get_property_manager().get_n_property_components());
+        }
+
       if (this->is_stokes_matrix_free())
         {
           mesh_deformation_dof_handler.distribute_mg_dofs();
@@ -1434,7 +1517,7 @@ namespace aspect
           {
             object = std::make_unique<MappingQEulerian<dim,
             dealii::LinearAlgebra::distributed::Vector<double>>>(
-              /* degree = */ 1,
+              mesh_deformation_fe.degree,
               mesh_deformation_dof_handler,
               level_displacements[level],
               level);

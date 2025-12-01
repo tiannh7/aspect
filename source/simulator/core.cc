@@ -104,7 +104,7 @@ namespace aspect
      * of a curved mesh, and a cartesian mapping for a rectangular mesh that is
      * not deformed. Use a MappingQ1 if the initial mesh is deformed.
      * If mesh deformation is enabled, each mapping is later swapped out for a
-     * MappingQ1Eulerian, which allows for mesh deformation during the
+     * MappingQEulerian, which allows for mesh deformation during the
      * computation.
      */
     template <int dim>
@@ -208,6 +208,7 @@ namespace aspect
                      TimerOutput::never,
                      TimerOutput::wall_times),
     total_walltime_until_last_snapshot(0.),
+    last_timestep_wallclock_start(0.),
     last_checkpoint_id (numbers::invalid_unsigned_int),
     initial_topography_model(InitialTopographyModel::create_initial_topography_model<dim>(prm)),
     geometry_model (GeometryModel::create_geometry_model<dim>(prm)),
@@ -652,6 +653,12 @@ namespace aspect
     // then interpolate the current boundary velocities. copy constraints
     // into current_constraints and then add to current_constraints
     compute_current_constraints ();
+
+    // record wallclock time at the start of this timestep so that we can
+    // later compute the wallclock duration spent in the step when we
+    // print timing summaries. Use the total wallclock including any
+    // previous snapshot accumulation.
+    last_timestep_wallclock_start = wall_timer.wall_time()+total_walltime_until_last_snapshot;
 
     // If needed, construct sparsity patterns and matrices with the current
     // constraints. Of course we need to force assembly too.

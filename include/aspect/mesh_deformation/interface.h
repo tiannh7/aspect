@@ -402,6 +402,9 @@ namespace aspect
          */
         void compute_mesh_displacements_gmg ();
 
+        template <unsigned int mesh_deformation_fe_degree>
+        void compute_mesh_displacements_gmg_impl();
+
         /**
          * Set up the vector with initial displacements of the mesh
          * due to the initial topography, as supplied by the initial
@@ -556,12 +559,19 @@ namespace aspect
 
         bool include_initial_topography;
 
+
         /**
          * Stabilization parameter for the free surface. Should be between
          * zero and one. A value of zero means no stabilization.  See Kaus
          * et. al. 2010 for more details.
          */
         double surface_theta;
+
+        /**
+         * Name of the linear solver to use for the mesh deformation linear
+         * system. Valid options are: "cg", "gmres", "bicgstab".
+         */
+        std::string mesh_deformation_solver;
 
         /**
          * If required, store a mapping for each multigrid level.

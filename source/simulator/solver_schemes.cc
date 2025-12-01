@@ -166,12 +166,43 @@ namespace aspect
               computing_timer.leave_subsection("Interpolate prescribed temperature");
             }
 
-          assemble_advection_system (adv_field);
+          // Fast path: at the very first step with dt==0, the solution should not change.
+          // We can skip assembling and solving.
+          bool skip_solve = false;
+          if (timestep_number == 0 && time_step == 0.0)
+            {
+              skip_solve = true;
+            }
 
-          if (residual)
-            *residual = system_rhs.block(introspection.block_indices.temperature).l2_norm();
+          if (!skip_solve)
+            {
+              assemble_advection_system (adv_field);
 
-          current_residual = solve_advection(adv_field);
+              if (residual)
+                *residual = system_rhs.block(introspection.block_indices.temperature).l2_norm();
+
+              current_residual = solve_advection(adv_field);
+            }
+          else
+            {
+              // Just copy old solution to new solution (should be there already but to be safe)
+              const unsigned int block_idx = adv_field.block_index(introspection);
+              solution.block(block_idx) = old_solution.block(block_idx);
+
+              pcout << "   Skipping temperature solve because timestep is zero." << std::endl;
+
+              if (residual)
+                *residual = 0.0;
+              current_residual = 0.0;
+
+              // Signal successful solver and signal residual of zero
+              SolverControl solver_control(1000, 1e-10);
+              solver_control.check(0, 0.0);
+              signals.post_advection_solver(*this,
+                                            adv_field.is_temperature(),
+                                            adv_field.compositional_variable,
+                                            solver_control);
+            }
           break;
         }
 
@@ -278,12 +309,47 @@ namespace aspect
                   computing_timer.leave_subsection("Interpolate prescribed composition");
                 }
 
-              assemble_advection_system (adv_field);
+              // Fast path: at the very first step with dt==0, the solution should not change.
+              // We can skip assembling and solving.
+              bool skip_solve = false;
+              if (timestep_number == 0 && time_step == 0.0)
+                {
+                  skip_solve = true;
+                }
 
-              if (residual)
-                (*residual)[c] = system_rhs.block(introspection.block_indices.compositional_fields[c]).l2_norm();
+              bool assembled_this_field = false;
+              if (!skip_solve)
+                {
+                  assemble_advection_system (adv_field);
+                  assembled_this_field = true;
 
-              current_residual[c] = solve_advection(adv_field);
+                  if (residual)
+                    (*residual)[c] = system_rhs.block(introspection.block_indices.compositional_fields[c]).l2_norm();
+
+                  current_residual[c] = solve_advection(adv_field);
+                }
+              else
+                {
+                  // Just copy old solution to new solution (should be there already but to be safe)
+                  const unsigned int block_idx = adv_field.block_index(introspection);
+                  solution.block(block_idx) = old_solution.block(block_idx);
+
+                  pcout << "   Skipping "
+                        << introspection.name_for_compositional_index(adv_field.compositional_variable)
+                        << " solve because timestep is zero." << std::endl;
+
+                  if (residual)
+                    (*residual)[c] = 0.0;
+                  current_residual[c] = 0.0;
+
+                  // Signal successful solver and signal residual of zero
+                  SolverControl solver_control(1000, 1e-10);
+                  solver_control.check(0, 0.0);
+                  signals.post_advection_solver(*this,
+                                                adv_field.is_temperature(),
+                                                adv_field.compositional_variable,
+                                                solver_control);
+                }
 
               // When using the entropy formulation (See Dannberg et al., 2022 and the entropy_adiabat benchmark),
               // each components have their own entropy fields.
@@ -320,7 +386,7 @@ namespace aspect
 
               // Release the contents of the matrix block we used again:
               const unsigned int block_idx = adv_field.block_index(introspection);
-              if (adv_field.sparsity_pattern_block_index(introspection)!=block_idx)
+              if (assembled_this_field && adv_field.sparsity_pattern_block_index(introspection)!=block_idx)
                 system_matrix.block(block_idx, block_idx).clear();
 
               // No need to call the post_advection_solver signal here: It is
