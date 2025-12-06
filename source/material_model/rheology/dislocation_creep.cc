@@ -117,6 +117,26 @@ namespace aspect
         // std::sqrt(max_double).
         viscosity = std::min(viscosity, std::sqrt(std::numeric_limits<double>::max()));
 
+        // Apply per-composition min/max clamp for dislocation creep if provided
+        if (minimum_dislocation_viscosity.size() > 0 && maximum_dislocation_viscosity.size() > 0)
+          {
+            const double maximum_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                     phase_function_values,
+                                                     n_phase_transitions_per_composition,
+                                                     maximum_dislocation_viscosity,
+                                                     composition,
+                                                     MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+
+            const double minimum_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                     phase_function_values,
+                                                     n_phase_transitions_per_composition,
+                                                     minimum_dislocation_viscosity,
+                                                     composition,
+                                                     MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+
+            viscosity = std::min(std::max(viscosity, minimum_for_composition), maximum_for_composition);
+          }
+
         return viscosity;
       }
 
@@ -206,6 +226,12 @@ namespace aspect
                            "those corresponding to chemical compositions. "
                            "If only one value is given, then all use the same value. "
                            "Units: \\si{\\meter\\cubed\\per\\mole}.");
+        prm.declare_entry ("Minimum dislocation viscosity", "1e17", Patterns::Anything(),
+                           "Lower cutoff for the dislocation creep single-mechanism viscosity. Units: $\\text{Pa}\\text{s}$. "
+                           "List with as many components as active compositional fields. ");
+        prm.declare_entry ("Maximum dislocation viscosity", "1e28", Patterns::Anything(),
+                           "Upper cutoff for the dislocation creep single-mechanism viscosity. Units: $\\text{Pa}\\text{s}$. "
+                           "List with as many components as active compositional fields. ");
       }
 
 
@@ -254,6 +280,24 @@ namespace aspect
         options.property_name = "Activation volumes for dislocation creep";
         activation_volumes = Utilities::MapParsing::parse_map_to_double_array(prm.get("Activation volumes for dislocation creep"),
                                                                               options);
+
+        // Parse per-composition minimum/maximum dislocation viscosities
+        options.property_name = "Minimum dislocation viscosity";
+        minimum_dislocation_viscosity = Utilities::MapParsing::parse_map_to_double_array(prm.get("Minimum dislocation viscosity"),
+                                        options);
+        options.property_name = "Maximum dislocation viscosity";
+        maximum_dislocation_viscosity = Utilities::MapParsing::parse_map_to_double_array(prm.get("Maximum dislocation viscosity"),
+                                        options);
+
+        Assert(maximum_dislocation_viscosity.size() == minimum_dislocation_viscosity.size(),
+               ExcMessage("The input parameters 'Maximum dislocation viscosity' and 'Minimum dislocation viscosity' should have the same number of entries."));
+
+        Assert(maximum_dislocation_viscosity.size() == prefactors.size(),
+               ExcMessage("The input parameters specifying minimum/maximum dislocation viscosities should have the same number of entries as the dislocation prefactors."));
+
+        for (auto p1 = maximum_dislocation_viscosity.begin(), p2 = minimum_dislocation_viscosity.begin();
+             p1 != maximum_dislocation_viscosity.end(); ++p1, ++p2)
+          AssertThrow(*p1 >= *p2, ExcMessage("Maximum dislocation viscosity should be larger or equal to the minimum dislocation viscosity."));
 
         // Check that there are no prefactor entries set to zero,
         // for example because the entry is for a field

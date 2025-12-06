@@ -134,6 +134,26 @@ namespace aspect
         // std::sqrt(max_double).
         viscosity = std::min(viscosity, std::sqrt(std::numeric_limits<double>::max()));
 
+        // Apply per-composition min/max clamp for diffusion creep if provided
+        if (minimum_diffusion_viscosity.size() > 0 && maximum_diffusion_viscosity.size() > 0)
+          {
+            const double maximum_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                     phase_function_values,
+                                                     n_phase_transitions_per_composition,
+                                                     maximum_diffusion_viscosity,
+                                                     composition,
+                                                     MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+
+            const double minimum_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                     phase_function_values,
+                                                     n_phase_transitions_per_composition,
+                                                     minimum_diffusion_viscosity,
+                                                     composition,
+                                                     MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+
+            viscosity = std::min(std::max(viscosity, minimum_for_composition), maximum_for_composition);
+          }
+
         return viscosity;
       }
 
@@ -263,6 +283,13 @@ namespace aspect
                            "(possibly variable) grain size when "
                            "calling this rheology."
                            "Units: \\si{\\meter}.");
+
+        prm.declare_entry ("Minimum diffusion viscosity", "1e17", Patterns::Anything(),
+                           "Lower cutoff for the diffusion creep single-mechanism viscosity. Units: $\\text{Pa}\\text{s}$. "
+                           "List with as many components as active compositional fields. ");
+        prm.declare_entry ("Maximum diffusion viscosity", "1e28", Patterns::Anything(),
+                           "Upper cutoff for the diffusion creep single-mechanism viscosity. Units: $\\text{Pa}\\text{s}$. "
+                           "List with as many components as active compositional fields. ");
       }
 
 
@@ -317,6 +344,24 @@ namespace aspect
                                                                               options);
 
         fixed_grain_size = prm.get_double("Grain size");
+
+        // Parse per-composition minimum/maximum diffusion viscosities
+        options.property_name = "Minimum diffusion viscosity";
+        minimum_diffusion_viscosity = Utilities::MapParsing::parse_map_to_double_array(prm.get("Minimum diffusion viscosity"),
+                                                                                       options);
+        options.property_name = "Maximum diffusion viscosity";
+        maximum_diffusion_viscosity = Utilities::MapParsing::parse_map_to_double_array(prm.get("Maximum diffusion viscosity"),
+                                                                                       options);
+
+        Assert(maximum_diffusion_viscosity.size() == minimum_diffusion_viscosity.size(),
+               ExcMessage("The input parameters 'Maximum diffusion viscosity' and 'Minimum diffusion viscosity' should have the same number of entries."));
+
+        Assert(maximum_diffusion_viscosity.size() == prefactors.size(),
+               ExcMessage("The input parameters specifying minimum/maximum diffusion viscosities should have the same number of entries as the diffusion prefactors."));
+
+        for (auto p1 = maximum_diffusion_viscosity.begin(), p2 = minimum_diffusion_viscosity.begin();
+             p1 != maximum_diffusion_viscosity.end(); ++p1, ++p2)
+          AssertThrow(*p1 >= *p2, ExcMessage("Maximum diffusion viscosity should be larger or equal to the minimum diffusion viscosity."));
 
         // Check that there are no entries set to zero,
         // for example because the entry is for a field

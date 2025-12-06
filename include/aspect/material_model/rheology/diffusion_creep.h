@@ -201,6 +201,14 @@ namespace aspect
            * not take the grain size as additional argument.
            */
           double fixed_grain_size;
+
+          /**
+           * Per-composition minimum and maximum viscosities for diffusion creep.
+           * These allow clamping the single-mechanism diffusion viscosity before
+           * it is combined with other mechanisms.
+           */
+          std::vector<double> minimum_diffusion_viscosity;
+          std::vector<double> maximum_diffusion_viscosity;
       };
     }
   }

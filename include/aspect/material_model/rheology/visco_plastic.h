@@ -85,6 +85,35 @@ namespace aspect
     };
 
     /**
+     * Additional output fields for the creep viscosities to be added to the
+     * MaterialModel::MaterialModelOutputs structure and filled in the
+     * MaterialModel::Interface::evaluate() function.
+     */
+    template <int dim>
+    class CreepAdditionalOutputs : public NamedAdditionalMaterialOutputs<dim>
+    {
+      public:
+        CreepAdditionalOutputs(const unsigned int n_points);
+
+        std::vector<double> get_nth_output(const unsigned int idx) const override;
+
+        /**
+         * Current diffusion viscosities at the evaluation points passed to
+         * the instance of MaterialModel::Interface::evaluate() that fills
+         * the current object.
+         */
+        std::vector<double> current_diffusion_viscosities;
+
+        /**
+         * Current dislocation viscosities at the evaluation points passed to
+         * the instance of MaterialModel::Interface::evaluate() that fills
+         * the current object.
+         */
+        std::vector<double> current_dislocation_viscosities;
+
+    };
+
+    /**
      * A data structure with the output of calculate_isostrain_viscosities.
      */
     struct IsostrainViscosities
@@ -117,6 +146,16 @@ namespace aspect
        * MaterialModel::PrescribedDilation::dilation_rhs_term.
        */
       std::vector<double> dilation_rhs_terms;
+
+      /**
+       * The diffusion viscosities for each composition.
+       */
+      std::vector<double> diffusion_viscosities;
+
+      /**
+       * The dislocation viscosities for each composition.
+       */
+      std::vector<double> dislocation_viscosities;
     };
 
     namespace Rheology
@@ -199,6 +238,13 @@ namespace aspect
           create_plastic_outputs (MaterialModel::MaterialModelOutputs<dim> &out) const;
 
           /**
+           * Create the additional material model outputs object that contains the
+           * creep outputs.
+           */
+          void
+          create_creep_outputs (MaterialModel::MaterialModelOutputs<dim> &out) const;
+
+          /**
            * A function that fills the plastic additional output in the
            * MaterialModelOutputs object that is handed over, if it exists.
            * Does nothing otherwise.
@@ -209,6 +255,16 @@ namespace aspect
                                     const MaterialModel::MaterialModelInputs<dim> &in,
                                     MaterialModel::MaterialModelOutputs<dim> &out,
                                     const IsostrainViscosities &isostrain_viscosities) const;
+
+          /**
+           * A function that fills the creep additional output in the
+           * MaterialModelOutputs object that is handed over, if it exists.
+           * Does nothing otherwise.
+           */
+          void fill_creep_outputs(const unsigned int point_index,
+                                  const std::vector<double> &volume_fractions,
+                                  MaterialModel::MaterialModelOutputs<dim> &out,
+                                  const IsostrainViscosities &isostrain_viscosities) const;
 
           /**
            * Minimum strain rate used to stabilize the strain rate dependent rheology.

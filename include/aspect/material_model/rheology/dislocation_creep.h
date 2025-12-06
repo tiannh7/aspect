@@ -146,6 +146,12 @@ namespace aspect
            */
           std::vector<double> activation_volumes;
 
+          /**
+           * Per-composition minimum and maximum viscosities for dislocation creep.
+           */
+          std::vector<double> minimum_dislocation_viscosity;
+          std::vector<double> maximum_dislocation_viscosity;
+
       };
     }
   }

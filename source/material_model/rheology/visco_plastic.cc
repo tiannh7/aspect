@@ -82,6 +82,46 @@ namespace aspect
       return cohesions;
     }
 
+    namespace
+    {
+      std::vector<std::string> make_creep_additional_outputs_names()
+      {
+        std::vector<std::string> names;
+        names.emplace_back("current_diffusion_viscosity");
+        names.emplace_back("current_dislocation_viscosity");
+        return names;
+      }
+    }
+
+    template <int dim>
+    CreepAdditionalOutputs<dim>::CreepAdditionalOutputs(const unsigned int n_points)
+      : NamedAdditionalMaterialOutputs<dim>(make_creep_additional_outputs_names()),
+        current_diffusion_viscosities(n_points, numbers::signaling_nan<double>()),
+        current_dislocation_viscosities(n_points, numbers::signaling_nan<double>())
+    {}
+
+
+
+    template <int dim>
+    std::vector<double>
+    CreepAdditionalOutputs<dim>::get_nth_output(const unsigned int idx) const
+    {
+      AssertIndexRange (idx, 2);
+      switch (idx)
+        {
+          case 0:
+            return current_diffusion_viscosities;
+
+          case 1:
+            return current_dislocation_viscosities;
+
+          default:
+            AssertThrow(false, ExcInternalError());
+        }
+      // We will never get here, so just return something
+      return current_diffusion_viscosities;
+    }
+
 
 
     namespace Rheology
@@ -110,6 +150,8 @@ namespace aspect
         output_parameters.drucker_prager_parameters.resize(volume_fractions.size());
         output_parameters.dilation_lhs_terms.resize(volume_fractions.size(), numbers::signaling_nan<double>());
         output_parameters.dilation_rhs_terms.resize(volume_fractions.size(), numbers::signaling_nan<double>());
+        output_parameters.diffusion_viscosities.resize(volume_fractions.size(), numbers::signaling_nan<double>());
+        output_parameters.dislocation_viscosities.resize(volume_fractions.size(), numbers::signaling_nan<double>());
 
         // Assemble current and old stress tensor if elastic behavior is enabled
         SymmetricTensor<2, dim> stress_0_advected = numbers::signaling_nan<SymmetricTensor<2, dim>>();
@@ -199,6 +241,9 @@ namespace aspect
                    :
                    numbers::signaling_nan<double>());
 
+              // Store the diffusion viscosity for output
+              output_parameters.diffusion_viscosities[j] = viscosity_diffusion;
+
               // Step 1b: compute viscosity from dislocation creep law
               const double viscosity_dislocation
                 = (viscous_flow_law != diffusion
@@ -211,6 +256,9 @@ namespace aspect
                                                        n_phase_transitions_per_composition)
                    :
                    numbers::signaling_nan<double>());
+
+              // Store the dislocation viscosity for output
+              output_parameters.dislocation_viscosities[j] = viscosity_dislocation;
 
               // Step 1c: select which form of viscosity to use (diffusion, dislocation, their minimum or composite, or fk), and apply
               // pre-exponential weakening, if required.
@@ -940,6 +988,18 @@ namespace aspect
 
       template <int dim>
       void
+      ViscoPlastic<dim>::create_creep_outputs (MaterialModel::MaterialModelOutputs<dim> &out) const
+      {
+        if (out.template has_additional_output_object<CreepAdditionalOutputs<dim>>() == false)
+          {
+            const unsigned int n_points = out.n_evaluation_points();
+            out.additional_outputs.push_back(
+              std::make_unique<CreepAdditionalOutputs<dim>> (n_points));
+          }
+      }
+
+      template <int dim>
+      void
       ViscoPlastic<dim>::
       fill_plastic_outputs(const unsigned int i,
                            const std::vector<double> &volume_fractions,
@@ -984,6 +1044,34 @@ namespace aspect
           }
       }
 
+      template <int dim>
+      void
+      ViscoPlastic<dim>::
+      fill_creep_outputs(const unsigned int i,
+                         const std::vector<double> &volume_fractions,
+                         MaterialModel::MaterialModelOutputs<dim> &out,
+                         const IsostrainViscosities &isostrain_viscosities) const
+      {
+        const std::shared_ptr<CreepAdditionalOutputs<dim>> creep_out
+          = out.template get_additional_output_object<CreepAdditionalOutputs<dim>>();
+
+        if (creep_out != nullptr)
+          {
+            AssertThrow(!std::isnan(out.viscosities[0]),
+                        ExcMessage("The CreepAdditionalOutputs cannot be filled when the viscosity has not been computed."));
+
+            creep_out->current_diffusion_viscosities[i] = 0;
+            creep_out->current_dislocation_viscosities[i] = 0;
+
+            // average over the volume fractions
+            for (unsigned int j = 0; j < volume_fractions.size(); ++j)
+              {
+                creep_out->current_diffusion_viscosities[i] += volume_fractions[j] * isostrain_viscosities.diffusion_viscosities[j];
+                creep_out->current_dislocation_viscosities[i] += volume_fractions[j] * isostrain_viscosities.dislocation_viscosities[j];
+              }
+          }
+      }
+
     }
   }
 }
@@ -995,6 +1083,7 @@ namespace aspect
   {
 #define INSTANTIATE(dim) \
   template class PlasticAdditionalOutputs<dim>; \
+  template class CreepAdditionalOutputs<dim>; \
   \
   namespace Rheology \
   { \
