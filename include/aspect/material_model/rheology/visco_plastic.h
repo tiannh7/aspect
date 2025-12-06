@@ -77,6 +77,12 @@ namespace aspect
         std::vector<double> yield_stresses;
 
         /**
+         * The non-yielding (pre-plastic) viscosities at the evaluation points.
+         * This is the viscosity computed before any plastic rescaling is applied.
+         */
+        std::vector<double> non_yielding_viscosity;
+
+        /**
          * The area where the viscous stress exceeds the plastic yield stress,
          * and viscosity is rescaled back to the yield envelope.
          */
@@ -122,6 +128,12 @@ namespace aspect
        * The composition viscosity.
        */
       std::vector<double> composition_viscosities;
+
+      /**
+       * The composition non-yielding viscosities (viscosities before any
+       * plastic rescaling) for each composition/phase.
+       */
+      std::vector<double> composition_non_yielding_viscosities;
 
       /**
        * The composition yielding.
@@ -307,6 +319,15 @@ namespace aspect
            */
           std::vector<double> minimum_viscosity;
           std::vector<double> maximum_viscosity;
+
+          /**
+           * Minimum and maximum non-yielding viscosities used to limit the
+           * viscosity of the rheological element prior to any plastic yield
+           * rescaling. These parameters contain one value per composition and
+           * phase (potentially the same value).
+           */
+          std::vector<double> minimum_non_yielding_viscosity;
+          std::vector<double> maximum_non_yielding_viscosity;
 
           /**
            * Enumeration for selecting which type of viscous flow law to use.

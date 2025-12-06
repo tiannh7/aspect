@@ -40,6 +40,7 @@ namespace aspect
         names.emplace_back("current_cohesions");
         names.emplace_back("current_friction_angles");
         names.emplace_back("current_yield_stresses");
+        names.emplace_back("current_non_yielding_viscosity");
         names.emplace_back("plastic_yielding");
         return names;
       }
@@ -51,6 +52,7 @@ namespace aspect
         cohesions(n_points, numbers::signaling_nan<double>()),
         friction_angles(n_points, numbers::signaling_nan<double>()),
         yield_stresses(n_points, numbers::signaling_nan<double>()),
+        non_yielding_viscosity(n_points, numbers::signaling_nan<double>()),
         yielding(n_points, numbers::signaling_nan<double>())
     {}
 
@@ -60,7 +62,7 @@ namespace aspect
     std::vector<double>
     PlasticAdditionalOutputs<dim>::get_nth_output(const unsigned int idx) const
     {
-      AssertIndexRange (idx, 4);
+      AssertIndexRange (idx, 5);
       switch (idx)
         {
           case 0:
@@ -73,6 +75,9 @@ namespace aspect
             return yield_stresses;
 
           case 3:
+            return non_yielding_viscosity;
+
+          case 4:
             return yielding;
 
           default:
@@ -147,6 +152,7 @@ namespace aspect
         // Initialize or fill variables used to calculate viscosities
         output_parameters.composition_yielding.resize(volume_fractions.size(), false);
         output_parameters.composition_viscosities.resize(volume_fractions.size(), numbers::signaling_nan<double>());
+        output_parameters.composition_non_yielding_viscosities.resize(volume_fractions.size(), numbers::signaling_nan<double>());
         output_parameters.drucker_prager_parameters.resize(volume_fractions.size());
         output_parameters.dilation_lhs_terms.resize(volume_fractions.size(), numbers::signaling_nan<double>());
         output_parameters.dilation_rhs_terms.resize(volume_fractions.size(), numbers::signaling_nan<double>());
@@ -381,6 +387,29 @@ namespace aspect
               }
 
             // Step 3b: calculate non yielding (viscous or viscous + elastic) stress magnitude
+            // Apply bounds for the non-yielding (pre-plastic) viscosity so that the
+            // viscosity prior to any plastic rescaling can be limited independently
+            // from the final (post-plastic) viscosity bounds.
+            const double maximum_non_yielding_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                                  phase_function_values,
+                                                                  n_phase_transitions_per_composition,
+                                                                  maximum_non_yielding_viscosity,
+                                                                  j,
+                                                                  MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic
+                                                                );
+            const double minimum_non_yielding_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                                  phase_function_values,
+                                                                  n_phase_transitions_per_composition,
+                                                                  minimum_non_yielding_viscosity,
+                                                                  j,
+                                                                  MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic
+                                                                );
+
+            non_yielding_viscosity = std::min(std::max(non_yielding_viscosity, minimum_non_yielding_for_composition), maximum_non_yielding_for_composition);
+
+            // store the pre-yield (non-yielding) viscosity for this composition
+            output_parameters.composition_non_yielding_viscosities[j] = non_yielding_viscosity;
+
             const double non_yielding_stress = 2. * non_yielding_viscosity * effective_edot_ii;
 
             // Step 4a: calculate the strain-weakened friction and cohesion
@@ -711,6 +740,13 @@ namespace aspect
                            "compositional fields (material data is assumed to "
                            "be in order with the ordering of the fields). ");
 
+        prm.declare_entry ("Minimum non-yielding viscosity", "1e17", Patterns::Anything(),
+                           "Lower cutoff for the non-yielding (pre-plastic) viscosity. Units: $\\text{Pa}\\text{s}$. "
+                           "List with as many components as active compositional fields. ");
+        prm.declare_entry ("Maximum non-yielding viscosity", "1e28", Patterns::Anything(),
+                           "Upper cutoff for the non-yielding (pre-plastic) viscosity. Units: $\\text{Pa}\\text{s}$. "
+                           "List with as many components as active compositional fields. ");
+
         // Rheological parameters
         prm.declare_entry ("Viscosity averaging scheme", "harmonic",
                            Patterns::Selection("arithmetic|harmonic|geometric|maximum composition"),
@@ -870,6 +906,24 @@ namespace aspect
              p1 != maximum_viscosity.end(); ++p1, ++p2)
           AssertThrow(*p1 >= *p2, ExcMessage("Maximum viscosity should be larger or equal to the minimum viscosity."));
 
+        // Parse minimum/maximum non-yielding (pre-plastic) viscosities
+        options.property_name = "Minimum non-yielding viscosity";
+        minimum_non_yielding_viscosity = Utilities::MapParsing::parse_map_to_double_array(prm.get("Minimum non-yielding viscosity"),
+                                         options);
+        options.property_name = "Maximum non-yielding viscosity";
+        maximum_non_yielding_viscosity = Utilities::MapParsing::parse_map_to_double_array(prm.get("Maximum non-yielding viscosity"),
+                                         options);
+
+        Assert(maximum_non_yielding_viscosity.size() == minimum_non_yielding_viscosity.size(),
+               ExcMessage("The input parameters 'Maximum non-yielding viscosity' and 'Minimum non-yielding viscosity' should have the same number of entries."));
+
+        Assert(maximum_non_yielding_viscosity.size() == maximum_viscosity.size(),
+               ExcMessage("The input parameters specifying minimum/maximum viscosities should have the same number of entries."));
+
+        for (auto p1 = maximum_non_yielding_viscosity.begin(), p2 = minimum_non_yielding_viscosity.begin();
+             p1 != maximum_non_yielding_viscosity.end(); ++p1, ++p2)
+          AssertThrow(*p1 >= *p2, ExcMessage("Maximum non-yielding viscosity should be larger or equal to the minimum non-yielding viscosity."));
+
         viscosity_averaging = MaterialUtilities::parse_compositional_averaging_operation ("Viscosity averaging scheme",
                               prm);
 
@@ -1019,6 +1073,7 @@ namespace aspect
             plastic_out->cohesions[i] = 0;
             plastic_out->friction_angles[i] = 0;
             plastic_out->yield_stresses[i] = 0;
+            plastic_out->non_yielding_viscosity[i] = 0;
             plastic_out->yielding[i] = plastic_yielding ? 1 : 0;
 
             double pressure_for_plasticity = in.pressure[i];
@@ -1040,7 +1095,20 @@ namespace aspect
 
                 plastic_out->yield_stresses[i] += volume_fractions[j] * drucker_prager_plasticity.compute_yield_stress(pressure_for_plasticity,
                                                   drucker_prager_parameters);
+
+                // NOTE: accumulation is skipped here. We will compute the average
+                // using the same averaging scheme as the final `viscosity` below
+                // (so the non-yielding output visually matches `out.viscosities`).
+                // plastic_out->non_yielding_viscosity[i] += volume_fractions[j] *
+                //                                           isostrain_viscosities.composition_viscosities[j];
               }
+
+            // average non-yielding (pre-plastic) viscosities using the same averaging
+            // scheme as the final `viscosity` (harmonic by default)
+            plastic_out->non_yielding_viscosity[i] =
+              MaterialUtilities::average_value(volume_fractions,
+                                               isostrain_viscosities.composition_non_yielding_viscosities,
+                                               viscosity_averaging);
           }
       }
 
