@@ -610,6 +610,11 @@ namespace aspect
           std::vector<std::pair<double,std::string>> times_and_pvtu_names;
 
           /**
+           * A list of timestep numbers corresponding to the times_and_pvtu_names.
+           */
+          std::vector<unsigned int> timestep_numbers;
+
+          /**
            * A list of list of filenames, sorted by timestep, that correspond to
            * what has been created as output. This is used to create a descriptive
            * .visit file for the entire simulation.
