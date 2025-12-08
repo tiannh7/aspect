@@ -71,6 +71,7 @@
 #include <iostream>
 #include <locale>
 #include <string>
+#include <ctime>
 
 
 
@@ -234,6 +235,7 @@ namespace aspect
     timestep_number (numbers::invalid_unsigned_int),
     nonlinear_iteration (numbers::invalid_unsigned_int),
     nonlinear_solver_failures (0),
+    timestep_start_wall_time (0.0),
 
     triangulation (mpi_communicator, smoothing_flags<dim>(parameters.stokes_gmg_type == Parameters<dim>::StokesGMGType::global_coarsening), settings(parameters)),
 
@@ -628,6 +630,9 @@ namespace aspect
   Simulator<dim>::
   start_timestep ()
   {
+    // Record the wall time when this timestep starts
+    timestep_start_wall_time = wall_timer.wall_time();
+
     // first produce some output for the screen to show where we are
     {
       const char *unit = (parameters.convert_to_years ? "years" : "seconds");
@@ -1662,6 +1667,24 @@ namespace aspect
     // the current state of the statistics table to a file
     std::list<std::pair<std::string,std::string>>
     output_list = postprocess_manager.execute (statistics);
+
+    // Add system time and Time step wall time to statistics
+    if (Utilities::MPI::this_mpi_process(mpi_communicator)==0)
+      {
+        // Get current system time
+        std::time_t now = std::time(nullptr);
+        std::tm *now_tm = std::localtime(&now);
+        char time_str[20];
+        std::strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", now_tm);
+
+        // Calculate Time step wall time
+        double timestep_wall_time = wall_timer.wall_time() - timestep_start_wall_time;
+
+        statistics.add_value("System time (YYYY-MM-DD HH:MM:SS)", std::string(time_str));
+        statistics.add_value("Time step wall time (s)", timestep_wall_time);
+        statistics.set_precision("Time step wall time (s)", 3);
+        statistics.set_scientific("Time step wall time (s)", false);
+      }
 
     // if we are on processor zero, print to screen
     // whatever the postprocessors have generated

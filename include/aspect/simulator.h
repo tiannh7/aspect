@@ -1907,6 +1907,10 @@ namespace aspect
       unsigned int                                              nonlinear_iteration;
       unsigned int                                              nonlinear_solver_failures;
       /**
+       * Wall time when the current timestep started.
+       */
+      double                                                    timestep_start_wall_time;
+      /**
        * @}
        */
 
