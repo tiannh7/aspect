@@ -1825,6 +1825,15 @@ namespace aspect
       double total_walltime_until_last_snapshot;
 
       /**
+       * Wallclock time (seconds) at the start of the current timestep.
+       * This is used to compute the wallclock duration of the current
+       * timestep when printing timing summaries. Mutable so it can be
+       * updated from non-const contexts like start_timestep(), and read
+       * from const methods that print timing information.
+       */
+      mutable double last_timestep_wallclock_start;
+
+      /**
        * Checkpointing happens in rotating folders /restart/01/, /restart/02/,
        * etc.. This variable holds the last index used and as such should
        * contain the last valid checkpoint written.
