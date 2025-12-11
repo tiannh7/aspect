@@ -307,6 +307,14 @@ namespace aspect
           return Formulation::TemperatureEquation::Kind();
         }
       };
+
+      /**
+       * This struct contains parameters related to elasticity.
+       */
+      struct Elasticity
+      {
+        bool use_old_stress_fields;
+      };
     };
 
     /**
@@ -569,6 +577,7 @@ namespace aspect
     unsigned int                   max_nonlinear_iterations;
     unsigned int                   max_nonlinear_iterations_in_prerefinement;
     bool                           use_operator_splitting;
+    bool                           use_old_stress_fields;
     std::string                    world_builder_file;
     unsigned int                   n_particle_managers;
 
@@ -651,6 +660,11 @@ namespace aspect
      * 'real density'.
      */
     typename Formulation::TemperatureEquation::Kind formulation_temperature_equation;
+
+    /**
+     * Parameters related to elasticity formulation.
+     */
+    typename Formulation::Elasticity        elasticity;
 
     /**
      * This variable determines whether additional terms related to elastic forces

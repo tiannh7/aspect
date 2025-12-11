@@ -415,12 +415,16 @@ namespace aspect
         std::vector<unsigned int> old_stress_indices;
         stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_xx"));
         stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_yy"));
-        old_stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_xx_old"));
-        old_stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_yy_old"));
+        if (parameters.elasticity.use_old_stress_fields)
+          {
+            old_stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_xx_old"));
+            old_stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_yy_old"));
+          }
         if (dim == 2)
           {
             stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_xy"));
-            old_stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_xy_old"));
+            if (parameters.elasticity.use_old_stress_fields)
+              old_stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_xy_old"));
           }
         else if (dim == 3)
           {
@@ -428,10 +432,13 @@ namespace aspect
             stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_xy"));
             stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_xz"));
             stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_yz"));
-            old_stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_zz_old"));
-            old_stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_xy_old"));
-            old_stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_xz_old"));
-            old_stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_yz_old"));
+            if (parameters.elasticity.use_old_stress_fields)
+              {
+                old_stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_zz_old"));
+                old_stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_xy_old"));
+                old_stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_xz_old"));
+                old_stress_indices.push_back(introspection.compositional_index_for_name("ve_stress_yz_old"));
+              }
           }
 
 
@@ -444,8 +451,9 @@ namespace aspect
             // Overwrite the initial residual
             for (auto &c : stress_indices)
               (*residual)[c] = stress_initial_residual;
-            for (auto &c : old_stress_indices)
-              (*residual)[c] = 0.;
+            if (parameters.elasticity.use_old_stress_fields)
+              for (auto &c : old_stress_indices)
+                (*residual)[c] = 0.;
           }
       }
 

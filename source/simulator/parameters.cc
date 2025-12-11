@@ -753,6 +753,17 @@ namespace aspect
                          "Whether to include additional terms on the right-hand side of "
                          "the Stokes equation to set a given compression term specified in the "
                          "MaterialModel output PrescribedPlasticDilation.");
+
+      prm.enter_subsection ("Elasticity");
+      {
+        prm.declare_entry ("Use old stress fields", "true",
+                           Patterns::Bool(),
+                           "Whether to use the old stress fields for interpolation when computational "
+                           "and elastic timesteps differ. If false, assumes computational timestep equals "
+                           "elastic timestep, simplifying the model by not using the old stress fields. "
+                           "This parameter is only relevant when using viscoelastic material models.");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
 
@@ -1836,6 +1847,12 @@ namespace aspect
       enable_additional_stokes_rhs = prm.get_bool ("Enable additional Stokes RHS");
       enable_elasticity = prm.get_bool("Enable elasticity");
       enable_prescribed_dilation = prm.get_bool("Enable prescribed dilation");
+
+      prm.enter_subsection ("Elasticity");
+      {
+        elasticity.use_old_stress_fields = prm.get_bool("Use old stress fields");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection ();
 
