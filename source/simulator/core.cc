@@ -1675,13 +1675,27 @@ namespace aspect
             width = std::max<unsigned int> (width, p.first.size());
 
           for (const auto &p : output_list)
-            pcout << "     "
-                  << std::left
-                  << std::setw(width)
-                  << p.first
-                  << ' '
-                  << p.second
-                  << std::endl;
+            {
+              const std::string indent = std::string(5,' ') + std::string(width,' ') + " ";
+
+              // Ensure multi-line value strings align under the value column
+              std::string formatted = p.second;
+              std::size_t pos = 0;
+              while ((pos = formatted.find('\n', pos)) != std::string::npos)
+                {
+                  // Add indentation after each newline to align following lines
+                  formatted.insert(pos + 1, indent);
+                  pos += 1 + indent.size();
+                }
+
+              pcout << "     "
+                    << std::left
+                    << std::setw(width)
+                    << p.first
+                    << ' '
+                    << formatted
+                    << std::endl;
+            }
         }
 
         pcout << std::endl;
