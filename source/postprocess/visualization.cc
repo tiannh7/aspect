@@ -58,7 +58,13 @@ namespace aspect
       template <int dim>
       class BaseVariablePostprocessor: public DataPostprocessor<dim>, public SimulatorAccess<dim>
       {
+        private:
+          const bool output_in_spherical_coordinates;
+
         public:
+          BaseVariablePostprocessor(const bool output_in_spherical_coordinates)
+            : output_in_spherical_coordinates(output_in_spherical_coordinates)
+          {}
 
           void
           evaluate_vector_field(const DataPostprocessorInputs::Vector<dim> &input_data,
@@ -78,6 +84,54 @@ namespace aspect
                   else
                     computed_quantities[q][i] = input_data.solution_values[q][i];
                 }
+
+            // If requested, convert velocity vectors to spherical coordinates
+            if (output_in_spherical_coordinates &&
+                !input_data.evaluation_points.empty() &&
+                input_data.evaluation_points.size() == n_q_points)
+              {
+                for (unsigned int q=0; q<n_q_points; ++q)
+                  {
+                    // Find velocity components
+                    Tensor<1,dim> velocity;
+                    bool has_velocity = false;
+                    for (unsigned int i=0; i<computed_quantities[q].size(); ++i)
+                      if (this->introspection().component_masks.velocities[i])
+                        {
+                          velocity[i % dim] = computed_quantities[q][i];
+                          has_velocity = true;
+                        }
+
+                    if (has_velocity)
+                      {
+                        velocity = Utilities::Coordinates::cartesian_to_spherical_vector(velocity, input_data.evaluation_points[q]);
+                        for (unsigned int i=0; i<computed_quantities[q].size(); ++i)
+                          if (this->introspection().component_masks.velocities[i])
+                            computed_quantities[q][i] = velocity[i % dim];
+                      }
+
+                    // Also handle fluid velocity if present
+                    if (this->include_melt_transport())
+                      {
+                        Tensor<1,dim> fluid_velocity;
+                        bool has_fluid_velocity = false;
+                        for (unsigned int i=0; i<computed_quantities[q].size(); ++i)
+                          if (this->introspection().variable("fluid velocity").component_mask[i])
+                            {
+                              fluid_velocity[i % dim] = computed_quantities[q][i];
+                              has_fluid_velocity = true;
+                            }
+
+                        if (has_fluid_velocity)
+                          {
+                            fluid_velocity = Utilities::Coordinates::cartesian_to_spherical_vector(fluid_velocity, input_data.evaluation_points[q]);
+                            for (unsigned int i=0; i<computed_quantities[q].size(); ++i)
+                              if (this->introspection().variable("fluid velocity").component_mask[i])
+                                computed_quantities[q][i] = fluid_velocity[i % dim];
+                          }
+                      }
+                  }
+              }
           }
 
 
@@ -170,6 +224,9 @@ namespace aspect
       class SurfaceBaseVariablePostprocessor: public VisualizationPostprocessors::SurfaceOnlyVisualization<dim>, public BaseVariablePostprocessor<dim>
       {
         public:
+          SurfaceBaseVariablePostprocessor(const bool output_in_spherical_coordinates)
+            : BaseVariablePostprocessor<dim>(output_in_spherical_coordinates)
+          {}
 
           std::vector<std::string> get_names () const override
           {
@@ -190,11 +247,16 @@ namespace aspect
       template <int dim>
       class MeshDeformationPostprocessor: public DataPostprocessorVector<dim>, public SimulatorAccess<dim>
       {
+        private:
+          const bool output_in_spherical_coordinates;
+
         public:
           MeshDeformationPostprocessor (const std::string &name,
-                                        bool is_velocity)
+                                        bool is_velocity,
+                                        const bool output_in_spherical_coordinates)
             : DataPostprocessorVector<dim>(name,
                                            update_values),
+            output_in_spherical_coordinates(output_in_spherical_coordinates),
             is_velocity(is_velocity)
           {}
 
@@ -212,6 +274,24 @@ namespace aspect
             for (unsigned int q=0; q<n_q_points; ++q)
               for (unsigned int i=0; i<dim; ++i)
                 computed_quantities[q][i] = input_data.solution_values[q][i] * velocity_scaling_factor;
+
+            // If requested, convert velocity vectors to spherical coordinates
+            if (output_in_spherical_coordinates &&
+                !input_data.evaluation_points.empty() &&
+                input_data.evaluation_points.size() == n_q_points)
+              {
+                for (unsigned int q=0; q<n_q_points; ++q)
+                  {
+                    Tensor<1,dim> velocity;
+                    for (unsigned int i=0; i<dim; ++i)
+                      velocity[i] = computed_quantities[q][i];
+
+                    velocity = Utilities::Coordinates::cartesian_to_spherical_vector(velocity, input_data.evaluation_points[q]);
+
+                    for (unsigned int i=0; i<dim; ++i)
+                      computed_quantities[q][i] = velocity[i];
+                  }
+              }
           }
 
 
@@ -756,7 +836,7 @@ namespace aspect
       else if (increase_file_number)
         ++output_file_number;
 
-      BaseVariablePostprocessor<dim> base_variables;
+      BaseVariablePostprocessor<dim> base_variables(this->get_postprocess_manager().get_output_in_spherical_coordinates());
       base_variables.initialize_simulator (this->get_simulator());
 
       // Keep a list of the names of all output variables
@@ -769,7 +849,7 @@ namespace aspect
                                          base_variables.get_physical_units(),
                                          visualization_field_names_and_units);
 
-      SurfaceBaseVariablePostprocessor<dim> surface_base_variables;
+      SurfaceBaseVariablePostprocessor<dim> surface_base_variables(this->get_postprocess_manager().get_output_in_spherical_coordinates());
       if (output_base_variables_on_mesh_surface)
         {
           surface_base_variables.initialize_simulator (this->get_simulator());
@@ -800,7 +880,7 @@ namespace aspect
       // If there is a deforming mesh, also attach the mesh velocity object
       if ( this->get_parameters().mesh_deformation_enabled && output_mesh_velocity)
         {
-          mesh_deformation_velocity = std::make_unique<MeshDeformationPostprocessor<dim>>("mesh_velocity", true);
+          mesh_deformation_velocity = std::make_unique<MeshDeformationPostprocessor<dim>>("mesh_velocity", true, this->get_postprocess_manager().get_output_in_spherical_coordinates());
           mesh_deformation_velocity->initialize_simulator(this->get_simulator());
 
           // Insert mesh deformation variable names into set of all output field names
@@ -814,7 +894,7 @@ namespace aspect
 
       if ( this->get_parameters().mesh_deformation_enabled && output_mesh_displacement)
         {
-          mesh_deformation_displacement = std::make_unique<MeshDeformationPostprocessor<dim>>("mesh_displacement", false);
+          mesh_deformation_displacement = std::make_unique<MeshDeformationPostprocessor<dim>>("mesh_displacement", false, this->get_postprocess_manager().get_output_in_spherical_coordinates());
           mesh_deformation_displacement->initialize_simulator(this->get_simulator());
 
           // Insert mesh deformation variable names into set of all output field names

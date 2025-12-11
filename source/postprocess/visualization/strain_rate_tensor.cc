@@ -71,6 +71,24 @@ namespace aspect
                   = deviatoric_strain_rate[d][e];
           }
 
+        // If requested, convert the strain rate tensor to spherical coordinates
+        if (this->get_postprocess_manager().get_output_in_spherical_coordinates())
+          {
+            for (unsigned int q=0; q<n_quadrature_points; ++q)
+              {
+                SymmetricTensor<2,dim> strain_rate;
+                for (unsigned int d=0; d<dim; ++d)
+                  for (unsigned int e=0; e<dim; ++e)
+                    strain_rate[d][e] = computed_quantities[q][Tensor<2,dim>::component_to_unrolled_index(TableIndices<2>(d,e))];
+
+                strain_rate = aspect::Utilities::Coordinates::cartesian_to_spherical_tensor(strain_rate, input_data.evaluation_points[q]);
+
+                for (unsigned int d=0; d<dim; ++d)
+                  for (unsigned int e=0; e<dim; ++e)
+                    computed_quantities[q][Tensor<2,dim>::component_to_unrolled_index(TableIndices<2>(d,e))] = strain_rate[d][e];
+              }
+          }
+
         const auto &viz = this->get_postprocess_manager().template get_matching_active_plugin<Postprocess::Visualization<dim>>();
         if (!viz.output_pointwise_stress_and_strain())
           average_quantities(computed_quantities);

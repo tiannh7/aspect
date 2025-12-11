@@ -817,6 +817,125 @@ namespace aspect
 
 
 
+      template <int dim>
+      Tensor<1, dim>
+      cartesian_to_spherical_vector(const Tensor<1, dim> &cartesian_vector,
+                                    const Point<dim> &position)
+      {
+        Tensor<1, dim> spherical_vector;
+
+        const std::array<double, dim> r_phi_theta = cartesian_to_spherical_coordinates(position);
+
+        switch (dim)
+          {
+            case 2:
+            {
+              const double phi = r_phi_theta[1];
+
+              const double u_x = cartesian_vector[0];
+              const double u_y = cartesian_vector[1];
+
+              spherical_vector[0] = std::cos(phi)*u_x + std::sin(phi)*u_y; // u_r
+              spherical_vector[1] = -std::sin(phi)*u_x + std::cos(phi)*u_y; // u_phi
+
+              break;
+            }
+            case 3:
+            {
+              const double phi   = r_phi_theta[1];
+              const double theta = r_phi_theta[2];
+
+              const double u_x = cartesian_vector[0];
+              const double u_y = cartesian_vector[1];
+              const double u_z = cartesian_vector[2];
+
+              spherical_vector[0] = std::sin(theta)*std::cos(phi)*u_x
+                                    + std::sin(theta)*std::sin(phi)*u_y
+                                    + std::cos(theta)*u_z; // u_r
+              spherical_vector[1] = std::cos(theta)*std::cos(phi)*u_x
+                                    + std::cos(theta)*std::sin(phi)*u_y
+                                    - std::sin(theta)*u_z; // u_theta
+              spherical_vector[2] = -std::sin(phi)*u_x
+                                    + std::cos(phi)*u_y; // u_phi
+              break;
+            }
+
+            default:
+              Assert (false, ExcNotImplemented());
+              break;
+          }
+
+        return spherical_vector;
+      }
+
+
+
+      template <int dim>
+      SymmetricTensor<2, dim>
+      cartesian_to_spherical_tensor(const SymmetricTensor<2, dim> &cartesian_tensor,
+                                    const Point<dim> &position)
+      {
+        SymmetricTensor<2, dim> spherical_tensor;
+
+        const std::array<double, dim> r_phi_theta = cartesian_to_spherical_coordinates(position);
+
+        switch (dim)
+          {
+            case 2:
+            {
+              const double phi = r_phi_theta[1];
+
+              const double sin_p = std::sin(phi);
+              const double cos_p = std::cos(phi);
+
+              // Transformation matrix T (rows are spherical basis vectors in Cartesian coordinates)
+              Tensor<2, dim> T;
+              T[0][0] = cos_p;
+              T[0][1] = sin_p;
+              T[1][0] = -sin_p;
+              T[1][1] = cos_p;
+
+              // spherical_tensor = T * cartesian_tensor * T^T
+              spherical_tensor = symmetrize(T * cartesian_tensor * transpose(T));
+              break;
+            }
+            case 3:
+            {
+              const double phi   = r_phi_theta[1];
+              const double theta = r_phi_theta[2];
+
+              const double sin_t = std::sin(theta);
+              const double cos_t = std::cos(theta);
+              const double sin_p = std::sin(phi);
+              const double cos_p = std::cos(phi);
+
+              // Transformation matrix T (rows are spherical basis vectors in Cartesian coordinates)
+              Tensor<2, dim> T;
+              T[0][0] = sin_t * cos_p;
+              T[0][1] = sin_t * sin_p;
+              T[0][2] = cos_t;
+              T[1][0] = cos_t * cos_p;
+              T[1][1] = cos_t * sin_p;
+              T[1][2] = -sin_t;
+              T[2][0] = -sin_p;
+              T[2][1] = cos_p;
+              T[2][2] = 0;
+
+              // spherical_tensor = T * cartesian_tensor * T^T
+              spherical_tensor = symmetrize(T * cartesian_tensor * transpose(T));
+              break;
+            }
+
+            default:
+              Assert (false, ExcNotImplemented());
+              break;
+          }
+
+        return spherical_tensor;
+      }
+
+
+
       CoordinateSystem
       string_to_coordinate_system(const std::string &coordinate_system)
       {
@@ -3349,6 +3468,14 @@ namespace aspect
   template \
   Tensor<1,dim> Coordinates::spherical_to_cartesian_vector<dim>(const Tensor<1,dim> &spherical_vector, \
                                                                 const Point<dim> &position); \
+  \
+  template \
+  Tensor<1,dim> Coordinates::cartesian_to_spherical_vector<dim>(const Tensor<1,dim> &cartesian_vector, \
+                                                                const Point<dim> &position); \
+  \
+  template \
+  SymmetricTensor<2,dim> Coordinates::cartesian_to_spherical_tensor<dim>(const SymmetricTensor<2,dim> &cartesian_tensor, \
+                                                                         const Point<dim> &position); \
   \
   template \
   bool polygon_contains_point<dim>(const std::vector<Point<2>> &pointList, \

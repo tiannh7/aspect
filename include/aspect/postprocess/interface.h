@@ -25,6 +25,7 @@
 #include <aspect/global.h>
 #include <aspect/plugins.h>
 #include <aspect/simulator_access.h>
+#include <aspect/utilities.h>
 
 #include <memory>
 #include <deal.II/base/table_handler.h>
@@ -239,6 +240,12 @@ namespace aspect
         write_plugin_graph (std::ostream &output_stream);
 
         /**
+         * Return whether vector and tensor fields should be output in spherical coordinates.
+         */
+        bool
+        get_output_in_spherical_coordinates () const;
+
+        /**
          * Exception.
          */
         DeclException1 (ExcPostprocessorNameNotFound,
@@ -246,6 +253,12 @@ namespace aspect
                         << "Could not find entry <"
                         << arg1
                         << "> among the names of registered postprocessors.");
+
+      private:
+        /**
+         * Whether to output vector and tensor fields in spherical coordinates.
+         */
+        bool output_in_spherical_coordinates;
     };
 
 

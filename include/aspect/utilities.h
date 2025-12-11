@@ -439,6 +439,28 @@ namespace aspect
       spherical_to_cartesian_vector(const Tensor<1,dim> &spherical_vector,
                                     const dealii::Point<dim> &position);
 
+      /**
+       * Given a vector defined in Cartesian coordinates, return a vector
+       * defined in the radius, phi and theta directions. If the dimension is
+       * set to 2 theta is omitted. Position is given as a Point in Cartesian
+       * coordinates.
+       */
+      template <int dim>
+      Tensor<1,dim>
+      cartesian_to_spherical_vector(const Tensor<1,dim> &cartesian_vector,
+                                    const dealii::Point<dim> &position);
+
+      /**
+       * Given a symmetric tensor defined in Cartesian coordinates, return a
+       * symmetric tensor defined in the radius, phi and theta directions. If
+       * the dimension is set to 2 theta is omitted. Position is given as a
+       * Point in Cartesian coordinates.
+       */
+      template <int dim>
+      SymmetricTensor<2,dim>
+      cartesian_to_spherical_tensor(const SymmetricTensor<2,dim> &cartesian_tensor,
+                                    const dealii::Point<dim> &position);
+
 
       /**
        * Returns ellipsoidal coordinates of a Cartesian point. The returned array

@@ -107,6 +107,24 @@ namespace aspect
                   = stress[d][e];
           }
 
+        // If requested, convert the stress tensor to spherical coordinates
+        if (this->get_postprocess_manager().get_output_in_spherical_coordinates())
+          {
+            for (unsigned int q=0; q<n_quadrature_points; ++q)
+              {
+                SymmetricTensor<2,dim> stress;
+                for (unsigned int d=0; d<dim; ++d)
+                  for (unsigned int e=0; e<dim; ++e)
+                    stress[d][e] = computed_quantities[q][Tensor<2,dim>::component_to_unrolled_index(TableIndices<2>(d,e))];
+
+                stress = aspect::Utilities::Coordinates::cartesian_to_spherical_tensor(stress, input_data.evaluation_points[q]);
+
+                for (unsigned int d=0; d<dim; ++d)
+                  for (unsigned int e=0; e<dim; ++e)
+                    computed_quantities[q][Tensor<2,dim>::component_to_unrolled_index(TableIndices<2>(d,e))] = stress[d][e];
+              }
+          }
+
         // average the values if requested
         const auto &viz = this->get_postprocess_manager().template get_matching_active_plugin<Postprocess::Visualization<dim>>();
         if (!viz.output_pointwise_stress_and_strain())

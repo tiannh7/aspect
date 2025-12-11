@@ -21,6 +21,7 @@
 
 #include <aspect/postprocess/interface.h>
 #include <aspect/utilities.h>
+#include <aspect/geometry_model/interface.h>
 
 #include <typeinfo>
 
@@ -151,6 +152,13 @@ namespace aspect
                           "The following postprocessors are available:\n\n"
                           +
                           std::get<dim>(registered_plugins).get_description_string());
+
+        prm.declare_entry("Output in spherical coordinates",
+                          "false",
+                          Patterns::Bool(),
+                          "Whether to output vector and tensor fields in spherical coordinates "
+                          "instead of Cartesian coordinates. This affects postprocessors that "
+                          "output velocity, stress, or other vector/tensor quantities.");
       }
       prm.leave_subsection();
 
@@ -177,6 +185,16 @@ namespace aspect
                     ExcMessage("The list of strings for the parameter "
                                "'Postprocess/List of postprocessors' contains entries more than once. "
                                "This is not allowed. Please check your parameter file."));
+
+        output_in_spherical_coordinates = prm.get_bool("Output in spherical coordinates");
+
+        if (output_in_spherical_coordinates)
+          {
+            const auto coord_system = this->get_geometry_model().natural_coordinate_system();
+            AssertThrow(coord_system == Utilities::Coordinates::CoordinateSystem::spherical ||
+                        coord_system == Utilities::Coordinates::CoordinateSystem::ellipsoidal,
+                        ExcMessage("Output in spherical coordinates can only be used with spherical or ellipsoidal geometry models."));
+          }
       }
       prm.leave_subsection();
 
@@ -338,6 +356,14 @@ namespace aspect
       // keep the latter
       this->plugin_objects.swap (sorted_postprocessors);
       this->plugin_names.swap (sorted_names);
+    }
+
+
+    template <int dim>
+    bool
+    Manager<dim>::get_output_in_spherical_coordinates () const
+    {
+      return output_in_spherical_coordinates;
     }
 
 
