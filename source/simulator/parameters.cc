@@ -792,6 +792,11 @@ namespace aspect
                          "may have provided for each part of the boundary. You may want "
                          "to compare this with the documentation of the geometry model you "
                          "use in your model.");
+
+      prm.declare_entry ("Skip mesh deformation initial assembly", "false",
+                         Patterns::Bool(),
+                         "If set to true, skip assembling and solving the mesh deformation system in the initial time step. "
+                         "This can be used to save computational time if the initial mesh deformation is zero.");
     }
     prm.leave_subsection();
 
@@ -1314,6 +1319,11 @@ namespace aspect
                          "this way, then it does not evolve at all. Its values are "
                          "simply set to the initial conditions, and will then "
                          "never change.");
+
+      prm.declare_entry ("Skip initial temperature assembly", "false",
+                         Patterns::Bool(),
+                         "The flag to skip assembling and solving the temperature system in the initial time step. "
+                         "This can be used to save computational time if the initial temperature is constant.");
     }
     prm.leave_subsection();
 
@@ -1490,6 +1500,10 @@ namespace aspect
                          "at every point and the global maximum is determined. "
                          "Second, the compositional fields to be normalized are "
                          "divided by this maximum.");
+      prm.declare_entry ("Skip initial composition assembly", "false",
+                         Patterns::List(Patterns::Bool()),
+                         "A list of boolean flags for each compositional field to skip assembling and solving in the initial time step. "
+                         "This can be used to save computational time if certain fields have zero initial conditions and no sources.");
     }
     prm.leave_subsection ();
 
@@ -2041,6 +2055,8 @@ namespace aspect
         temperature_method = AdvectionFieldMethod::static_field;
       else
         AssertThrow(false,ExcNotImplemented());
+
+      skip_initial_temperature_assembly = prm.get_bool ("Skip initial temperature assembly");
     }
     prm.leave_subsection();
 
@@ -2107,6 +2123,10 @@ namespace aspect
           AssertThrow(field<n_compositional_fields,
                       ExcMessage("Invalid input parameter file: An entry in List of normalized fields is larger then the number of fields."));
         }
+
+      skip_initial_composition_assembly = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_bool(Utilities::split_string_list(prm.get ("Skip initial composition assembly"))),
+                                                                                  n_compositional_fields,
+                                                                                  "Skip initial composition assembly");
 
       // Process the compositional field types
       // There are three valid cases:
@@ -2399,6 +2419,8 @@ namespace aspect
       const std::vector<std::string> x_mesh_deformation_boundary_indicators
         = Utilities::split_string_list(prm.get("Mesh deformation boundary indicators"),";");
       mesh_deformation_enabled = !x_mesh_deformation_boundary_indicators.empty();
+
+      skip_mesh_deformation_initial_assembly = prm.get_bool("Skip mesh deformation initial assembly");
     }
     prm.leave_subsection();
 

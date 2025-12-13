@@ -817,6 +817,15 @@ namespace aspect
     template <int dim>
     void MeshDeformationHandler<dim>::compute_mesh_displacements()
     {
+      // Check if we should skip the initial assembly
+      if (this->simulator_is_past_initialization() == false && sim.parameters.skip_mesh_deformation_initial_assembly)
+        {
+          this->get_pcout() << "   Skipping mesh deformation initial assembly and solve." << std::endl;
+          mesh_displacements = 0;
+          fs_mesh_velocity = 0;
+          return;
+        }
+
       // This functions updates the mesh displacement of the whole
       // domain (stored in the vector mesh_displacements) based on
       // information on the boundary.
@@ -976,6 +985,15 @@ namespace aspect
     template <int dim>
     void MeshDeformationHandler<dim>::compute_mesh_displacements_gmg()
     {
+      // Check if we should skip the initial assembly
+      if (this->simulator_is_past_initialization() == false && sim.parameters.skip_mesh_deformation_initial_assembly)
+        {
+          this->get_pcout() << "   Skipping mesh deformation initial assembly and solve." << std::endl;
+          mesh_displacements = 0;
+          fs_mesh_velocity = 0;
+          return;
+        }
+
       // Same as compute_mesh_displacements, but using matrix-free GMG
       // instead of matrix-based AMG.
 
