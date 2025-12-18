@@ -591,7 +591,7 @@ namespace aspect
      */
     double                         temperature_solver_tolerance;
     double                         composition_solver_tolerance;
-    bool                           skip_initial_temperature_assembly;
+    int                            skip_temperature_assembly_at_timestep;
 
     // subsection: Advection solver parameters
     unsigned int                   advection_gmres_restart_length;
@@ -800,7 +800,7 @@ namespace aspect
      */
     std::vector<typename AdvectionFieldMethod::Kind> compositional_field_methods;
 
-    std::vector<bool>              skip_initial_composition_assembly;
+    std::vector<int>               skip_composition_assembly_at_timestep;
 
     /**
      * Map from compositional index to a pair "particle property", "component",
@@ -822,7 +822,7 @@ namespace aspect
      * @{
      */
     bool                           mesh_deformation_enabled;
-    bool                           skip_mesh_deformation_initial_assembly;
+    int                            skip_mesh_deformation_assembly_at_timestep;
     /**
      * @}
      */

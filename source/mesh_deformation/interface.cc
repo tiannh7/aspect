@@ -883,10 +883,12 @@ namespace aspect
     template <int dim>
     void MeshDeformationHandler<dim>::compute_mesh_displacements()
     {
-      // Check if we should skip the initial assembly
-      if (this->simulator_is_past_initialization() == false && sim.parameters.skip_mesh_deformation_initial_assembly)
+      // Check if we should skip the assembly
+      if (sim.parameters.skip_mesh_deformation_assembly_at_timestep < -1 ||
+          (sim.parameters.skip_mesh_deformation_assembly_at_timestep >= 0 && static_cast<int>(this->get_timestep_number()) == sim.parameters.skip_mesh_deformation_assembly_at_timestep))
         {
-          this->get_pcout() << "   Skipping mesh deformation initial assembly and solve." << std::endl;
+          std::string reason = (sim.parameters.skip_mesh_deformation_assembly_at_timestep < -1) ? "parameter set to skip all timesteps" : "timestep " + std::to_string(this->get_timestep_number());
+          this->get_pcout() << "   Skipping mesh deformation assembly and solve because " << reason << "." << std::endl;
           mesh_displacements = 0;
           fs_mesh_velocity = 0;
           return;
