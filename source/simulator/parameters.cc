@@ -793,10 +793,13 @@ namespace aspect
                          "to compare this with the documentation of the geometry model you "
                          "use in your model.");
 
-      prm.declare_entry ("Skip mesh deformation initial assembly", "false",
-                         Patterns::Bool(),
-                         "If set to true, skip assembling and solving the mesh deformation system in the initial time step. "
-                         "This can be used to save computational time if the initial mesh deformation is zero.");
+      prm.declare_entry ("Skip mesh deformation assembly at timestep", "-1",
+                         Patterns::Integer(),
+                         "The timestep at which to skip assembling and solving the mesh deformation system. "
+                         "If set to -1, never skip (always assemble and solve). "
+                         "If set to a value less than -1, skip at every timestep. "
+                         "If set to a non-negative value, skip only at that timestep. "
+                         "This can be used to save computational time when mesh deformation is not needed.");
     }
     prm.leave_subsection();
 
@@ -1320,10 +1323,13 @@ namespace aspect
                          "simply set to the initial conditions, and will then "
                          "never change.");
 
-      prm.declare_entry ("Skip initial temperature assembly", "false",
-                         Patterns::Bool(),
-                         "The flag to skip assembling and solving the temperature system in the initial time step. "
-                         "This can be used to save computational time if the initial temperature is constant.");
+      prm.declare_entry ("Skip temperature assembly at timestep", "-1",
+                         Patterns::Integer(),
+                         "The timestep at which to skip assembling and solving the temperature system. "
+                         "If set to -1, never skip (always assemble and solve). "
+                         "If set to a value less than -1, skip at every timestep. "
+                         "If set to a non-negative value, skip only at that timestep. "
+                         "This can be used to save computational time when the temperature does not need to be solved.");
     }
     prm.leave_subsection();
 
@@ -1500,10 +1506,13 @@ namespace aspect
                          "at every point and the global maximum is determined. "
                          "Second, the compositional fields to be normalized are "
                          "divided by this maximum.");
-      prm.declare_entry ("Skip initial composition assembly", "false",
-                         Patterns::List(Patterns::Bool()),
-                         "A list of boolean flags for each compositional field to skip assembling and solving in the initial time step. "
-                         "This can be used to save computational time if certain fields have zero initial conditions and no sources.");
+      prm.declare_entry ("Skip composition assembly at timestep", "-1",
+                         Patterns::List(Patterns::Integer()),
+                         "A list of timestep numbers for each compositional field at which to skip assembling and solving. "
+                         "If set to -1, never skip (always assemble and solve). "
+                         "If set to a value less than -1, skip at every timestep. "
+                         "If set to a non-negative value, skip only at that timestep. "
+                         "This can be used to save computational time when certain fields do not need to be solved.");
     }
     prm.leave_subsection ();
 
@@ -2056,7 +2065,7 @@ namespace aspect
       else
         AssertThrow(false,ExcNotImplemented());
 
-      skip_initial_temperature_assembly = prm.get_bool ("Skip initial temperature assembly");
+      skip_temperature_assembly_at_timestep = prm.get_integer ("Skip temperature assembly at timestep");
     }
     prm.leave_subsection();
 
@@ -2124,9 +2133,9 @@ namespace aspect
                       ExcMessage("Invalid input parameter file: An entry in List of normalized fields is larger then the number of fields."));
         }
 
-      skip_initial_composition_assembly = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_bool(Utilities::split_string_list(prm.get ("Skip initial composition assembly"))),
-                                                                                  n_compositional_fields,
-                                                                                  "Skip initial composition assembly");
+      skip_composition_assembly_at_timestep = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_int(Utilities::split_string_list(prm.get ("Skip composition assembly at timestep"))),
+                                                                                      n_compositional_fields,
+                                                                                      "Skip composition assembly at timestep");
 
       // Process the compositional field types
       // There are three valid cases:
@@ -2420,7 +2429,7 @@ namespace aspect
         = Utilities::split_string_list(prm.get("Mesh deformation boundary indicators"),";");
       mesh_deformation_enabled = !x_mesh_deformation_boundary_indicators.empty();
 
-      skip_mesh_deformation_initial_assembly = prm.get_bool("Skip mesh deformation initial assembly");
+      skip_mesh_deformation_assembly_at_timestep = prm.get_integer("Skip mesh deformation assembly at timestep");
     }
     prm.leave_subsection();
 

@@ -149,9 +149,11 @@ namespace aspect
         {
           const AdvectionField adv_field (AdvectionField::temperature());
 
-          if (timestep_number == 0 && parameters.skip_initial_temperature_assembly)
+          if (parameters.skip_temperature_assembly_at_timestep < -1 ||
+              (parameters.skip_temperature_assembly_at_timestep >= 0 && static_cast<int>(timestep_number) == parameters.skip_temperature_assembly_at_timestep))
             {
-              pcout << "   Skipping temperature assembly and solve because initial time step." << std::endl;
+              std::string reason = (parameters.skip_temperature_assembly_at_timestep < -1) ? "parameter set to skip all timesteps" : "timestep " + std::to_string(timestep_number);
+              pcout << "   Skipping temperature assembly and solve because " << reason << "." << std::endl;
               current_residual = 0.0;
               if (residual)
                 *residual = 0.0;
@@ -274,7 +276,16 @@ namespace aspect
                 }
 
               const std::string field_name = introspection.name_for_compositional_index(c);
-              if (!(timestep_number == 0 && parameters.skip_initial_composition_assembly[c]))
+              if (parameters.skip_composition_assembly_at_timestep[c] < -1 ||
+                  (parameters.skip_composition_assembly_at_timestep[c] >= 0 && static_cast<int>(timestep_number) == parameters.skip_composition_assembly_at_timestep[c]))
+                {
+                  std::string reason = (parameters.skip_composition_assembly_at_timestep[c] < -1) ? "parameter set to skip all timesteps" : "timestep " + std::to_string(timestep_number);
+                  pcout << "   Skipping " << field_name << " assembly and solve because " << reason << "." << std::endl;
+                  current_residual[c] = 0.0;
+                  if (residual)
+                    (*residual)[c] = 0.0;
+                }
+              else
                 {
                   assemble_advection_system (adv_field);
 
@@ -282,13 +293,6 @@ namespace aspect
                     (*residual)[c] = system_rhs.block(introspection.block_indices.compositional_fields[c]).l2_norm();
 
                   current_residual[c] = solve_advection(adv_field);
-                }
-              else
-                {
-                  pcout << "   Skipping " << field_name << " assembly and solve because initial time step." << std::endl;
-                  current_residual[c] = 0.0;
-                  if (residual)
-                    (*residual)[c] = 0.0;
                 }
 
               // When using the entropy formulation (See Dannberg et al., 2022 and the entropy_adiabat benchmark),
