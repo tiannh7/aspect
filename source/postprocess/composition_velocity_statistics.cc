@@ -50,6 +50,8 @@ namespace aspect
       std::vector<double> compositional_values(n_q_points);
 
       std::vector<double> local_velocity_square_integral(this->n_compositional_fields());
+      std::vector<double> local_min_velocity(this->n_compositional_fields(), std::numeric_limits<double>::max());
+      std::vector<double> local_max_velocity(this->n_compositional_fields(), std::numeric_limits<double>::lowest());
       std::vector<double> local_area_integral(this->n_compositional_fields());
 
       for (const auto &cell : this->get_dof_handler().active_cell_iterators())
@@ -68,8 +70,10 @@ namespace aspect
                   {
                     if (compositional_values[q] >= 0.5)
                       {
-                        local_velocity_square_integral[c] += ((velocity_values[q] * velocity_values[q]) *
-                                                              fe_values.JxW(q));
+                        const double vel_norm = velocity_values[q].norm();
+                        local_velocity_square_integral[c] += vel_norm * vel_norm * fe_values.JxW(q);
+                        local_min_velocity[c] = std::min(local_min_velocity[c], vel_norm);
+                        local_max_velocity[c] = std::max(local_max_velocity[c], vel_norm);
                         local_area_integral[c] += fe_values.JxW(q);
                       }
                   }
@@ -77,21 +81,33 @@ namespace aspect
           }
 
       std::vector<double> global_velocity_square_integral(local_velocity_square_integral.size());
-      Utilities::MPI::sum(local_velocity_square_integral, this->get_mpi_communicator(), global_velocity_square_integral);
+      std::vector<double> global_min_velocity(local_min_velocity.size());
+      std::vector<double> global_max_velocity(local_max_velocity.size());
       std::vector<double> global_area_integral(local_area_integral.size());
+      Utilities::MPI::sum(local_velocity_square_integral, this->get_mpi_communicator(), global_velocity_square_integral);
+      Utilities::MPI::min(local_min_velocity, this->get_mpi_communicator(), global_min_velocity);
+      Utilities::MPI::max(local_max_velocity, this->get_mpi_communicator(), global_max_velocity);
       Utilities::MPI::sum(local_area_integral, this->get_mpi_communicator(), global_area_integral);
 
       // compute the RMS velocity for each compositional field and for the selected compositional fields combined
       std::vector<double> vrms_per_composition(local_area_integral.size(), 0.0);
+      std::vector<double> vmin_per_composition(local_area_integral.size(), 0.0);
+      std::vector<double> vmax_per_composition(local_area_integral.size(), 0.0);
       double velocity_square_integral_selected_fields = 0., area_integral_selected_fields = 0.;
       for (unsigned int c = 0; c < this->n_compositional_fields(); ++c)
         {
           if (global_area_integral[c] > 0)
-            vrms_per_composition[c] = std::sqrt(global_velocity_square_integral[c]) /
-                                      std::sqrt(global_area_integral[c]);
+            {
+              vrms_per_composition[c] = std::sqrt(global_velocity_square_integral[c]) /
+                                        std::sqrt(global_area_integral[c]);
+              vmin_per_composition[c] = global_min_velocity[c];
+              vmax_per_composition[c] = global_max_velocity[c];
+            }
           else
             {
-              // leave the field at its initialization value zero
+              // leave the fields at their initialization value zero
+              global_min_velocity[c] = 0.0;
+              global_max_velocity[c] = 0.0;
             }
 
           const std::vector<std::string>::iterator selected_field_it = std::find(selected_fields.begin(), selected_fields.end(), this->introspection().name_for_compositional_index(c));
@@ -116,15 +132,19 @@ namespace aspect
       // finally produce something for the statistics file
       for (unsigned int c = 0; c < this->n_compositional_fields(); ++c)
         {
+          statistics.add_value("Minimal velocity (" + unit + ") for composition " + this->introspection().name_for_compositional_index(c),
+                               time_scaling * vmin_per_composition[c]);
+          statistics.add_value("Maximal velocity (" + unit + ") for composition " + this->introspection().name_for_compositional_index(c),
+                               time_scaling * vmax_per_composition[c]);
           statistics.add_value("RMS velocity (" + unit + ") for composition " + this->introspection().name_for_compositional_index(c),
                                time_scaling * vrms_per_composition[c]);
 
           // also make sure that the other columns filled by this object
           // all show up with sufficient accuracy and in scientific notation
-          const std::string columns[] = {"RMS velocity (" + unit + ") for composition " +
-                                         this->introspection().name_for_compositional_index(c)
+          const std::string columns[] = {"Minimal velocity (" + unit + ") for composition " + this->introspection().name_for_compositional_index(c),
+                                         "Maximal velocity (" + unit + ") for composition " + this->introspection().name_for_compositional_index(c),
+                                         "RMS velocity (" + unit + ") for composition " + this->introspection().name_for_compositional_index(c)
                                         };
-
           for (const auto &column : columns)
             {
               statistics.set_precision(column, 8);
@@ -147,18 +167,32 @@ namespace aspect
       std::ostringstream output;
       output.precision(4);
 
+      // Find the maximum length of composition names for alignment
+      unsigned int max_name_length = 0;
       for (unsigned int c = 0; c < this->n_compositional_fields(); ++c)
         {
-          output << time_scaling *vrms_per_composition[c]
-                 << " " << unit;
-          if (c < this->n_compositional_fields()-1)
-            output << " // ";
+          const std::string name = this->introspection().name_for_compositional_index(c);
+          max_name_length = std::max(max_name_length, static_cast<unsigned int>(name.length()));
+        }
+      // Also consider "combined selected fields" if selected_fields is not empty
+      if (selected_fields.size() > 0)
+        max_name_length = std::max(max_name_length, static_cast<unsigned int>(std::string("combined selected fields").length()));
+
+      for (unsigned int c = 0; c < this->n_compositional_fields(); ++c)
+        {
+          const std::string name = this->introspection().name_for_compositional_index(c);
+          output << "[" << c << " (\"" << name << "\")]" << std::string(max_name_length - name.length(), ' ') << ": "                 << time_scaling *vmin_per_composition[c] << " / "
+                 << time_scaling *vmax_per_composition[c] << " / "                 << time_scaling *vrms_per_composition[c] << " " << unit << "\n";
         }
       if (selected_fields.size() > 0)
-        output << " // " << time_scaling *vrms_selected_fields << " " << unit;
+        {
+          const std::string combined_name = "combined selected fields";
+          output << "[" << combined_name << "]" << std::string(max_name_length - combined_name.length(), ' ') << ": "
+                 << time_scaling *vrms_selected_fields << " " << unit << "\n";
+        }
 
-      return std::pair<std::string, std::string>("RMS velocity for compositions and combined selected fields:",
-                                                 output.str());
+      return std::pair<std::string, std::string> ("Composition velocity (min/max/rms):",
+                                                  output.str());
     }
 
 
@@ -169,7 +203,7 @@ namespace aspect
     {
       prm.enter_subsection("Postprocess");
       {
-        prm.enter_subsection("Composition velocity statistics");
+        prm.enter_subsection("Composition velocity");
         {
           prm.declare_entry("Names of selected compositional fields", "",
                             Patterns::List(Patterns::Anything()),
@@ -189,7 +223,7 @@ namespace aspect
     {
       prm.enter_subsection("Postprocess");
       {
-        prm.enter_subsection("Composition velocity statistics");
+        prm.enter_subsection("Composition velocity");
         {
           selected_fields = Utilities::split_string_list(prm.get("Names of selected compositional fields"));
 
@@ -223,7 +257,7 @@ namespace aspect
   namespace Postprocess
   {
     ASPECT_REGISTER_POSTPROCESSOR(CompositionVelocityStatistics,
-                                  "composition velocity statistics",
+                                  "Composition velocity",
                                   "A postprocessor that computes the root mean square velocity "
                                   "over the area spanned by each compositional field (i.e. where "
                                   "the field values are larger or equal to 0.5.")

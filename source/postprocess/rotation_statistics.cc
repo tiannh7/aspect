@@ -84,7 +84,12 @@ namespace aspect
         }
 
       std::ostringstream output;
-      output.precision(3);
+      output.precision(4);
+
+      // Find the maximum length of names for alignment
+      unsigned int max_name_length = 0;
+      for (const auto &name : names)
+        max_name_length = std::max(max_name_length, static_cast<unsigned int>(name.length()));
 
       if (dim == 2)
         {
@@ -93,10 +98,10 @@ namespace aspect
           add_scientific_column(names[2] + " (" + units[2] +")", rotation.scalar_rotation, statistics);
           add_scientific_column(names[3] + " (" + units[3] +")", surface_rotation.scalar_rotation, statistics);
 
-          output << rotation.scalar_angular_momentum << ' ' << units[0] << ", "
-                 << rotation.scalar_moment_of_inertia << ' ' << units[1] << ", "
-                 << rotation.scalar_rotation << ' ' << units[2] << ", "
-                 << surface_rotation.scalar_rotation << ' ' << units[3];
+          output << names[0] << std::string(max_name_length - names[0].length(), ' ') << ": " << rotation.scalar_angular_momentum << " " << units[0] << "\n";
+          output << names[1] << std::string(max_name_length - names[1].length(), ' ') << ": " << rotation.scalar_moment_of_inertia << " " << units[1] << "\n";
+          output << names[2] << std::string(max_name_length - names[2].length(), ' ') << ": " << rotation.scalar_rotation << " " << units[2] << "\n";
+          output << names[3] << std::string(max_name_length - names[3].length(), ' ') << ": " << surface_rotation.scalar_rotation << " " << units[3] << "\n";
         }
       else if (dim == 3)
         {
@@ -121,13 +126,13 @@ namespace aspect
           add_scientific_column(names[2] + " (" + units[2] +")", rotation.tensor_rotation.norm(), statistics);
           add_scientific_column(names[3] + " (" + units[3] +")", surface_rotation.tensor_rotation.norm(), statistics);
 
-          output << rotation.tensor_angular_momentum.norm() << ' ' << units[0] << ", "
-                 << scalar_moment_of_inertia << ' ' << units[1] << ", "
-                 << rotation.tensor_rotation.norm() << ' ' << units[2] << ", "
-                 << surface_rotation.tensor_rotation.norm() << ' ' << units[3];
+          output << names[0] << std::string(max_name_length - names[0].length(), ' ') << ": " << rotation.tensor_angular_momentum.norm() << " " << units[0] << "\n";
+          output << names[1] << std::string(max_name_length - names[1].length(), ' ') << ": " << scalar_moment_of_inertia << " " << units[1] << "\n";
+          output << names[2] << std::string(max_name_length - names[2].length(), ' ') << ": " << rotation.tensor_rotation.norm() << " " << units[2] << "\n";
+          output << names[3] << std::string(max_name_length - names[3].length(), ' ') << ": " << surface_rotation.tensor_rotation.norm() << " " << units[3] << "\n";
         }
 
-      return std::pair<std::string, std::string> (names[0]+ ", " + names[1] + ", " + names[2] + ", " + names[3] + ":",
+      return std::pair<std::string, std::string> ("Rotation statistics:",
                                                   output.str());
     }
 

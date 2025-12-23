@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2014 - 2019 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2023 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -18,10 +18,8 @@
   <http://www.gnu.org/licenses/>.
 */
 
-
-
-#ifndef _aspect_postprocess_velocity_boundary_statistics_h
-#define _aspect_postprocess_velocity_boundary_statistics_h
+#ifndef _aspect_postprocess_composition_viscosity_statistics_h
+#define _aspect_postprocess_composition_viscosity_statistics_h
 
 #include <aspect/postprocess/interface.h>
 #include <aspect/simulator_access.h>
@@ -31,22 +29,33 @@ namespace aspect
 {
   namespace Postprocess
   {
-
     /**
-     * A postprocessor that computes some statistics about the velocity at
-     * different parts of the boundary.
-     *
-     * @ingroup Postprocessing
+     * A postprocessor that computes statistics about the viscosity
+     * in compositional fields.
      */
     template <int dim>
-    class VelocityBoundaryStatistics : public Interface<dim>, public ::aspect::SimulatorAccess<dim>
+    class CompositionViscosityStatistics : public Interface<dim>, public ::aspect::SimulatorAccess<dim>
     {
       public:
         /**
-         * Evaluate the solution for some Velocity boundary.
+         * Evaluate the solution to compute statistics about the viscosity
+         * in compositional fields.
          */
         std::pair<std::string,std::string>
         execute (TableHandler &statistics) override;
+
+        /**
+         * Declare parameters for this postprocessor.
+         */
+        static
+        void
+        declare_parameters (ParameterHandler &prm);
+
+        /**
+         * Parse parameters for this postprocessor.
+         */
+        void
+        parse_parameters (ParameterHandler &prm) override;
     };
   }
 }

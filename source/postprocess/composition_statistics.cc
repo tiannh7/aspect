@@ -135,16 +135,25 @@ namespace aspect
 
       std::ostringstream output;
       output.precision(4);
+
+      // Find the maximum length of composition names for alignment
+      unsigned int max_name_length = 0;
       for (unsigned int c=0; c<this->n_compositional_fields(); ++c)
         {
-          output << global_min_compositions[c] << '/'
-                 << global_max_compositions[c] << '/'
-                 << global_compositional_integrals[c];
-          if (c+1 != this->n_compositional_fields())
-            output << " // ";
+          const std::string name = this->introspection().name_for_compositional_index(c);
+          max_name_length = std::max(max_name_length, static_cast<unsigned int>(name.length()));
         }
 
-      return std::pair<std::string, std::string> ("Compositions min/max/mass:",
+      for (unsigned int c=0; c<this->n_compositional_fields(); ++c)
+        {
+          const std::string name = this->introspection().name_for_compositional_index(c);
+          output << "[" << c << " (\"" << name << "\")]" << std::string(max_name_length - name.length(), ' ') << ": "
+                 << global_min_compositions[c]
+                 << " / " << global_max_compositions[c]
+                 << " / " << global_compositional_integrals[c] << "\n";
+        }
+
+      return std::pair<std::string, std::string> ("Compositions (min/max/mass):",
                                                   output.str());
     }
   }

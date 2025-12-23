@@ -153,13 +153,27 @@ namespace aspect
       const std::string units = (this->convert_output_to_years() == true) ? "m/year" : "m/s";
       const double unit_scale_factor = (this->convert_output_to_years() == true) ? year_in_seconds : 1.0;
       std::ostringstream screen_text;
-      unsigned int index = 0;
+      screen_text.precision(4);
+
+      // Find the maximum length of boundary names for alignment
+      unsigned int max_name_length = 0;
+      for (const auto boundary_id : boundary_indicators)
+        {
+          const std::string name = this->get_geometry_model().translate_id_to_symbol_name(boundary_id);
+          max_name_length = std::max(max_name_length, static_cast<unsigned int>(name.length()));
+        }
 
       for (std::map<types::boundary_id, double>::const_iterator
            max_velocity = global_max_vel.begin(), min_velocity = global_min_vel.begin(), rms = global_rms_vel.begin();
            max_velocity != global_max_vel.end() && min_velocity != global_min_vel.end() && rms != global_rms_vel.end();
-           ++max_velocity, ++min_velocity, ++rms, ++index)
+           ++max_velocity, ++min_velocity, ++rms)
         {
+          const std::string name = this->get_geometry_model().translate_id_to_symbol_name(max_velocity->first);
+          screen_text << "[" << max_velocity->first << " (\"" << name << "\")]" << std::string(max_name_length - name.length(), ' ') << ": "
+                      << min_velocity->second *unit_scale_factor << " / "
+                      << max_velocity->second *unit_scale_factor << " / "
+                      << rms->second *unit_scale_factor << " " << units << "\n";
+
           const std::string name_max = "Maximum velocity magnitude on boundary with indicator "
                                        + Utilities::int_to_string(max_velocity->first)
                                        + aspect::Utilities::parenthesize_if_nonempty(this->get_geometry_model()
@@ -186,16 +200,9 @@ namespace aspect
           statistics.set_scientific (name_min, true);
           statistics.set_precision (name_rms, 8);
           statistics.set_scientific (name_rms, true);
-
-          // finally have something for the screen
-          screen_text.precision(4);
-          screen_text << max_velocity->second *unit_scale_factor << ' ' << units << ", "
-                      << min_velocity->second *unit_scale_factor << ' ' << units << ", "
-                      << rms->second *unit_scale_factor << ' ' << units
-                      << (index == global_max_vel.size()-1 ? "" : ", ");
         }
 
-      return std::pair<std::string, std::string> ("Max, min, and rms velocity along boundary parts:",
+      return std::pair<std::string, std::string> ("Velocity boundary (min/max/rms):",
                                                   screen_text.str());
     }
   }
@@ -208,7 +215,7 @@ namespace aspect
   namespace Postprocess
   {
     ASPECT_REGISTER_POSTPROCESSOR(VelocityBoundaryStatistics,
-                                  "velocity boundary statistics",
+                                  "Velocity boundary",
                                   "A postprocessor that computes some statistics about "
                                   "the velocity along the boundaries. For each boundary "
                                   "indicator (see your geometry description for which boundary "

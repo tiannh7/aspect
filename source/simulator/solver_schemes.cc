@@ -1209,12 +1209,10 @@ namespace aspect
                                          nonlinear_iteration == 0 ? &initial_composition_residual : nullptr);
 
         // write the residual output in the same order as the solutions
-        pcout << "      Relative nonlinear residuals (temperature"
-              << (introspection.n_compositional_fields > 0 ? ", compositional fields" : "")
-              << "): "
-              << relative_temperature_residual;
+        pcout << "      Relative nonlinear residuals:" << std::endl;
+        pcout << "        Temperature: " << relative_temperature_residual << std::endl;
         for (unsigned int c=0; c<introspection.n_compositional_fields; ++c)
-          pcout << ", " << relative_composition_residual[c];
+          pcout << "        Compositional field " << c << " (" << introspection.name_for_compositional_index(c) << "): " << relative_composition_residual[c] << std::endl;
         pcout << std::endl;
 
         // Find the maximum residual of the individual equations
@@ -1312,12 +1310,11 @@ namespace aspect
                                     nonlinear_iteration == 0 ? &initial_stokes_residual : nullptr);
 
         // write the residual output in the same order as the solutions
-        pcout << "      Relative nonlinear residuals (temperature"
-              << (introspection.n_compositional_fields > 0 ? ", compositional fields" : "")
-              << ", Stokes system): " << relative_temperature_residual;
+        pcout << "      Relative nonlinear residuals:" << std::endl;
+        pcout << "        Temperature: " << relative_temperature_residual << std::endl;
         for (unsigned int c=0; c<introspection.n_compositional_fields; ++c)
-          pcout << ", " << relative_composition_residual[c];
-        pcout << ", " << relative_nonlinear_stokes_residual;
+          pcout << "        Compositional field " << c << " (" << introspection.name_for_compositional_index(c) << "): " << relative_composition_residual[c] << std::endl;
+        pcout << "        Stokes system: " << relative_nonlinear_stokes_residual << std::endl;
         pcout << std::endl;
 
         // Find the maximum residual of the individual equations
@@ -1461,12 +1458,12 @@ namespace aspect
           }
 
         // write the residual output in the same order as the solutions
-        pcout << "      Relative nonlinear residuals (temperature"
-              << (introspection.n_compositional_fields > 0 ? ", compositional fields" : "")
-              << ", Stokes system): " << relative_temperature_residual;
+        pcout << "      Relative nonlinear residuals:" << std::endl;
+        pcout << "        Temperature: " << relative_temperature_residual << std::endl;
         for (unsigned int c=0; c<introspection.n_compositional_fields; ++c)
-          pcout << ", " << relative_composition_residual[c];
-        pcout << ", " << dcr.residual/dcr.initial_residual << std::endl;
+          pcout << "        Compositional field " << c << " (" << introspection.name_for_compositional_index(c) << "): " << relative_composition_residual[c] << std::endl;
+        pcout << "        Stokes system: " << dcr.residual/dcr.initial_residual << std::endl;
+        pcout << std::endl;
 
         relative_residual = std::max(dcr.residual/dcr.initial_residual, max_residual);
         pcout << "      Relative nonlinear residual (total system) after nonlinear iteration " << nonlinear_iteration+1
