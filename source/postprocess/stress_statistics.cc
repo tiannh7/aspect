@@ -21,6 +21,8 @@
 
 #include <aspect/postprocess/stress_statistics.h>
 #include <aspect/material_model/rheology/elasticity.h>
+#include <aspect/utilities.h>
+#include <aspect/geometry_model/interface.h>
 
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/symmetric_tensor.h>
@@ -37,6 +39,16 @@ namespace aspect
     std::pair<std::string,std::string>
     StressStatistics<dim>::execute (TableHandler &statistics)
     {
+      const bool is_spherical_like = (this->get_geometry_model().natural_coordinate_system() != Utilities::Coordinates::cartesian);
+
+      const std::vector<std::string> stress_component_names_2d = is_spherical_like ?
+                                                                 std::vector<std::string> {"rr", "rp", "pp"} :
+                                                                 std::vector<std::string> {"xx", "xy", "yy"};
+
+      const std::vector<std::string> stress_component_names_3d = is_spherical_like ?
+                                                                 std::vector<std::string> {"rr", "rt", "rp", "tt", "tp", "pp"} :
+                                                                 std::vector<std::string> {"xx", "xy", "xz", "yy", "yz", "zz"};
+
       // Use a Gauss-Lobatto quadrature formula based on the velocity
       // degree for computing the min/max, both of which may lie on the
       // boundaries of the cell.
@@ -133,6 +145,12 @@ namespace aspect
                 // Calculate shear stress (deviatoric stress)
                 SymmetricTensor<2,dim> shear_stress = -deviatoric_stress;
 
+                if (is_spherical_like)
+                  {
+                    stress = Utilities::Coordinates::cartesian_to_spherical_tensor(stress, in.position[q]);
+                    shear_stress = - Utilities::Coordinates::cartesian_to_spherical_tensor(deviatoric_stress, in.position[q]);
+                  }
+
                 // Update integrals and min/max for each component
                 for (unsigned int i=0; i<SymmetricTensor<2,dim>::n_independent_components; ++i)
                   {
@@ -183,8 +201,8 @@ namespace aspect
 
       // Add statistics to table
       const std::vector<std::string> component_names = (dim == 2) ?
-                                                       std::vector<std::string> {"xx", "xy", "yy"} :
-                                                       std::vector<std::string> {"xx", "xy", "xz", "yy", "yz", "zz"};
+                                                       stress_component_names_2d :
+                                                       stress_component_names_3d;
 
       for (unsigned int i=0; i<SymmetricTensor<2,dim>::n_independent_components; ++i)
         {
