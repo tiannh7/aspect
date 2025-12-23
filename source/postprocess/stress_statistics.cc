@@ -39,15 +39,18 @@ namespace aspect
     std::pair<std::string,std::string>
     StressStatistics<dim>::execute (TableHandler &statistics)
     {
+      const bool output_spherical = this->get_postprocess_manager().get_output_in_spherical_coordinates();
+
+      // Component names depending on coordinate system
       const bool is_spherical_like = (this->get_geometry_model().natural_coordinate_system() != Utilities::Coordinates::cartesian);
-
-      const std::vector<std::string> stress_component_names_2d = is_spherical_like ?
-                                                                 std::vector<std::string> {"rr", "rp", "pp"} :
-                                                                 std::vector<std::string> {"xx", "xy", "yy"};
-
-      const std::vector<std::string> stress_component_names_3d = is_spherical_like ?
-                                                                 std::vector<std::string> {"rr", "rt", "rp", "tt", "tp", "pp"} :
-                                                                 std::vector<std::string> {"xx", "xy", "xz", "yy", "yz", "zz"};
+      const std::vector<std::string> stress_component_names_2d = (output_spherical || is_spherical_like)
+                                                                 ? std::vector<std::string> {"rr","pp","rp"}
+                                                                 :
+                                                                 std::vector<std::string> {"xx","yy","xy"};
+      const std::vector<std::string> stress_component_names_3d = (output_spherical || is_spherical_like)
+                                                                 ? std::vector<std::string> {"rr","tt","pp","rt","rp","tp"}
+                                                                 :
+                                                                 std::vector<std::string> {"xx","yy","zz","xy","xz","yz"};
 
       // Use a Gauss-Lobatto quadrature formula based on the velocity
       // degree for computing the min/max, both of which may lie on the
@@ -145,7 +148,7 @@ namespace aspect
                 // Calculate shear stress (deviatoric stress)
                 SymmetricTensor<2,dim> shear_stress = -deviatoric_stress;
 
-                if (is_spherical_like)
+                if (output_spherical || is_spherical_like)
                   {
                     stress = Utilities::Coordinates::cartesian_to_spherical_tensor(stress, in.position[q]);
                     shear_stress = - Utilities::Coordinates::cartesian_to_spherical_tensor(deviatoric_stress, in.position[q]);
