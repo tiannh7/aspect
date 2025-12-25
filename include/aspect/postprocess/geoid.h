@@ -78,6 +78,14 @@ namespace aspect
         double
         evaluate (const Point<dim> &) const;
 
+        /**
+         * Evaluate the gravity anomaly at a point. The evaluation point
+         * must be outside of the model domain, and it must be called
+         * after execute().
+         */
+        double
+        evaluate_gravity_anomaly (const Point<dim> &) const;
+
       private:
         /**
          * Parameters to set the maximum and minimum degree when computing geoid from spherical harmonics
@@ -180,6 +188,16 @@ namespace aspect
          * A vector to store the sine terms of the geoid anomaly spherical harmonic coefficients.
          */
         std::vector<double> geoid_coesin;
+
+        /**
+         * Surface gravity value used for gravity anomaly calculations.
+         */
+        double surface_gravity;
+
+        /**
+         * Outer radius of the model domain.
+         */
+        double outer_radius;
     };
   }
 }

@@ -449,7 +449,8 @@ namespace aspect
       // Get the value of the surface gravity acceleration from the gravity model.
       Point<dim> surface_point;
       surface_point[0] = outer_radius;
-      const double surface_gravity = this->get_gravity_model().gravity_vector(surface_point).norm();
+      surface_gravity = this->get_gravity_model().gravity_vector(surface_point).norm();
+      this->outer_radius = outer_radius;
 
       // Get the value of the universal gravitational constant.
       const double G = aspect::constants::big_g;
@@ -965,6 +966,35 @@ namespace aspect
             value += geoid_coecos[k] * val.first +
                      geoid_coesin[k] * val.second;
 
+          }
+      return value;
+    }
+
+    template <int dim>
+    double
+    Geoid<dim>::evaluate_gravity_anomaly (const Point<dim> &/*p*/) const
+    {
+      Assert(false, ExcNotImplemented());
+      return 0;
+    }
+
+    template <>
+    double
+    Geoid<3>::evaluate_gravity_anomaly (const Point<3> &p) const
+    {
+      const std::array<double,3> scoord = aspect::Utilities::Coordinates::cartesian_to_spherical_coordinates(p);
+      const double theta = scoord[2];
+      const double phi = scoord[1];
+      double value = 0.;
+
+      for (unsigned int ideg=min_degree, k=0; ideg < max_degree+1; ++ideg)
+        for (unsigned int iord = 0; iord < ideg+1; ++iord, ++k)
+          {
+            std::pair<double,double> val = aspect::Utilities::real_spherical_harmonic( ideg, iord, theta, phi );
+
+            // The conversion from geoid to gravity anomaly is given by gravity_anomaly = (l-1)*g/R_surface * geoid_anomaly
+            // based on Forte (2007) equation [97].
+            value += (geoid_coecos[k] * val.first + geoid_coesin[k] * val.second) * (ideg - 1) * surface_gravity / outer_radius;
           }
       return value;
     }
