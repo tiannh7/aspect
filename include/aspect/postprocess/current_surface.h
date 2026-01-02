@@ -24,6 +24,7 @@
 
 #include <aspect/postprocess/interface.h>
 #include <aspect/simulator_access.h>
+#include <deal.II/base/function.h>
 #include <deal.II/base/function_lib.h>
 
 
@@ -76,18 +77,31 @@ namespace aspect
       private:
         /**
          * Store the coordinates for the surface function.
+         * Used for 2D models where the surface is 1D and can be sorted.
          */
         std::array<std::vector<double>, dim-1> coordinates;
 
         /**
          * Store a data table of the elevations.
+         * Used for 2D models.
          */
         Table<dim-1, double> data_table;
 
         /**
+         * Store scattered coordinates for 3D models where the surface is 2D
+         * and might not be a tensor product grid.
+         */
+        std::vector<Point<dim-1>> scattered_coordinates;
+
+        /**
+         * Store values for scattered data.
+         */
+        std::vector<double> scattered_values;
+
+        /**
          * Function to store and interpolate surface topography.
          */
-        std::unique_ptr<Functions::InterpolatedTensorProductGridData<dim-1>> surface_function;
+        std::unique_ptr<Function<dim-1>> surface_function;
     };
   }
 }
