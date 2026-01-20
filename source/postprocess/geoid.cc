@@ -202,6 +202,7 @@ namespace aspect
                                       this->get_fe(),
                                       quadrature_formula_face,
                                       update_values |
+                                      update_normal_vectors |
                                       update_quadrature_points |
                                       update_JxW_values);
 
@@ -264,22 +265,37 @@ namespace aspect
                   {
                     if (use_free_surface_topography == true)
                       {
+                        // Get the boundary traction manager once to avoid repeated lookups.
+                        const auto &boundary_traction_manager = this->get_boundary_traction_manager();
+
+                        // Get the set of boundaries that have prescribed traction.
+                        const std::set<types::boundary_id> &prescribed_traction_boundary_indicators =
+                          boundary_traction_manager.get_prescribed_boundary_traction_indicators();
+
+                        const bool has_active_boundary_traction = (boundary_traction_manager.get_active_plugins().empty() == false);
+
                         for (unsigned int q=0; q<fe_face_values.n_quadrature_points; ++q)
                           {
                             const Point<3> current_position = fe_face_values.quadrature_point(q);
                             double topography = this->get_geometry_model().height_above_reference_surface(current_position);
 
-                            // Also consider the contribution of the boundary traction to the topography.
-                            const Tensor<1,3> traction = this->get_boundary_traction_manager().boundary_traction(
-                                                           cell->face(face_idx)->boundary_id(), fe_face_values.quadrature_point(q), fe_face_values.normal_vector(q));
-                            const double normal_traction = traction * fe_face_values.normal_vector(q);
-
-                            if (std::abs(normal_traction) > 1e-10)
+                            // Also consider the contribution of the boundary traction to the topography
+                            // if there is any traction prescribed on this boundary and a plugin is active.
+                            if (has_active_boundary_traction &&
+                                prescribed_traction_boundary_indicators.find(cell->face(face_idx)->boundary_id()) !=
+                                prescribed_traction_boundary_indicators.end())
                               {
-                                const double gravity = this->get_gravity_model().gravity_vector(current_position).norm();
-                                const double delta_rho = top_layer_average_density - this->density_above;
-                                if (std::abs(delta_rho) > 0.0)
-                                  topography -= normal_traction / (gravity * delta_rho);
+                                const Tensor<1,3> traction = boundary_traction_manager.boundary_traction(
+                                                               cell->face(face_idx)->boundary_id(), fe_face_values.quadrature_point(q), fe_face_values.normal_vector(q));
+                                const double normal_traction = traction * fe_face_values.normal_vector(q);
+
+                                if (std::abs(normal_traction) > 1e-10)
+                                  {
+                                    const double gravity = this->get_gravity_model().gravity_vector(current_position).norm();
+                                    const double delta_rho = top_layer_average_density - this->density_above;
+                                    if (std::abs(delta_rho) > 0.0)
+                                      topography -= normal_traction / (gravity * delta_rho);
+                                  }
                               }
 
                             surface_stored_values.emplace_back (current_position, std::make_pair(fe_face_values.JxW(q), topography));
