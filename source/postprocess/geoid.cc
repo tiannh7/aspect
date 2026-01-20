@@ -25,6 +25,7 @@
 #include <aspect/postprocess/geoid.h>
 #include <aspect/postprocess/dynamic_topography.h>
 #include <aspect/postprocess/boundary_densities.h>
+#include <aspect/boundary_traction/interface.h>
 #include <aspect/geometry_model/spherical_shell.h>
 
 #include <deal.II/base/quadrature_lib.h>
@@ -266,7 +267,21 @@ namespace aspect
                         for (unsigned int q=0; q<fe_face_values.n_quadrature_points; ++q)
                           {
                             const Point<3> current_position = fe_face_values.quadrature_point(q);
-                            const double topography = this->get_geometry_model().height_above_reference_surface(current_position);
+                            double topography = this->get_geometry_model().height_above_reference_surface(current_position);
+
+                            // Also consider the contribution of the boundary traction to the topography.
+                            const Tensor<1,3> traction = this->get_boundary_traction_manager().boundary_traction(
+                                                           cell->face(face_idx)->boundary_id(), fe_face_values.quadrature_point(q), fe_face_values.normal_vector(q));
+                            const double normal_traction = traction * fe_face_values.normal_vector(q);
+
+                            if (std::abs(normal_traction) > 1e-10)
+                              {
+                                const double gravity = this->get_gravity_model().gravity_vector(current_position).norm();
+                                const double delta_rho = top_layer_average_density - this->density_above;
+                                if (std::abs(delta_rho) > 0.0)
+                                  topography -= normal_traction / (gravity * delta_rho);
+                              }
+
                             surface_stored_values.emplace_back (current_position, std::make_pair(fe_face_values.JxW(q), topography));
                           }
                       }
