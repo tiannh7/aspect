@@ -121,13 +121,30 @@ namespace aspect
             // after the first advection nonlinear iteration,
             // which is when the viscosity matters for the Stokes system.
             const std::vector<unsigned int> &stress_field_indices = this->introspection().get_indices_for_fields_of_type(CompositionalFieldDescription::stress);
-            stress_0_advected = (Utilities::Tensors::to_symmetric_tensor<dim>(&in.composition[i][stress_field_indices[0]],
-                                                                              &in.composition[i][stress_field_indices[0]]+SymmetricTensor<2, dim>::n_independent_components));
+            const unsigned int n_stress_components = SymmetricTensor<2, dim>::n_independent_components;
+            AssertThrow(stress_field_indices.size() >= n_stress_components,
+                        ExcMessage("The visco-plastic material model expects at least one full set of stress fields."));
 
-            // The old stresses are only changed in the operator splitting step and have been advected into
-            // the current timestep. They are stored in the second set of n_independent_components.
-            stress_old = (Utilities::Tensors::to_symmetric_tensor<dim>(&in.composition[i][stress_field_indices[SymmetricTensor<2, dim>::n_independent_components]],
-                                                                       &in.composition[i][stress_field_indices[SymmetricTensor<2, dim>::n_independent_components]]+SymmetricTensor<2, dim>::n_independent_components));
+            stress_0_advected = (Utilities::Tensors::to_symmetric_tensor<dim>(&in.composition[i][stress_field_indices[0]],
+                                                                              &in.composition[i][stress_field_indices[0]]+n_stress_components));
+
+            const bool use_old_stress_fields = this->get_parameters().elasticity.use_old_stress_fields;
+            if (use_old_stress_fields)
+              {
+                AssertThrow(stress_field_indices.size() >= 2 * n_stress_components,
+                            ExcMessage("The visco-plastic material model is configured to use old stress fields,"
+                                       " but only one set of stress components was provided."));
+
+                // The old stresses are only changed in the operator splitting step and have been advected into
+                // the current timestep. They are stored in the second set of n_independent_components.
+                stress_old = (Utilities::Tensors::to_symmetric_tensor<dim>(&in.composition[i][stress_field_indices[n_stress_components]],
+                                                                           &in.composition[i][stress_field_indices[n_stress_components]]+n_stress_components));
+              }
+            else
+              {
+                // When old stress fields are disabled, use a zero tensor to avoid out-of-bounds access.
+                stress_old = SymmetricTensor<2, dim>();
+              }
 
 
             // Average the compositional contributions to elastic_shear_moduli here and use
