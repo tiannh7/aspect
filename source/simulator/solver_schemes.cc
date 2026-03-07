@@ -146,34 +146,29 @@ namespace aspect
     switch (parameters.temperature_method)
       {
         case Parameters<dim>::AdvectionFieldMethod::fem_field:
-        case Parameters<dim>::AdvectionFieldMethod::prescribed_field_with_diffusion:
         {
           const AdvectionField adv_field (AdvectionField::temperature());
 
-          // if this is a prescribed field with diffusion, we first have to copy the material model
-          // outputs into the prescribed field before we assemble and solve the equation
-          if (parameters.temperature_method == Parameters<dim>::AdvectionFieldMethod::prescribed_field_with_diffusion)
+          if (timestep_number == 0 && parameters.skip_initial_temperature_assembly)
             {
-              computing_timer.enter_subsection("Interpolate prescribed temperature");
-
-              interpolate_material_output_into_advection_field({adv_field});
-
-              // Also set the old_solution block to the prescribed field. The old
-              // solution is the one that is used to assemble the diffusion system in
-              // assemble_advection_system() for this solver scheme.
-              old_solution.block(adv_field.block_index(introspection)) = solution.block(adv_field.block_index(introspection));
-
-              computing_timer.leave_subsection("Interpolate prescribed temperature");
+              pcout << "   Skipping temperature assembly and solve because initial time step." << std::endl;
+              current_residual = 0.0;
+              if (residual)
+                *residual = 0.0;
             }
+          else
+            {
+              assemble_advection_system (adv_field);
 
-          assemble_advection_system (adv_field);
+              if (residual)
+                *residual = system_rhs.block(introspection.block_indices.temperature).l2_norm();
 
-          if (residual)
-            *residual = system_rhs.block(introspection.block_indices.temperature).l2_norm();
-
-          current_residual = solve_advection(adv_field);
+              current_residual = solve_advection(adv_field);
+            }
           break;
         }
+
+        case Parameters<dim>::AdvectionFieldMethod::prescribed_field_with_diffusion:
 
         case Parameters<dim>::AdvectionFieldMethod::prescribed_field:
         {
@@ -289,12 +284,23 @@ namespace aspect
                   computing_timer.leave_subsection("Interpolate prescribed composition");
                 }
 
-              assemble_advection_system (adv_field);
+              const std::string field_name = introspection.name_for_compositional_index(c);
+              if (!(timestep_number == 0 && parameters.skip_initial_composition_assembly[c]))
+                {
+                  assemble_advection_system (adv_field);
 
-              if (residual)
-                (*residual)[c] = system_rhs.block(introspection.block_indices.compositional_fields[c]).l2_norm();
+                  if (residual)
+                    (*residual)[c] = system_rhs.block(introspection.block_indices.compositional_fields[c]).l2_norm();
 
-              current_residual[c] = solve_advection(adv_field);
+                  current_residual[c] = solve_advection(adv_field);
+                }
+              else
+                {
+                  pcout << "   Skipping " << field_name << " assembly and solve because initial time step." << std::endl;
+                  current_residual[c] = 0.0;
+                  if (residual)
+                    (*residual)[c] = 0.0;
+                }
 
               // When using the entropy formulation (See Dannberg et al., 2022 and the entropy_adiabat benchmark),
               // each components have their own entropy fields.
