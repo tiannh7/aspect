@@ -1682,7 +1682,7 @@ namespace aspect
         std::time_t now = std::time(nullptr);
         std::tm *now_tm = std::localtime(&now);
         char time_str[20];
-        std::strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", now_tm);
+        std::strftime(time_str, sizeof(time_str), "%Y-%m-%dT%H:%M:%S", now_tm);
 
         // Calculate Time step wall time
         double timestep_wall_time = wall_timer.wall_time() - timestep_start_wall_time;
