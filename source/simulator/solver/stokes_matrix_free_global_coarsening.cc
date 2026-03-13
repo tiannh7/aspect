@@ -762,6 +762,21 @@ namespace aspect
             }
         }
     }
+
+    if (print_details)
+      {
+        const double mb = 1024.0 * 1024.0;
+        std::size_t level_cell_data_mem = 0;
+        for (unsigned int level=0; level<=level_cell_data.max_level(); ++level)
+          level_cell_data_mem += level_cell_data[level].memory_consumption();
+
+        this->get_pcout()
+          << "     [MF-MEM] after evaluate_material_model: "
+          << "active_cell_data=" << active_cell_data.memory_consumption()/mb << " MB, "
+          << "level_cell_data=" << level_cell_data_mem/mb << " MB, "
+          << "cell_data_total=" << get_cell_data_memory_consumption()/mb << " MB"
+          << std::endl;
+      }
   }
 
 
@@ -1842,6 +1857,19 @@ namespace aspect
         });
       }
     }
+
+    if (print_details)
+      {
+        const double mb = 1024.0 * 1024.0;
+        this->get_pcout()
+          << "     [MF-MEM] after setup_dofs: "
+          << "dof_handler=" << get_dof_handler_memory_consumption()/mb << " MB, "
+          << "constraints=" << get_constraint_memory_consumption()/mb << " MB, "
+          << "mg_transfer=" << get_mg_transfer_memory_consumption()/mb << " MB, "
+          << "cell_data=" << get_cell_data_memory_consumption()/mb << " MB, "
+          << "matrix_free_objects=" << matrix_free_objects.size()
+          << std::endl;
+      }
   }
 
 
@@ -1904,7 +1932,7 @@ namespace aspect
   {
     std::size_t total = active_cell_data.memory_consumption();
 
-    for (unsigned int level=0; level<level_cell_data.max_level(); ++level)
+    for (unsigned int level=0; level<=level_cell_data.max_level(); ++level)
       total += level_cell_data[level].memory_consumption();
 
     return total;
