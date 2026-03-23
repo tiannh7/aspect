@@ -272,6 +272,17 @@ namespace aspect
       if (!Plugins::plugin_type_matches<InitialTopographyModel::ZeroTopography<dim>>(this->get_initial_topography_model()))
         include_initial_topography = true;
 
+      // If initial topography is used, the mesh deformation solve in timestep 0
+      // is required to propagate boundary displacement into the mesh interior.
+      AssertThrow(!(include_initial_topography
+                    && (sim.parameters.skip_mesh_deformation_assembly_at_timestep < -1
+                        || sim.parameters.skip_mesh_deformation_assembly_at_timestep == 0)),
+                  ExcMessage("Initial topography is enabled, but the parameter <Mesh deformation/"
+                             "Skip mesh deformation assembly at timestep> is set to skip timestep 0 "
+                             "(directly or for all timesteps). This is not allowed because the "
+                             "initial topography requires solving mesh deformation at timestep 0. "
+                             "Use 'none' (or -1), or a timestep index greater than 0."));
+
       // If a surface needs to be stabilized, set up the assemblers.
       if (!this->get_mesh_deformation_handler().get_boundary_indicators_requiring_stabilization().empty())
         {
@@ -894,6 +905,17 @@ namespace aspect
           return;
         }
 
+      // Check if we should skip the assembly
+      if (sim.parameters.skip_mesh_deformation_assembly_at_timestep < -1 ||
+          (sim.parameters.skip_mesh_deformation_assembly_at_timestep >= 0 && static_cast<int>(this->get_timestep_number()) == sim.parameters.skip_mesh_deformation_assembly_at_timestep))
+        {
+          std::string reason = (sim.parameters.skip_mesh_deformation_assembly_at_timestep < -1) ? "parameter set to skip all timesteps" : "timestep " + std::to_string(this->get_timestep_number());
+          this->get_pcout() << "   Skipping mesh deformation assembly and solve because " << reason << "." << std::endl;
+          mesh_displacements = 0;
+          fs_mesh_velocity = 0;
+          return;
+        }
+
       // This functions updates the mesh displacement of the whole
       // domain (stored in the vector mesh_displacements) based on
       // information on the boundary.
@@ -1079,6 +1101,17 @@ namespace aspect
     template <unsigned int mesh_deformation_fe_degree>
     void MeshDeformationHandler<dim>::compute_mesh_displacements_gmg_impl()
     {
+      // Check if we should skip the assembly
+      if (sim.parameters.skip_mesh_deformation_assembly_at_timestep < -1 ||
+          (sim.parameters.skip_mesh_deformation_assembly_at_timestep >= 0 && static_cast<int>(this->get_timestep_number()) == sim.parameters.skip_mesh_deformation_assembly_at_timestep))
+        {
+          std::string reason = (sim.parameters.skip_mesh_deformation_assembly_at_timestep < -1) ? "parameter set to skip all timesteps" : "timestep " + std::to_string(this->get_timestep_number());
+          this->get_pcout() << "   Skipping mesh deformation assembly and solve because " << reason << "." << std::endl;
+          mesh_displacements = 0;
+          fs_mesh_velocity = 0;
+          return;
+        }
+
       // Same as compute_mesh_displacements, but using matrix-free GMG
       // instead of matrix-based AMG.
 
