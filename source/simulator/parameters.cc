@@ -31,12 +31,79 @@
 #include <deal.II/base/parameter_handler.h>
 
 #include <boost/lexical_cast.hpp>
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <regex>
 #include <sys/stat.h>
 
 namespace aspect
 {
+  namespace
+  {
+    int parse_skip_assembly_timestep_value(const std::string &input_value,
+                                           const std::string &parameter_name)
+    {
+      std::string value = input_value;
+
+      const auto is_not_space = [] (const unsigned char ch)
+      {
+        return !std::isspace(ch);
+      };
+      value.erase(value.begin(), std::find_if(value.begin(), value.end(), is_not_space));
+      value.erase(std::find_if(value.rbegin(), value.rend(), is_not_space).base(), value.end());
+
+      std::string lower_value = value;
+      std::transform(lower_value.begin(), lower_value.end(), lower_value.begin(),
+                     [] (const unsigned char ch)
+      {
+        return std::tolower(ch);
+      });
+
+      if (lower_value == "all")
+        return -2;
+      if (lower_value == "none")
+        return -1;
+
+      try
+        {
+          std::size_t parsed_characters = 0;
+          const int parsed_value = std::stoi(value, &parsed_characters);
+          AssertThrow(parsed_characters == value.size(),
+                      ExcMessage("Invalid value <" + input_value + "> in parameter <"
+                                 + parameter_name
+                                 + ">. Allowed values are 'all', 'none', or an integer timestep."));
+          return parsed_value;
+        }
+      catch (const std::exception &)
+        {
+          AssertThrow(false,
+                      ExcMessage("Invalid value <" + input_value + "> in parameter <"
+                                 + parameter_name
+                                 + ">. Allowed values are 'all', 'none', or an integer timestep."));
+          return -1;
+        }
+    }
+
+    int parse_skip_assembly_timestep_parameter(const ParameterHandler &prm,
+                                               const std::string &parameter_name)
+    {
+      return parse_skip_assembly_timestep_value(prm.get(parameter_name), parameter_name);
+    }
+
+    std::vector<int> parse_skip_assembly_timestep_parameter_list(const ParameterHandler &prm,
+                                                                 const std::string &parameter_name)
+    {
+      const std::vector<std::string> values = Utilities::split_string_list(prm.get(parameter_name));
+      std::vector<int> parsed_values;
+      parsed_values.reserve(values.size());
+      for (const std::string &value : values)
+        parsed_values.push_back(parse_skip_assembly_timestep_value(value, parameter_name));
+
+      return parsed_values;
+    }
+  }
+
   template <int dim>
   Parameters<dim>::Parameters (ParameterHandler &prm,
                                const MPI_Comm mpi_communicator)
@@ -794,11 +861,11 @@ namespace aspect
                          "use in your model.");
 
       prm.declare_entry ("Skip mesh deformation assembly at timestep", "-1",
-                         Patterns::Integer(),
+                         Patterns::Anything(),
                          "The timestep at which to skip assembling and solving the mesh deformation system. "
-                         "If set to -1, never skip (always assemble and solve). "
-                         "If set to a value less than -1, skip at every timestep. "
-                         "If set to a non-negative value, skip only at that timestep. "
+                         "Allowed values are `none` (same as -1, never skip), `all` (same as -2, skip every timestep), "
+                         "or an integer timestep index (e.g., 0, 1, 2) to skip only that timestep. "
+                         "Any value less than -1 is treated like `all` and skips every timestep. "
                          "This can be used to save computational time when mesh deformation is not needed.");
     }
     prm.leave_subsection();
@@ -1324,11 +1391,11 @@ namespace aspect
                          "never change.");
 
       prm.declare_entry ("Skip temperature assembly at timestep", "-1",
-                         Patterns::Integer(),
+                         Patterns::Anything(),
                          "The timestep at which to skip assembling and solving the temperature system. "
-                         "If set to -1, never skip (always assemble and solve). "
-                         "If set to a value less than -1, skip at every timestep. "
-                         "If set to a non-negative value, skip only at that timestep. "
+                         "Allowed values are `none` (same as -1, never skip), `all` (same as -2, skip every timestep), "
+                         "or an integer timestep index (e.g., 0, 1, 2) to skip only that timestep. "
+                         "Any value less than -1 is treated like `all` and skips every timestep. "
                          "This can be used to save computational time when the temperature does not need to be solved.");
     }
     prm.leave_subsection();
@@ -1507,11 +1574,12 @@ namespace aspect
                          "Second, the compositional fields to be normalized are "
                          "divided by this maximum.");
       prm.declare_entry ("Skip composition assembly at timestep", "-1",
-                         Patterns::List(Patterns::Integer()),
-                         "A list of timestep numbers for each compositional field at which to skip assembling and solving. "
-                         "If set to -1, never skip (always assemble and solve). "
-                         "If set to a value less than -1, skip at every timestep. "
-                         "If set to a non-negative value, skip only at that timestep. "
+                         Patterns::List(Patterns::Anything()),
+                         "A list of values (one per compositional field, or a single value for all fields) "
+                         "that sets when to skip assembling and solving. "
+                         "Each value can be `none` (same as -1, never skip), `all` (same as -2, skip every timestep), "
+                         "or an integer timestep index (e.g., 0, 1, 2) to skip only that timestep. "
+                         "Any value less than -1 is treated like `all` and skips every timestep. "
                          "This can be used to save computational time when certain fields do not need to be solved.");
     }
     prm.leave_subsection ();
@@ -2065,7 +2133,8 @@ namespace aspect
       else
         AssertThrow(false,ExcNotImplemented());
 
-      skip_temperature_assembly_at_timestep = prm.get_integer ("Skip temperature assembly at timestep");
+      skip_temperature_assembly_at_timestep = parse_skip_assembly_timestep_parameter(prm,
+                                                                                     "Skip temperature assembly at timestep");
     }
     prm.leave_subsection();
 
@@ -2133,7 +2202,8 @@ namespace aspect
                       ExcMessage("Invalid input parameter file: An entry in List of normalized fields is larger then the number of fields."));
         }
 
-      skip_composition_assembly_at_timestep = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_int(Utilities::split_string_list(prm.get ("Skip composition assembly at timestep"))),
+      skip_composition_assembly_at_timestep = Utilities::possibly_extend_from_1_to_N (parse_skip_assembly_timestep_parameter_list(prm,
+                                                                                      "Skip composition assembly at timestep"),
                                                                                       n_compositional_fields,
                                                                                       "Skip composition assembly at timestep");
 
@@ -2429,7 +2499,8 @@ namespace aspect
         = Utilities::split_string_list(prm.get("Mesh deformation boundary indicators"),";");
       mesh_deformation_enabled = !x_mesh_deformation_boundary_indicators.empty();
 
-      skip_mesh_deformation_assembly_at_timestep = prm.get_integer("Skip mesh deformation assembly at timestep");
+      skip_mesh_deformation_assembly_at_timestep = parse_skip_assembly_timestep_parameter(prm,
+                                                   "Skip mesh deformation assembly at timestep");
     }
     prm.leave_subsection();
 

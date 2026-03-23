@@ -244,6 +244,17 @@ namespace aspect
       if (!Plugins::plugin_type_matches<InitialTopographyModel::ZeroTopography<dim>>(this->get_initial_topography_model()))
         include_initial_topography = true;
 
+      // If initial topography is used, the mesh deformation solve in timestep 0
+      // is required to propagate boundary displacement into the mesh interior.
+      AssertThrow(!(include_initial_topography
+                    && (sim.parameters.skip_mesh_deformation_assembly_at_timestep < -1
+                        || sim.parameters.skip_mesh_deformation_assembly_at_timestep == 0)),
+                  ExcMessage("Initial topography is enabled, but the parameter <Mesh deformation/"
+                             "Skip mesh deformation assembly at timestep> is set to skip timestep 0 "
+                             "(directly or for all timesteps). This is not allowed because the "
+                             "initial topography requires solving mesh deformation at timestep 0. "
+                             "Use 'none' (or -1), or a timestep index greater than 0."));
+
       // If a surface needs to be stabilized, set up the assemblers.
       if (!this->get_mesh_deformation_handler().get_boundary_indicators_requiring_stabilization().empty())
         {
