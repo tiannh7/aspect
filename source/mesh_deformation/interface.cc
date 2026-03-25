@@ -26,6 +26,7 @@
 #include <aspect/simulator.h>
 #include <aspect/simulator/solver/matrix_free_operators.h>
 #include <aspect/simulator/solver/stokes_matrix_free.h>
+#include <aspect/linear_algebra_types.h>
 
 #include <deal.II/base/patterns.h>
 #include <deal.II/dofs/dof_renumbering.h>
@@ -1843,19 +1844,6 @@ namespace aspect
 // explicit instantiation of the functions we implement in this file
 namespace aspect
 {
-  namespace internal
-  {
-    namespace Plugins
-    {
-      template <>
-      std::list<internal::Plugins::PluginList<MeshDeformation::Interface<2>>::PluginInfo> *
-      internal::Plugins::PluginList<MeshDeformation::Interface<2>>::plugins = nullptr;
-      template <>
-      std::list<internal::Plugins::PluginList<MeshDeformation::Interface<3>>::PluginInfo> *
-      internal::Plugins::PluginList<MeshDeformation::Interface<3>>::plugins = nullptr;
-    }
-  }
-
   namespace MeshDeformation
   {
 #define INSTANTIATE(dim) \

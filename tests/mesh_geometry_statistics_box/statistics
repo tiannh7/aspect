@@ -1,0 +1,23 @@
+# 1: Time step number
+# 2: Time (seconds)
+# 3: Time step size (seconds)
+# 4: Number of mesh cells
+# 5: Number of Stokes degrees of freedom
+# 6: Number of temperature degrees of freedom
+# 7: Iterations for temperature solver
+# 8: Iterations for Stokes solver
+# 9: Velocity iterations in Stokes preconditioner
+# 10: Schur complement iterations in Stokes preconditioner
+# 11: Minimal cell diameter (m)
+# 12: Average cell diameter (m)
+# 13: Maximal cell diameter (m)
+# 14: Minimal shortest edge length (m)
+# 15: Average shortest edge length (m)
+# 16: Maximal shortest edge length (m)
+# 17: Minimal longest edge length (m)
+# 18: Average longest edge length (m)
+# 19: Maximal longest edge length (m)
+# 20: Minimal cell aspect ratio
+# 21: Average cell aspect ratio
+# 22: Maximal cell aspect ratio
+0 0.000000000000e+00 0.000000000000e+00 256 2467 1089 12 15 16 16 1.39754249e-01 1.39754249e-01 1.39754249e-01 6.25000000e-02 6.25000000e-02 6.25000000e-02 1.25000000e-01 1.25000000e-01 1.25000000e-01 2.00000000e+00 2.00000000e+00 2.00000000e+00 

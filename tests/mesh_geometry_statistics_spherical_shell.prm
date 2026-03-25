@@ -1,0 +1,71 @@
+# A simple 2D spherical shell example for the mesh geometry statistics
+# postprocessor.
+
+set Dimension = 2
+set End time = 0
+set CFL number = 1.0
+set Use years instead of seconds = false
+set Adiabatic surface temperature = 1613
+set Nonlinear solver scheme = single Advection, single Stokes
+
+subsection Boundary temperature model
+  set List of model names = spherical constant
+  set Fixed temperature boundary indicators = inner, outer
+
+  subsection Spherical constant
+    set Inner temperature = 1613
+    set Outer temperature = 1613
+  end
+end
+
+subsection Boundary velocity model
+  set Zero velocity boundary indicators = inner, outer
+end
+
+subsection Geometry model
+  set Model name = spherical shell
+
+  subsection Spherical shell
+    set Inner radius = 3481000
+    set Outer radius = 6371000
+    set Opening angle = 90
+  end
+end
+
+subsection Gravity model
+  set Model name = radial constant
+
+  subsection Radial constant
+    set Magnitude = 9.81
+  end
+end
+
+subsection Initial temperature model
+  set Model name = function
+
+  subsection Function
+    set Function expression = 1613
+  end
+end
+
+subsection Material model
+  set Model name = simple
+
+  subsection Simple model
+    set Reference density = 3300
+    set Reference specific heat = 1250
+    set Reference temperature = 1613
+    set Thermal expansion coefficient = 2e-5
+    set Viscosity = 1e21
+  end
+end
+
+subsection Mesh refinement
+  set Initial global refinement = 4
+  set Initial adaptive refinement = 0
+  set Time steps between mesh refinement = 0
+end
+
+subsection Postprocess
+  set List of postprocessors = mesh geometry statistics
+end
