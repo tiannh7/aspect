@@ -1,0 +1,19 @@
+
+Number of active cells: 768 (on 5 levels)
+Number of degrees of freedom: 10,436 (6,402+833+3,201)
+
+*** Timestep 0:  t=0 seconds, dt=0 seconds
+   Solving temperature system... 0 iterations.
+   Solving Stokes system (GMG)... 19+0 iterations.
+
+   Postprocessing:
+     Mesh geometry statistics (min/avg/max): 
+          diameter     : 2.15e+05 / 2.43e+05 / 2.74e+05 m
+          shortest edge: 1.14e+05 / 1.55e+05 / 1.81e+05 m
+          longest edge : 1.81e+05 / 1.86e+05 / 2.08e+05 m
+          aspect ratio : 1.03 / 1.22 / 1.59
+
+Termination requested by criterion: end time
+
+
+
