@@ -1593,9 +1593,14 @@ namespace aspect
           level_mappings.resize(0, n_levels-1);
           level_mappings.apply([&](const unsigned int level, std::unique_ptr<Mapping<dim>> &object)
           {
+            const unsigned int mapping_degree =
+              this->get_geometry_model().has_curved_elements()
+              ? (mesh_deformation_fe.degree + 1)
+              : 1;
+
             object = std::make_unique<MappingQEulerian<dim,
             dealii::LinearAlgebra::distributed::Vector<double>>>(
-              mesh_deformation_fe.degree,
+              mapping_degree,
               mesh_deformation_dof_handler,
               level_displacements[level],
               level);
