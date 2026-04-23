@@ -1328,6 +1328,227 @@ namespace aspect
 
 
 
+    SphericalHarmonicTransform::SphericalHarmonicTransform(
+      const unsigned int max_degree,
+      const unsigned int min_degree)
+      : lmax(max_degree),
+        lmin(min_degree)
+    {}
+
+
+    unsigned int
+    SphericalHarmonicTransform::index(const unsigned int l,
+                                      const unsigned int m) const
+    {
+      assert(l >= lmin && l <= lmax && m <= l);
+      return l * (l + 1) / 2 - lmin * (lmin + 1) / 2 + m;
+    }
+
+
+    unsigned int
+    SphericalHarmonicTransform::n_coefficients() const
+    {
+      return (lmax + 1) * (lmax + 2) / 2 - lmin * (lmin + 1) / 2;
+    }
+
+
+    std::pair<std::vector<double>, std::vector<double>>
+    SphericalHarmonicTransform::analyze(
+      const std::vector<double> &theta,
+      const std::vector<double> &phi,
+      const std::vector<double> &weights,
+      const std::vector<double> &values,
+      const MPI_Comm &mpi_comm) const
+    {
+      const unsigned int n_pts = theta.size();
+      const unsigned int n_coeff = n_coefficients();
+
+      std::vector<double> local_cos_coeffs(n_coeff, 0.0);
+      std::vector<double> local_sin_coeffs(n_coeff, 0.0);
+
+      for (unsigned int p = 0; p < n_pts; ++p)
+        {
+          const double th = theta[p];
+          const double ph = phi[p];
+          const double f_times_w = values[p] * weights[p];
+
+          for (unsigned int l = lmin; l <= lmax; ++l)
+            {
+              for (unsigned int m = 0; m <= l; ++m)
+                {
+                  const std::pair<double, double> ylm =
+                    real_spherical_harmonic(l, m, th, ph);
+
+                  const unsigned int idx = index(l, m);
+                  local_cos_coeffs[idx] += f_times_w * ylm.first;
+                  local_sin_coeffs[idx] += f_times_w * ylm.second;
+                }
+            }
+        }
+
+      std::vector<double> cos_coeffs(n_coeff);
+      std::vector<double> sin_coeffs(n_coeff);
+      dealii::Utilities::MPI::sum(local_cos_coeffs, mpi_comm, cos_coeffs);
+      dealii::Utilities::MPI::sum(local_sin_coeffs, mpi_comm, sin_coeffs);
+
+      return std::make_pair(cos_coeffs, sin_coeffs);
+    }
+
+
+    std::vector<double>
+    SphericalHarmonicTransform::synthesize(
+      const std::vector<double> &cos_coeffs,
+      const std::vector<double> &sin_coeffs,
+      const std::vector<double> &theta,
+      const std::vector<double> &phi) const
+    {
+      const unsigned int n_pts = theta.size();
+      std::vector<double> result(n_pts, 0.0);
+
+      for (unsigned int p = 0; p < n_pts; ++p)
+        {
+          const double th = theta[p];
+          const double ph = phi[p];
+          double sum = 0.0;
+
+          for (unsigned int l = lmin; l <= lmax; ++l)
+            {
+              for (unsigned int m = 0; m <= l; ++m)
+                {
+                  const std::pair<double, double> ylm =
+                    real_spherical_harmonic(l, m, th, ph);
+
+                  const unsigned int idx = index(l, m);
+                  sum += cos_coeffs[idx] * ylm.first
+                         + sin_coeffs[idx] * ylm.second;
+                }
+            }
+
+          result[p] = sum;
+        }
+
+      return result;
+    }
+
+
+    void
+    SphericalHarmonicTransform::apply_degree_filter(
+      std::vector<double> &cos_coeffs,
+      std::vector<double> &sin_coeffs,
+      const std::vector<double> &filter_values) const
+    {
+      for (unsigned int l = lmin; l <= lmax; ++l)
+        {
+          const double f = filter_values[l];
+          for (unsigned int m = 0; m <= l; ++m)
+            {
+              const unsigned int idx = index(l, m);
+              cos_coeffs[idx] *= f;
+              sin_coeffs[idx] *= f;
+            }
+        }
+    }
+
+
+
+    // ---- FourierTransform (2D annulus) ----
+
+    FourierTransform::FourierTransform(
+      const unsigned int max_mode,
+      const unsigned int min_mode)
+      : nmax(max_mode),
+        nmin(min_mode)
+    {}
+
+
+    unsigned int
+    FourierTransform::n_coefficients() const
+    {
+      return nmax - nmin + 1;
+    }
+
+
+    std::pair<std::vector<double>, std::vector<double>>
+    FourierTransform::analyze(
+      const std::vector<double> &phi,
+      const std::vector<double> &weights,
+      const std::vector<double> &values,
+      const MPI_Comm &mpi_comm) const
+    {
+      const unsigned int n_pts = phi.size();
+      const unsigned int n_coeff = n_coefficients();
+
+      std::vector<double> local_cos(n_coeff, 0.0);
+      std::vector<double> local_sin(n_coeff, 0.0);
+
+      // Fourier analysis: a_n = (1/pi) * integral f(phi)*cos(n*phi) dphi
+      //                   b_n = (1/pi) * integral f(phi)*sin(n*phi) dphi
+      // For n=0: a_0 = (1/(2*pi)) * integral f(phi) dphi
+      for (unsigned int p = 0; p < n_pts; ++p)
+        {
+          const double ph = phi[p];
+          const double fw = values[p] * weights[p];
+
+          for (unsigned int n = nmin; n <= nmax; ++n)
+            {
+              const unsigned int idx = n - nmin;
+              local_cos[idx] += fw * std::cos(static_cast<double>(n) * ph);
+              local_sin[idx] += fw * std::sin(static_cast<double>(n) * ph);
+            }
+        }
+
+      std::vector<double> cos_coeffs(n_coeff);
+      std::vector<double> sin_coeffs(n_coeff);
+      dealii::Utilities::MPI::sum(local_cos, mpi_comm, cos_coeffs);
+      dealii::Utilities::MPI::sum(local_sin, mpi_comm, sin_coeffs);
+
+      return std::make_pair(cos_coeffs, sin_coeffs);
+    }
+
+
+    std::vector<double>
+    FourierTransform::synthesize(
+      const std::vector<double> &cos_coeffs,
+      const std::vector<double> &sin_coeffs,
+      const std::vector<double> &phi) const
+    {
+      const unsigned int n_pts = phi.size();
+      std::vector<double> result(n_pts, 0.0);
+
+      for (unsigned int p = 0; p < n_pts; ++p)
+        {
+          const double ph = phi[p];
+          double sum = 0.0;
+
+          for (unsigned int n = nmin; n <= nmax; ++n)
+            {
+              const unsigned int idx = n - nmin;
+              sum += cos_coeffs[idx] * std::cos(static_cast<double>(n) * ph)
+                     + sin_coeffs[idx] * std::sin(static_cast<double>(n) * ph);
+            }
+          result[p] = sum;
+        }
+
+      return result;
+    }
+
+
+    void
+    FourierTransform::apply_degree_filter(
+      std::vector<double> &cos_coeffs,
+      std::vector<double> &sin_coeffs,
+      const std::vector<double> &filter_values) const
+    {
+      for (unsigned int n = nmin; n <= nmax; ++n)
+        {
+          const unsigned int idx = n - nmin;
+          cos_coeffs[idx] *= filter_values[n];
+          sin_coeffs[idx] *= filter_values[n];
+        }
+    }
+
+
+
     bool
     fexists(const std::string &filename)
     {

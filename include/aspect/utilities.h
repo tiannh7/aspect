@@ -596,6 +596,166 @@ namespace aspect
                                                       double phi );   // longitude (radians)
 
     /**
+     * A class that provides efficient spherical harmonic analysis and synthesis
+     * for fields defined on a spherical surface. This is optimized compared to
+     * the brute-force approach used in the geoid postprocessor by:
+     *
+     * 1. Separating data collection (single pass over mesh) from SH expansion
+     * 2. Caching Legendre polynomial values
+     * 3. Exploiting the factored form: integral = sum_theta [ P_lm(cos theta)
+     *    * sum_phi [ f(theta,phi) * {cos,sin}(m*phi) * dphi ] * sin(theta)*dtheta ]
+     *
+     * For moderate L_max (< ~128), this direct approach is efficient.
+     * For higher L_max, an FFT-based approach on a regular grid should be used.
+     */
+    class SphericalHarmonicTransform
+    {
+      public:
+        /**
+         * Constructor.
+         * @param max_degree Maximum spherical harmonic degree L_max.
+         * @param min_degree Minimum spherical harmonic degree (default 0).
+         */
+        SphericalHarmonicTransform(const unsigned int max_degree,
+                                   const unsigned int min_degree = 0);
+
+        /**
+         * Compute spherical harmonic coefficients from a set of point values
+         * on a spherical surface. Each point has (theta, phi, area_weight, value).
+         *
+         * This is the SH analysis operation: f(theta,phi) -> {C_lm, S_lm}
+         *
+         * @param theta   Colatitude values (0 = north pole, pi = south pole)
+         * @param phi     Longitude values (0 to 2*pi)
+         * @param weights Quadrature weights (= sin(theta)*dtheta*dphi for unit sphere)
+         * @param values  Function values at each point
+         * @param mpi_comm MPI communicator for parallel summation
+         *
+         * @return pair of vectors: (cosine coefficients, sine coefficients)
+         *         Stored as: [C_00, C_10, C_11, C_20, C_21, C_22, ...]
+         */
+        std::pair<std::vector<double>, std::vector<double>>
+        analyze(const std::vector<double> &theta,
+                const std::vector<double> &phi,
+                const std::vector<double> &weights,
+                const std::vector<double> &values,
+                const MPI_Comm &mpi_comm) const;
+
+        /**
+         * Evaluate the spherical harmonic expansion at given points.
+         * This is the SH synthesis operation: {C_lm, S_lm} -> f(theta,phi)
+         *
+         * @param cos_coeffs Cosine SH coefficients from analyze()
+         * @param sin_coeffs Sine SH coefficients from analyze()
+         * @param theta      Colatitude values at evaluation points
+         * @param phi        Longitude values at evaluation points
+         *
+         * @return Function values at each evaluation point
+         */
+        std::vector<double>
+        synthesize(const std::vector<double> &cos_coeffs,
+                   const std::vector<double> &sin_coeffs,
+                   const std::vector<double> &theta,
+                   const std::vector<double> &phi) const;
+
+        /**
+         * Apply a degree-dependent filter to SH coefficients.
+         * Multiplies each (l,m) coefficient by filter_values[l].
+         *
+         * @param cos_coeffs Input/output cosine coefficients
+         * @param sin_coeffs Input/output sine coefficients
+         * @param filter_values Filter value for each degree l (size = max_degree+1)
+         */
+        void
+        apply_degree_filter(std::vector<double> &cos_coeffs,
+                            std::vector<double> &sin_coeffs,
+                            const std::vector<double> &filter_values) const;
+
+        /**
+         * Return the linear index into the coefficient arrays for degree l, order m.
+         * The storage convention is: [C_00, C_10, C_11, C_20, C_21, C_22, ...]
+         * with offset for min_degree.
+         */
+        unsigned int
+        index(const unsigned int l, const unsigned int m) const;
+
+        /**
+         * Return the total number of coefficients stored.
+         */
+        unsigned int
+        n_coefficients() const;
+
+      private:
+        unsigned int lmax;
+        unsigned int lmin;
+    };
+
+
+    /**
+     * A class that provides Fourier analysis and synthesis for fields
+     * defined on a circle (2D spherical / annulus geometry).
+     *
+     * This is the 2D counterpart of SphericalHarmonicTransform.
+     * The expansion is: f(phi) = a_0 + sum_{n=1}^{N} [a_n cos(n*phi) + b_n sin(n*phi)]
+     */
+    class FourierTransform
+    {
+      public:
+        /**
+         * Constructor.
+         * @param max_mode Maximum Fourier mode N_max.
+         * @param min_mode Minimum Fourier mode (default 0).
+         */
+        FourierTransform(const unsigned int max_mode,
+                         const unsigned int min_mode = 0);
+
+        /**
+         * Compute Fourier coefficients from point values on a circle.
+         *
+         * @param phi     Azimuthal angle values (0 to 2*pi)
+         * @param weights Quadrature weights (= dphi for unit circle)
+         * @param values  Function values at each point
+         * @param mpi_comm MPI communicator for parallel summation
+         *
+         * @return pair of vectors: (cosine coefficients, sine coefficients)
+         *         Stored as: [a_0, a_1, ..., a_N] and [0, b_1, ..., b_N]
+         */
+        std::pair<std::vector<double>, std::vector<double>>
+        analyze(const std::vector<double> &phi,
+                const std::vector<double> &weights,
+                const std::vector<double> &values,
+                const MPI_Comm &mpi_comm) const;
+
+        /**
+         * Evaluate the Fourier expansion at given angles.
+         */
+        std::vector<double>
+        synthesize(const std::vector<double> &cos_coeffs,
+                   const std::vector<double> &sin_coeffs,
+                   const std::vector<double> &phi) const;
+
+        /**
+         * Apply a mode-dependent filter. Multiplies mode n coefficients
+         * by filter_values[n].
+         */
+        void
+        apply_degree_filter(std::vector<double> &cos_coeffs,
+                            std::vector<double> &sin_coeffs,
+                            const std::vector<double> &filter_values) const;
+
+        /**
+         * Return the total number of modes stored (max_mode - min_mode + 1).
+         */
+        unsigned int
+        n_coefficients() const;
+
+      private:
+        unsigned int nmax;
+        unsigned int nmin;
+    };
+
+
+    /**
      * A struct to enable numerical output with a comma as thousands separator
      */
     struct ThousandSep : std::numpunct<char>
