@@ -310,28 +310,32 @@ namespace aspect
     // processes (so that they can take additional action, if necessary, see
     // the manual) but only writes to the restart file on process 0
     {
-      std::ostringstream oss;
+      std::string serialized_state;
 
       // Serialize into a stringstream. Put the following into a code
       // block of its own to ensure the destruction of the 'oa'
       // archive triggers a flush() on the stringstream so we can
       // query its properties below.
       {
-        aspect::oarchive oa (oss);
-        save_critical_parameters (this->parameters, oa);
-        oa << (*this);
+        std::ostringstream oss;
+        {
+          aspect::oarchive oa (oss);
+          save_critical_parameters (this->parameters, oa);
+          oa << (*this);
+        }
+        serialized_state = oss.str();
       }
 
       // compress with zlib and write to file on the root processor
 #ifdef DEAL_II_WITH_ZLIB
       if (my_id == 0)
         {
-          uLongf compressed_data_length = compressBound (oss.str().length());
-          std::vector<char *> compressed_data (compressed_data_length);
+          uLongf compressed_data_length = compressBound (serialized_state.length());
+          std::vector<Bytef> compressed_data (compressed_data_length);
           int err = compress2 (reinterpret_cast<Bytef *>(&compressed_data[0]),
                                &compressed_data_length,
-                               reinterpret_cast<const Bytef *>(oss.str().data()),
-                               oss.str().length(),
+                               reinterpret_cast<const Bytef *>(serialized_state.data()),
+                               serialized_state.length(),
                                Z_BEST_COMPRESSION);
           (void)err;
           Assert (err == Z_OK, ExcInternalError());
@@ -339,14 +343,14 @@ namespace aspect
           // build compression header
           const std::uint32_t compression_header[4]
             = { 1,                                   /* number of blocks */
-                static_cast<std::uint32_t>(oss.str().length()), /* size of block */
-                static_cast<std::uint32_t>(oss.str().length()), /* size of last block */
+                static_cast<std::uint32_t>(serialized_state.length()), /* size of block */
+                static_cast<std::uint32_t>(serialized_state.length()), /* size of last block */
                 static_cast<std::uint32_t>(compressed_data_length)
               }; /* list of compressed sizes of blocks */
 
           std::ofstream f (checkpoint_path + "/resume.z");
           f.write(reinterpret_cast<const char *>(compression_header), 4 * sizeof(compression_header[0]));
-          f.write(reinterpret_cast<char *>(&compressed_data[0]), compressed_data_length);
+          f.write(reinterpret_cast<const char *>(&compressed_data[0]), compressed_data_length);
           f.close();
 
           // We check the fail state of the stream _after_ closing the file to

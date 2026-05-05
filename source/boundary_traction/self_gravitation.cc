@@ -83,7 +83,10 @@ namespace aspect
                                        quadrature_formula_face,
                                        update_values |
                                        update_quadrature_points |
+                                       update_normal_vectors |
                                        update_JxW_values);
+
+      const double delta_rho_surf = density_below_surface - density_above_surface;
 
       // Surface topography data
       std::vector<double> phi_pts;
@@ -130,9 +133,43 @@ namespace aspect
 
                     if (is_top)
                       {
-                        const double topography =
+                        const double h_rock =
                           this->get_geometry_model()
                           .height_above_reference_surface(position);
+
+                        // Compute the external load's equivalent height.
+                        // The total traction from the boundary traction manager
+                        // includes all plugins (ascii data + our old correction).
+                        // Subtract our own old contribution to isolate the load.
+                        const Tensor<1,dim> face_normal =
+                          fe_face_values.normal_vector(q);
+
+                        const Tensor<1,dim> total_traction =
+                          this->get_boundary_traction_manager()
+                          .boundary_traction(top_boundary_id,
+                                             position,
+                                             face_normal);
+
+                        const Tensor<1,dim> our_old_traction =
+                          this->boundary_traction(top_boundary_id,
+                                                  position,
+                                                  face_normal);
+
+                        const Tensor<1,dim> load_traction =
+                          total_traction - our_old_traction;
+
+                        // Inward load traction (T·n < 0) → positive surface mass
+                        // σ_load = -T_load·n / g,  h_load = σ_load / Δρ
+                        const double g_magnitude =
+                          this->get_gravity_model().gravity_vector(position).norm();
+
+                        double h_load = 0.0;
+                        if (g_magnitude > 0 && delta_rho_surf > 0)
+                          h_load = -(load_traction * face_normal) /
+                                   (delta_rho_surf * g_magnitude);
+
+                        const double h_effective = h_rock + h_load;
+
                         const double ref_radius = outer_radius;
                         const double w =
                           fe_face_values.JxW(q) /
@@ -142,7 +179,7 @@ namespace aspect
                         if (dim == 3)
                           theta_pts.push_back(scoord[2]);
                         weight_pts.push_back(w);
-                        topo_pts.push_back(topography);
+                        topo_pts.push_back(h_effective);
                       }
                     else // is_bottom
                       {
@@ -171,7 +208,6 @@ namespace aspect
       //
       // CMB scaling: 3D: (r_cmb/R)^(l+2),  2D: (r_cmb/R)^(n+1)
 
-      const double delta_rho_surf = density_below_surface - density_above_surface;
       const double delta_rho_cmb  = density_below_cmb - density_above_cmb;
 
       if (dim == 3)
@@ -277,6 +313,11 @@ namespace aspect
         aspect::Utilities::Coordinates::cartesian_to_spherical_coordinates(
           position);
       const double ph = scoord[1]; // longitude / azimuthal angle
+
+      // If no coefficients have been computed yet (first timestep),
+      // return zero traction.
+      if (correction_cos_coeffs.empty())
+        return Tensor<1, dim>();
 
       // Synthesize the self-gravity correction at this point
       double correction_value = 0.0;
