@@ -1740,6 +1740,15 @@ namespace aspect
     // We use SUNDIALs ARKode to compute the reactions. Set up the required parameters.
     // TODO: Should we change some of these based on the Reaction time step input parameter?
     using VectorType = Vector<double>;
+#if DEAL_II_VERSION_GTE(9,8,0)
+    const SUNDIALS::ARKode<VectorType>::AdditionalData data(time,
+                                                           time + time_step,
+                                                           0.001 * time_step,
+                                                           time_step,
+                                                           1.e-6 * time_step,
+                                                           1e-10,
+                                                           1e-6);
+#else
     SUNDIALS::ARKode<VectorType>::AdditionalData data;
     data.initial_time = time;
     data.final_time = time + time_step;
@@ -1751,6 +1760,7 @@ namespace aspect
     // We therefore set the absolute tolerance to a very small value.
     data.relative_tolerance = 1e-6;
     data.absolute_tolerance = 1e-10;
+#endif
 
     SUNDIALS::ARKode<VectorType> ode(data);
 
