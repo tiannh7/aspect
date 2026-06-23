@@ -29,6 +29,7 @@
 #include <deal.II/fe/fe_values.h>
 
 #include <tuple>
+#include <numeric>
 
 namespace aspect
 {
@@ -84,6 +85,14 @@ namespace aspect
     SelfGravitation<dim>::compute_self_gravity_correction(
       const bool include_current_velocity_increment)
     {
+      const std::vector<double> old_surface_potential_cos =
+        surface_potential_cos_coeffs;
+      const std::vector<double> old_surface_potential_sin =
+        surface_potential_sin_coeffs;
+      const std::vector<double> old_cmb_potential_cos =
+        cmb_potential_cos_coeffs;
+      const std::vector<double> old_cmb_potential_sin =
+        cmb_potential_sin_coeffs;
       AssertThrow(Plugins::plugin_type_matches<const GeometryModel::SphericalShell<dim>>(
                     this->get_geometry_model()),
                   ExcMessage("Self-gravitation requires a spherical shell geometry."));
@@ -100,8 +109,14 @@ namespace aspect
         displacement_timestep = initial_displacement_timestep;
 
       // Step 1: Collect surface and CMB topography at quadrature points
+      // The projected field contains the Q2 Stokes velocity predictor. Using
+      // the temperature degree (Q1 in this benchmark) supplies only one
+      // quadrature point per face direction and biases the l=2 surface/CMB
+      // coefficients by several percent. Integrate at least one order above
+      // the velocity polynomial degree.
       const unsigned int quadrature_degree =
-        this->introspection().polynomial_degree.temperature;
+        std::max(2u,
+                 this->introspection().polynomial_degree.velocities + 1u);
       const QGauss<dim - 1> quadrature_formula_face(quadrature_degree);
 
       FEFaceValues<dim> fe_face_values(this->get_mapping(),
@@ -122,13 +137,13 @@ namespace aspect
       std::vector<double> theta_pts; // only used in 3D
       std::vector<double> weight_pts;
       std::vector<double> topo_pts;
-      std::vector<double> surface_increment_pts;
 
       // CMB topography data
       std::vector<double> cmb_phi_pts;
       std::vector<double> cmb_theta_pts; // only used in 3D
       std::vector<double> cmb_weight_pts;
       std::vector<double> cmb_topo_pts;
+      std::vector<double> cmb_committed_topo_pts;
 
       for (const auto &cell : this->get_dof_handler().active_cell_iterators())
         if (cell->is_locally_owned() && cell->at_boundary())
@@ -177,26 +192,30 @@ namespace aspect
                           .height_above_reference_surface(position)
                           + predicted_radial_displacement;
 
-                        // Compute the external load's equivalent height.
-                        // The total traction from the boundary traction manager
-                        // includes all plugins (ascii data + our old correction).
-                        // Subtract our own old contribution to isolate the load.
+                        // Compute the external load's equivalent height. A
+                        // stateful traction plugin is instantiated once for
+                        // every boundary entry in ASPECT's manager. Therefore
+                        // subtracting only `this` instance from the manager's
+                        // total traction is incorrect when self gravitation is
+                        // active on both surface and CMB. Sum only non-self-
+                        // gravity plugins assigned to the surface instead.
                         const Tensor<1,dim> face_normal =
                           fe_face_values.normal_vector(q);
-
-                        const Tensor<1,dim> total_traction =
-                          this->get_boundary_traction_manager()
-                          .boundary_traction(top_boundary_id,
-                                             position,
-                                             face_normal);
-
-                        const Tensor<1,dim> our_old_traction =
-                          this->boundary_traction(top_boundary_id,
-                                                  position,
-                                                  face_normal);
-
-                        const Tensor<1,dim> load_traction =
-                          total_traction - our_old_traction;
+                        Tensor<1,dim> load_traction;
+                        const auto &traction_manager =
+                          this->get_boundary_traction_manager();
+                        const auto &plugins = traction_manager.get_active_plugins();
+                        const auto &plugin_boundaries =
+                          traction_manager.get_active_plugin_boundary_indicators();
+                        unsigned int plugin_index = 0;
+                        for (const auto &plugin : plugins)
+                          {
+                            if (plugin_boundaries[plugin_index] == top_boundary_id
+                                && dynamic_cast<const SelfGravitation<dim> *>(plugin.get()) == nullptr)
+                              load_traction += plugin->boundary_traction(
+                                top_boundary_id, position, face_normal);
+                            ++plugin_index;
+                          }
 
                         // Inward load traction (T·n < 0) → positive surface mass
                         // σ_load = -T_load·n / g,  h_load = σ_load / Δρ
@@ -220,14 +239,13 @@ namespace aspect
                           theta_pts.push_back(scoord[2]);
                         weight_pts.push_back(w);
                         topo_pts.push_back(h_effective);
-                        surface_increment_pts.push_back(
-                          predicted_radial_displacement);
                       }
                     else // is_bottom
                       {
                         const double r = scoord[0];
+                        const double committed_cmb_topography = r - inner_radius;
                         const double cmb_topography =
-                          r - inner_radius + predicted_radial_displacement;
+                          committed_cmb_topography + predicted_radial_displacement;
                         const double ref_radius = inner_radius;
                         const double w =
                           fe_face_values.JxW(q) /
@@ -238,6 +256,8 @@ namespace aspect
                           cmb_theta_pts.push_back(scoord[2]);
                         cmb_weight_pts.push_back(w);
                         cmb_topo_pts.push_back(cmb_topography);
+                        cmb_committed_topo_pts.push_back(
+                          committed_cmb_topography);
                       }
                   }
               }
@@ -258,23 +278,35 @@ namespace aspect
           auto [cos_topo, sin_topo] = sh_transform->analyze(
                                         theta_pts, phi_pts, weight_pts, topo_pts,
                                         this->get_mpi_communicator());
-          std::tie(surface_increment_cos_coeffs,
-                   surface_increment_sin_coeffs) = sh_transform->analyze(
-                     theta_pts, phi_pts, weight_pts,
-                     surface_increment_pts,
-                     this->get_mpi_communicator());
           const unsigned int n_coeff = sh_transform->n_coefficients();
 
           std::vector<double> cos_cmb(n_coeff, 0.0);
           std::vector<double> sin_cmb(n_coeff, 0.0);
           if (include_cmb_contribution && !cmb_topo_pts.empty())
-            std::tie(cos_cmb, sin_cmb) = sh_transform->analyze(
-                                           cmb_theta_pts, cmb_phi_pts,
-                                           cmb_weight_pts, cmb_topo_pts,
-                                           this->get_mpi_communicator());
+            {
+              std::tie(cos_cmb, sin_cmb) = sh_transform->analyze(
+                                             cmb_theta_pts, cmb_phi_pts,
+                                             cmb_weight_pts, cmb_topo_pts,
+                                             this->get_mpi_communicator());
+              std::tie(cmb_committed_topography_cos_coeffs,
+                       cmb_committed_topography_sin_coeffs) =
+                sh_transform->analyze(
+                  cmb_theta_pts, cmb_phi_pts, cmb_weight_pts,
+                  cmb_committed_topo_pts, this->get_mpi_communicator());
+            }
 
           cmb_topography_cos_coeffs = cos_cmb;
           cmb_topography_sin_coeffs = sin_cmb;
+
+          if (min_degree <= 2 && max_degree >= 2)
+            {
+              const unsigned int i20 = sh_transform->index(2, 0);
+              this->get_pcout()
+                << "      Self-gravity effective boundary C20 [m]: surface="
+                << std::scientific << std::setprecision(6) << cos_topo[i20]
+                << ", CMB=" << cos_cmb[i20] << std::defaultfloat
+                << std::endl;
+            }
 
           // Phi/g at the surface.
           std::vector<double> surface_to_surface(max_degree + 1, 0.0);
@@ -302,11 +334,15 @@ namespace aspect
           sh_transform->apply_degree_filter(surface_potential_cos_coeffs,
                                             surface_potential_sin_coeffs,
                                             surface_to_surface);
+          surface_mass_potential_cos_coeffs = surface_potential_cos_coeffs;
+          surface_mass_potential_sin_coeffs = surface_potential_sin_coeffs;
           std::vector<double> cmb_at_surface_cos = cos_cmb;
           std::vector<double> cmb_at_surface_sin = sin_cmb;
           sh_transform->apply_degree_filter(cmb_at_surface_cos,
                                             cmb_at_surface_sin,
                                             cmb_to_surface);
+          cmb_mass_potential_cos_coeffs = cmb_at_surface_cos;
+          cmb_mass_potential_sin_coeffs = cmb_at_surface_sin;
 
           cmb_potential_cos_coeffs = cos_topo;
           cmb_potential_sin_coeffs = sin_topo;
@@ -332,18 +368,21 @@ namespace aspect
           auto [cos_topo, sin_topo] = fourier_transform->analyze(
                                         phi_pts, weight_pts, topo_pts,
                                         this->get_mpi_communicator());
-          std::tie(surface_increment_cos_coeffs,
-                   surface_increment_sin_coeffs) = fourier_transform->analyze(
-                     phi_pts, weight_pts, surface_increment_pts,
-                     this->get_mpi_communicator());
           const unsigned int n_coeff = fourier_transform->n_coefficients();
 
           std::vector<double> cos_cmb(n_coeff, 0.0);
           std::vector<double> sin_cmb(n_coeff, 0.0);
           if (include_cmb_contribution && !cmb_topo_pts.empty())
-            std::tie(cos_cmb, sin_cmb) = fourier_transform->analyze(
-                                           cmb_phi_pts, cmb_weight_pts, cmb_topo_pts,
-                                           this->get_mpi_communicator());
+            {
+              std::tie(cos_cmb, sin_cmb) = fourier_transform->analyze(
+                                             cmb_phi_pts, cmb_weight_pts, cmb_topo_pts,
+                                             this->get_mpi_communicator());
+              std::tie(cmb_committed_topography_cos_coeffs,
+                       cmb_committed_topography_sin_coeffs) =
+                fourier_transform->analyze(
+                  cmb_phi_pts, cmb_weight_pts, cmb_committed_topo_pts,
+                  this->get_mpi_communicator());
+            }
 
           cmb_topography_cos_coeffs = cos_cmb;
           cmb_topography_sin_coeffs = sin_cmb;
@@ -371,11 +410,15 @@ namespace aspect
           fourier_transform->apply_degree_filter(surface_potential_cos_coeffs,
                                                  surface_potential_sin_coeffs,
                                                  surface_to_surface);
+          surface_mass_potential_cos_coeffs = surface_potential_cos_coeffs;
+          surface_mass_potential_sin_coeffs = surface_potential_sin_coeffs;
           std::vector<double> cmb_at_surface_cos = cos_cmb;
           std::vector<double> cmb_at_surface_sin = sin_cmb;
           fourier_transform->apply_degree_filter(cmb_at_surface_cos,
                                                  cmb_at_surface_sin,
                                                  cmb_to_surface);
+          cmb_mass_potential_cos_coeffs = cmb_at_surface_cos;
+          cmb_mass_potential_sin_coeffs = cmb_at_surface_sin;
 
           cmb_potential_cos_coeffs = cos_topo;
           cmb_potential_sin_coeffs = sin_topo;
@@ -396,6 +439,108 @@ namespace aspect
               cmb_potential_sin_coeffs[i] += cmb_at_cmb_sin[i];
             }
         }
+
+      if (include_current_velocity_increment &&
+          !old_surface_potential_cos.empty())
+        {
+          double difference_squared = 0.0;
+          double new_norm_squared = 0.0;
+          const auto accumulate_change =
+            [&difference_squared, &new_norm_squared](
+              const std::vector<double> &old_values,
+              const std::vector<double> &new_values)
+          {
+            AssertDimension(old_values.size(), new_values.size());
+            for (unsigned int i=0; i<new_values.size(); ++i)
+              {
+                difference_squared +=
+                  (new_values[i]-old_values[i]) *
+                  (new_values[i]-old_values[i]);
+                new_norm_squared += new_values[i] * new_values[i];
+              }
+          };
+
+          accumulate_change(old_surface_potential_cos,
+                            surface_potential_cos_coeffs);
+          accumulate_change(old_surface_potential_sin,
+                            surface_potential_sin_coeffs);
+          accumulate_change(old_cmb_potential_cos,
+                            cmb_potential_cos_coeffs);
+          accumulate_change(old_cmb_potential_sin,
+                            cmb_potential_sin_coeffs);
+
+          potential_relative_change =
+            std::sqrt(difference_squared) /
+            std::max(std::sqrt(new_norm_squared),
+                     std::numeric_limits<double>::min());
+
+          std::string assigned_boundary = "unassigned";
+          const auto &plugins =
+            this->get_boundary_traction_manager().get_active_plugins();
+          const auto &plugin_boundaries =
+            this->get_boundary_traction_manager()
+            .get_active_plugin_boundary_indicators();
+          unsigned int plugin_index = 0;
+          for (const auto &plugin : plugins)
+            {
+              if (plugin.get() == this)
+                assigned_boundary = this->get_geometry_model()
+                                    .translate_id_to_symbol_name(
+                                      plugin_boundaries[plugin_index]);
+              ++plugin_index;
+            }
+          this->get_pcout()
+            << "      Self-gravity boundary-potential relative SH change ["
+            << assigned_boundary << "]: "
+            << std::scientific << std::setprecision(6)
+            << potential_relative_change << std::defaultfloat << std::endl;
+        }
+    }
+
+
+    template <int dim>
+    bool
+    SelfGravitation<dim>::potential_is_converged() const
+    {
+      return potential_relative_change <= potential_convergence_tolerance;
+    }
+
+
+    template <int dim>
+    double
+    SelfGravitation<dim>::potential_relative_change_value() const
+    {
+      return potential_relative_change;
+    }
+
+
+    template <int dim>
+    std::pair<double,double>
+    SelfGravitation<dim>::surface_mass_potential_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      AssertThrow(dim == 3,
+                  ExcMessage("Spherical-harmonic coefficient access is only "
+                             "available in 3D."));
+      const unsigned int index = sh_transform->index(degree, order);
+      return {surface_mass_potential_cos_coeffs.at(index),
+              surface_mass_potential_sin_coeffs.at(index)};
+    }
+
+
+    template <int dim>
+    std::pair<double,double>
+    SelfGravitation<dim>::cmb_mass_potential_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      AssertThrow(dim == 3,
+                  ExcMessage("Spherical-harmonic coefficient access is only "
+                             "available in 3D."));
+      const unsigned int index = sh_transform->index(degree, order);
+      return {cmb_mass_potential_cos_coeffs.at(index),
+              cmb_mass_potential_sin_coeffs.at(index)};
     }
 
 
@@ -426,7 +571,6 @@ namespace aspect
         (is_surface ? surface_potential_sin_coeffs : cmb_potential_sin_coeffs);
 
       double potential_height = 0.0;
-      double surface_increment = 0.0;
       double cmb_topography = 0.0;
       if (dim == 3)
         {
@@ -439,16 +583,11 @@ namespace aspect
                                      th_vec, ph_vec);
           potential_height = potential[0];
 
-          if (is_surface && !surface_increment_cos_coeffs.empty())
-            surface_increment = sh_transform->synthesize(
-                                  surface_increment_cos_coeffs,
-                                  surface_increment_sin_coeffs,
-                                  th_vec, ph_vec)[0];
 
           if (is_cmb && include_cmb_contribution)
             cmb_topography = sh_transform->synthesize(
-                               cmb_topography_cos_coeffs,
-                               cmb_topography_sin_coeffs,
+                               cmb_committed_topography_cos_coeffs,
+                               cmb_committed_topography_sin_coeffs,
                                th_vec, ph_vec)[0];
         }
       else
@@ -460,40 +599,32 @@ namespace aspect
                                           ph_vec);
           potential_height = potential[0];
 
-          if (is_surface && !surface_increment_cos_coeffs.empty())
-            surface_increment = fourier_transform->synthesize(
-                                  surface_increment_cos_coeffs,
-                                  surface_increment_sin_coeffs,
-                                  ph_vec)[0];
 
           if (is_cmb && include_cmb_contribution)
             cmb_topography = fourier_transform->synthesize(
-                               cmb_topography_cos_coeffs,
-                               cmb_topography_sin_coeffs,
+                               cmb_committed_topography_cos_coeffs,
+                               cmb_committed_topography_sin_coeffs,
                                ph_vec)[0];
         }
 
       const Tensor<1, dim> gravity =
         this->get_gravity_model().gravity_vector(position);
       const double g_magnitude = gravity.norm();
-      const double delta_rho_surface =
-        density_below_surface - density_above_surface;
       const double delta_rho_cmb = density_below_cmb - density_above_cmb;
 
       if (is_surface)
-        // Incremental free-boundary condition. The potential term is outward;
-        // the direct density-interface restoring term is inward. The committed
-        // topography is already contained in the ALE total-stress state, so
-        // only the current fixed-point displacement increment is subtracted.
-        return g_magnitude
-               * (density_below_surface * potential_height
-                  - delta_rho_surface * surface_increment)
-               * normal_vector;
+        // The local -Delta(rho)*g*delta_h restoring term belongs to the
+        // Stokes matrix (CitcomSVE add_restoring). This plugin supplies only
+        // the non-local gravitational potential contribution on the RHS.
+        return density_below_surface * g_magnitude
+               * potential_height * normal_vector;
 
       // Fluid-core CMB condition after subtracting the mantle hydrostatic
       // reference state: Delta rho * (g*h_b - Phi_b) n.
       return delta_rho_cmb * g_magnitude
-             * (cmb_topography - potential_height) * normal_vector;
+             * (cmb_topography
+                + cmb_potential_traction_sign * potential_height)
+             * normal_vector;
     }
 
 
@@ -564,6 +695,21 @@ namespace aspect
                             "Set this to the elastic time step for an instantaneously "
                             "applied load. Units are years when 'Use years instead of "
                             "seconds' is enabled, otherwise seconds.");
+          prm.declare_entry("Potential convergence tolerance", "1e-3",
+                            Patterns::Double(0),
+                            "Relative L2 change tolerance for the combined "
+                            "surface and CMB Phi/g spherical-harmonic "
+                            "coefficient vectors. Zhong et al. (2022) author "
+                            "inputfile10 uses 1e-3 for its self-gravity "
+                            "iteration cutoff.");
+          prm.declare_entry("CMB potential traction sign", "1",
+                            Patterns::Double(-1, 1),
+                            "Diagnostic multiplier on Phi/g in the fluid-core "
+                            "CMB traction. CitcomSVE's positive radial CMB "
+                            "load maps to +1 after ASPECT's inner-boundary "
+                            "weak-form and outward-domain-normal conventions "
+                            "are combined. The -1 option is retained only for "
+                            "sign-audit benchmark experiments.");
         }
         prm.leave_subsection();
       }
@@ -590,6 +736,11 @@ namespace aspect
           iterate_with_stokes = prm.get_bool("Iterate with Stokes");
           initial_displacement_timestep =
             prm.get_double("Initial displacement time step");
+          potential_convergence_tolerance =
+            prm.get_double("Potential convergence tolerance");
+          cmb_potential_traction_sign =
+            prm.get_double("CMB potential traction sign");
+          potential_relative_change = std::numeric_limits<double>::infinity();
 
           if (this->convert_output_to_years())
             initial_displacement_timestep *= year_in_seconds;

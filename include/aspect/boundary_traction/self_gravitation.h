@@ -90,6 +90,26 @@ namespace aspect
                           const Point<dim> &position,
                           const Tensor<1,dim> &normal_vector) const override;
 
+        /** Return the cosine/sine coefficient of Phi/g at the surface due
+         * to the effective surface mass (external load plus topography). */
+        std::pair<double,double>
+        surface_mass_potential_coefficient(const unsigned int degree,
+                                           const unsigned int order) const;
+
+        /** Return the cosine/sine coefficient of Phi/g at the surface due
+         * to CMB topography. These accessors let geoid output use the same
+         * converged boundary state as the traction operator. */
+        std::pair<double,double>
+        cmb_mass_potential_coefficient(const unsigned int degree,
+                                       const unsigned int order) const;
+
+        /** Whether the last post-Stokes update changed the combined surface
+         * and CMB Phi/g coefficient vectors by less than the configured
+         * relative tolerance. */
+        bool potential_is_converged() const;
+
+        double potential_relative_change_value() const;
+
         static void declare_parameters(ParameterHandler &prm);
         void parse_parameters(ParameterHandler &prm) override;
 
@@ -118,6 +138,9 @@ namespace aspect
         bool   include_cmb_contribution;
         bool   iterate_with_stokes;
         double initial_displacement_timestep;
+        double potential_convergence_tolerance;
+        double potential_relative_change;
+        double cmb_potential_traction_sign;
 
         types::boundary_id top_boundary_id;
         types::boundary_id bottom_boundary_id;
@@ -134,17 +157,25 @@ namespace aspect
         std::vector<double> cmb_potential_cos_coeffs;
         std::vector<double> cmb_potential_sin_coeffs;
 
-        // Current-step surface displacement increment. The committed ALE
-        // geometry is already represented by the total-stress formulation;
-        // only this increment needs the direct -Delta(rho)*g*delta_h
-        // restoring traction during the boundary fixed-point iteration.
-        std::vector<double> surface_increment_cos_coeffs;
-        std::vector<double> surface_increment_sin_coeffs;
+        // Separate contributions to Phi/g at the outer surface. Their sum is
+        // surface_potential_*; retaining the split avoids reconstructing
+        // predicted ALE topography from total boundary traction in the geoid
+        // postprocessor.
+        std::vector<double> surface_mass_potential_cos_coeffs;
+        std::vector<double> surface_mass_potential_sin_coeffs;
+        std::vector<double> cmb_mass_potential_cos_coeffs;
+        std::vector<double> cmb_mass_potential_sin_coeffs;
 
         // CMB topography coefficients used by the direct density-jump
         // restoring traction.
         std::vector<double> cmb_topography_cos_coeffs;
         std::vector<double> cmb_topography_sin_coeffs;
+
+        // Committed CMB topography. The current displacement increment is
+        // represented implicitly in the free-boundary restoring matrix and
+        // must not be duplicated on the traction RHS.
+        std::vector<double> cmb_committed_topography_cos_coeffs;
+        std::vector<double> cmb_committed_topography_sin_coeffs;
     };
   }
 }

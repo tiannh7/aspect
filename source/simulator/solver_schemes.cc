@@ -25,6 +25,7 @@
 #include <aspect/volume_of_fluid/handler.h>
 #include <aspect/newton.h>
 #include <aspect/melt.h>
+#include <aspect/boundary_traction/self_gravitation.h>
 
 #include <deal.II/numerics/vector_tools.h>
 
@@ -894,7 +895,8 @@ namespace aspect
 
         ++nonlinear_iteration;
       }
-    while (nonlinear_solver_control.check(nonlinear_iteration, relative_residual) == SolverControl::iterate);
+    while (nonlinear_iteration < parameters.min_nonlinear_iterations ||
+           nonlinear_solver_control.check(nonlinear_iteration, relative_residual) == SolverControl::iterate);
 
     AssertThrow(nonlinear_solver_control.last_check() != SolverControl::failure, ExcNonlinearSolverNoConvergence());
     signals.post_nonlinear_solver(nonlinear_solver_control);
@@ -953,7 +955,8 @@ namespace aspect
 
         ++nonlinear_iteration;
       }
-    while (nonlinear_solver_control.check(nonlinear_iteration, relative_residual) == SolverControl::iterate);
+    while (nonlinear_iteration < parameters.min_nonlinear_iterations ||
+           nonlinear_solver_control.check(nonlinear_iteration, relative_residual) == SolverControl::iterate);
 
     AssertThrow(nonlinear_solver_control.last_check() != SolverControl::failure, ExcNonlinearSolverNoConvergence());
 
@@ -1060,6 +1063,7 @@ namespace aspect
                                            parameters.nonlinear_tolerance);
 
     double relative_residual = std::numeric_limits<double>::max();
+    bool self_gravity_potential_converged = false;
     nonlinear_iteration = 0;
     do
       {
@@ -1067,8 +1071,17 @@ namespace aspect
           assemble_and_solve_stokes(initial_stokes_residual,
                                     nonlinear_iteration == 0 ? &initial_stokes_residual : nullptr);
 
+        self_gravity_potential_converged = true;
+        for (const auto &plugin : boundary_traction_manager.get_active_plugins())
+          if (const auto *self_gravity =
+                dynamic_cast<const BoundaryTraction::SelfGravitation<dim> *>(plugin.get()))
+            self_gravity_potential_converged =
+              self_gravity_potential_converged
+              && self_gravity->potential_is_converged();
+
         pcout << "      Relative nonlinear residual (Stokes system) after nonlinear iteration " << nonlinear_iteration+1
-              << ": " << relative_residual
+              << ": " << std::scientific << std::setprecision(6)
+              << relative_residual << std::defaultfloat
               << std::endl
               << std::endl;
 
@@ -1077,9 +1090,15 @@ namespace aspect
 
         ++nonlinear_iteration;
       }
-    while (nonlinear_solver_control.check(nonlinear_iteration, relative_residual) == SolverControl::iterate);
+    while (nonlinear_iteration < max_nonlinear_iterations
+           && (nonlinear_iteration < parameters.min_nonlinear_iterations
+               || nonlinear_solver_control.check(nonlinear_iteration, relative_residual) == SolverControl::iterate
+               || !self_gravity_potential_converged));
 
     AssertThrow(nonlinear_solver_control.last_check() != SolverControl::failure, ExcNonlinearSolverNoConvergence());
+    AssertThrow(self_gravity_potential_converged,
+                ExcMessage("The non-local self-gravity boundary potential did "
+                           "not converge within the maximum nonlinear iterations."));
     signals.post_nonlinear_solver(nonlinear_solver_control);
   }
 
@@ -1310,6 +1329,7 @@ namespace aspect
                                            parameters.nonlinear_tolerance);
 
     double relative_residual = std::numeric_limits<double>::max();
+    bool self_gravity_potential_converged = false;
     nonlinear_iteration = 0;
 
     do
@@ -1326,6 +1346,14 @@ namespace aspect
         const double relative_nonlinear_stokes_residual =
           assemble_and_solve_stokes(initial_stokes_residual,
                                     nonlinear_iteration == 0 ? &initial_stokes_residual : nullptr);
+
+        self_gravity_potential_converged = true;
+        for (const auto &plugin : boundary_traction_manager.get_active_plugins())
+          if (const auto *self_gravity =
+                dynamic_cast<const BoundaryTraction::SelfGravitation<dim> *>(plugin.get()))
+            self_gravity_potential_converged =
+              self_gravity_potential_converged
+              && self_gravity->potential_is_converged();
 
         // write the residual output in the same order as the solutions
         pcout << "      Relative nonlinear residuals:" << std::endl;
@@ -1354,7 +1382,8 @@ namespace aspect
         relative_residual = std::max(relative_nonlinear_stokes_residual, relative_residual);
 
         pcout << "      Relative nonlinear residual (total system) after nonlinear iteration " << nonlinear_iteration+1
-              << ": " << relative_residual
+              << ": " << std::scientific << std::setprecision(6)
+              << relative_residual << std::defaultfloat
               << std::endl
               << std::endl;
 
@@ -1363,9 +1392,15 @@ namespace aspect
 
         ++nonlinear_iteration;
       }
-    while (nonlinear_solver_control.check(nonlinear_iteration, relative_residual) == SolverControl::iterate);
+    while (nonlinear_iteration < max_nonlinear_iterations
+           && (nonlinear_iteration < parameters.min_nonlinear_iterations
+               || nonlinear_solver_control.check(nonlinear_iteration, relative_residual) == SolverControl::iterate
+               || !self_gravity_potential_converged));
 
     AssertThrow(nonlinear_solver_control.last_check() != SolverControl::failure, ExcNonlinearSolverNoConvergence());
+    AssertThrow(self_gravity_potential_converged,
+                ExcMessage("The non-local self-gravity boundary potential did "
+                           "not converge within the maximum nonlinear iterations."));
     signals.post_nonlinear_solver(nonlinear_solver_control);
   }
 

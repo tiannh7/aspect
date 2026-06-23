@@ -694,6 +694,7 @@ namespace aspect
                                             update_values   |
                                             update_gradients |
                                             update_quadrature_points |
+                                            update_normal_vectors |
                                             update_JxW_values);
 
           const unsigned int n_faces_boundary = stokes_matrix.get_matrix_free()->n_boundary_face_batches();
@@ -750,10 +751,21 @@ namespace aspect
 
                       const Tensor<1,dim> g_hat = (g_norm == 0.0 ? Tensor<1,dim>() : gravity/g_norm);
 
-                      const double pressure_perturbation = face_material_outputs.densities[q] *
-                                                           this->get_timestep() *
-                                                           free_surface_theta *
-                                                           g_norm;
+                      const double density_jump =
+                        this->get_mesh_deformation_handler()
+                        .get_free_surface_stabilization_density_contrast(
+                          boundary_indicator,
+                          face_material_outputs.densities[q]);
+                      const Tensor<1,dim> n_hat = fe_face_values.normal_vector(q);
+                      const double orientation =
+                        (this->get_mesh_deformation_handler()
+                         .has_free_surface_stabilization_density_contrast(
+                           boundary_indicator)
+                         ? -(g_hat * n_hat) : 1.0);
+                      const double pressure_perturbation = density_jump *
+                        this->get_mesh_deformation_handler()
+                        .get_free_surface_stabilization_timestep() *
+                        free_surface_theta * g_norm * orientation;
                       for (unsigned int d = 0; d < dim; ++d)
                         active_cell_data.free_surface_stabilization_term_table(face - n_faces_interior, q)[d][i]
                           = pressure_perturbation * g_hat[d];

@@ -278,6 +278,11 @@ namespace aspect
            */
           bool use_fixed_elastic_time_step;
 
+          /** Use the pure elastic branch for the initial loaded solve while
+           * retaining the fixed interval used to convert velocity to an ALE
+           * displacement. */
+          bool use_instantaneous_elastic_response_at_timestep_zero;
+
           /**
            * Double for fixed elastic time step value, read from parameter file.
            */

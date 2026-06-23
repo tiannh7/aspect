@@ -148,10 +148,20 @@ namespace aspect
                       phi_u_times_n_hat[i] = scratch.phi_u[i] * n_hat;
                     }
 
-                  const double pressure_perturbation = scratch.face_material_model_outputs.densities[q] *
-                                                       this->get_timestep() *
-                                                       free_surface_theta *
-                                                       g_norm;
+                  const double density_jump =
+                    this->get_mesh_deformation_handler()
+                    .get_free_surface_stabilization_density_contrast(
+                      boundary_indicator,
+                      scratch.face_material_model_outputs.densities[q]);
+                  const double orientation =
+                    (this->get_mesh_deformation_handler()
+                     .has_free_surface_stabilization_density_contrast(
+                       boundary_indicator)
+                     ? -(g_hat * n_hat) : 1.0);
+                  const double pressure_perturbation = density_jump *
+                    this->get_mesh_deformation_handler()
+                    .get_free_surface_stabilization_timestep() *
+                    free_surface_theta * g_norm * orientation;
 
                   const double JxW = scratch.face_finite_element_values.JxW(q);
 
@@ -403,6 +413,29 @@ namespace aspect
                             "the free surface is stabilized with this term, "
                             "where zero is no stabilization, and one is fully "
                             "implicit.");
+          prm.declare_entry("Initial stabilization time step", "0",
+                            Patterns::Double(0),
+                            "Time interval used by the implicit restoring "
+                            "operator during timestep zero. This is needed for "
+                            "an instantaneous elastic solve, for which the "
+                            "global simulator timestep is zero. Units are years "
+                            "when 'Use years instead of seconds' is enabled.");
+          prm.declare_entry("Stabilization density contrasts", "",
+                            Patterns::Anything(),
+                            "Optional comma-separated boundary:density-jump "
+                            "map in kg/m^3, for example 'outer: 4604.4, "
+                            "inner: 5401.0'. Explicit physical jumps use an "
+                            "orientation correction so the boundary matrix in "
+                            "Equation (17) of Zhong et al. (2022) is restoring "
+                            "at both the outer and inner interfaces. Unlisted boundaries retain "
+                            "the historical material-density FSSA behavior.");
+          prm.declare_entry("Initial stabilization density contrasts", "",
+                            Patterns::Anything(),
+                            "Optional timestep-zero overrides of "
+                            "'Stabilization density contrasts', using the same "
+                            "boundary:value syntax. This separates an "
+                            "instantaneous elastic predictor from subsequent "
+                            "finite-time free-boundary stabilization.");
         }
         prm.leave_subsection ();
         prm.declare_entry("Krylov subspace method", "gmres",
@@ -555,6 +588,58 @@ namespace aspect
         prm.enter_subsection ("Free surface");
         {
           surface_theta = prm.get_double("Free surface stabilization theta");
+          initial_surface_stabilization_timestep =
+            prm.get_double("Initial stabilization time step");
+          if (this->convert_output_to_years())
+            initial_surface_stabilization_timestep *= year_in_seconds;
+
+          surface_stabilization_density_contrasts.clear();
+          for (const std::string &entry :
+               Utilities::split_string_list(
+                 prm.get("Stabilization density contrasts")))
+            {
+              const std::vector<std::string> parts =
+                Utilities::split_string_list(entry, ':');
+              AssertThrow(parts.size() == 2,
+                          ExcMessage("Each stabilization density contrast must "
+                                     "have the form <boundary: value>, but got <"+
+                                     entry+">."));
+              const types::boundary_id boundary_id =
+                this->get_geometry_model()
+                .translate_symbolic_boundary_name_to_id(parts[0]);
+              const double density_jump = Utilities::string_to_double(parts[1]);
+              AssertThrow(density_jump >= 0.0,
+                          ExcMessage("Free-boundary density jumps must be non-negative."));
+              AssertThrow(surface_stabilization_density_contrasts.emplace(
+                            boundary_id, density_jump).second,
+                          ExcMessage("A stabilization density contrast was listed "
+                            "more than once for boundary "+parts[0]+"."));
+            }
+
+          initial_surface_stabilization_density_contrasts.clear();
+          for (const std::string &entry :
+               Utilities::split_string_list(
+                 prm.get("Initial stabilization density contrasts")))
+            {
+              const std::vector<std::string> parts =
+                Utilities::split_string_list(entry, ':');
+              AssertThrow(parts.size() == 2,
+                          ExcMessage("Each initial stabilization density "
+                                     "contrast must have the form "
+                                     "<boundary: value>, but got <"+entry+">."));
+              const types::boundary_id boundary_id =
+                this->get_geometry_model()
+                .translate_symbolic_boundary_name_to_id(parts[0]);
+              const double density_jump = Utilities::string_to_double(parts[1]);
+              AssertThrow(density_jump >= 0.0,
+                          ExcMessage("Initial free-boundary density jumps must "
+                                     "be non-negative."));
+              AssertThrow(initial_surface_stabilization_density_contrasts.emplace(
+                            boundary_id, density_jump).second,
+                          ExcMessage("An initial stabilization density contrast "
+                                     "was listed more than once for boundary "+
+                                     parts[0]+"."));
+            }
         }
         prm.leave_subsection ();
 
@@ -1795,6 +1880,49 @@ namespace aspect
     double MeshDeformationHandler<dim>::get_free_surface_theta()const
     {
       return surface_theta;
+    }
+
+
+
+    template <int dim>
+    double
+    MeshDeformationHandler<dim>::get_free_surface_stabilization_timestep() const
+    {
+      return (this->get_timestep() == 0.0
+              ? initial_surface_stabilization_timestep
+              : this->get_timestep());
+    }
+
+
+
+    template <int dim>
+    bool
+    MeshDeformationHandler<dim>::has_free_surface_stabilization_density_contrast(
+      const types::boundary_id boundary_id) const
+    {
+      return ((this->get_timestep_number() == 0
+               && initial_surface_stabilization_density_contrasts.count(boundary_id) > 0)
+              || surface_stabilization_density_contrasts.count(boundary_id) > 0);
+    }
+
+
+
+    template <int dim>
+    double
+    MeshDeformationHandler<dim>::get_free_surface_stabilization_density_contrast(
+      const types::boundary_id boundary_id,
+      const double material_density) const
+    {
+      const auto initial_entry =
+        initial_surface_stabilization_density_contrasts.find(boundary_id);
+      if (this->get_timestep_number() == 0
+          && initial_entry != initial_surface_stabilization_density_contrasts.end())
+        return initial_entry->second;
+
+      const auto entry = surface_stabilization_density_contrasts.find(boundary_id);
+      return (entry == surface_stabilization_density_contrasts.end()
+              ? material_density
+              : entry->second);
     }
 
 

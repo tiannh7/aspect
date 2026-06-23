@@ -575,6 +575,7 @@ namespace aspect
     double                         adiabatic_surface_temperature;
     unsigned int                   timing_output_frequency;
     unsigned int                   max_nonlinear_iterations;
+    unsigned int                   min_nonlinear_iterations;
     unsigned int                   max_nonlinear_iterations_in_prerefinement;
     bool                           use_operator_splitting;
     bool                           use_old_stress_fields;

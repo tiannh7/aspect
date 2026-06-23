@@ -130,6 +130,11 @@ namespace aspect
         double density_above;
         double density_below;
 
+        /** Spherically symmetric reference density removed from the volume
+         * integral. It has no physical l>0 signal, but integrating it on a
+         * discrete mesh otherwise creates spurious harmonic leakage. */
+        double reference_density;
+
         /**
          * A parameter to control whether to include the surface topography contribution on geoid
          */

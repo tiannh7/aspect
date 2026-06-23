@@ -115,6 +115,15 @@ namespace aspect
                            "timestep; afterwards on if 'Used fixed elastic time step' is true. "
                            "Units: years if the 'Use years instead of seconds' parameter is set; "
                            "seconds otherwise.");
+        prm.declare_entry ("Use instantaneous elastic response at timestep zero", "false",
+                           Patterns::Bool(),
+                           "Use the pure elastic viscosity G*dt during the "
+                           "initial loaded solve, without placing the Maxwell "
+                           "dashpot in series. The fixed elastic time step still "
+                           "defines the velocity-to-displacement interval. This "
+                           "matches benchmarks whose t=0 solution is the "
+                           "instantaneous elastic limit before finite viscoelastic "
+                           "time steps begin.");
         prm.declare_entry ("Stabilization time scale factor", "1.",
                            Patterns::Double (1.),
                            "A stabilization factor for the elastic stresses that influences how fast "
@@ -174,6 +183,8 @@ namespace aspect
         stabilization_time_scale_factor = prm.get_double ("Stabilization time scale factor");
 
         fixed_elastic_time_step = prm.get_double ("Fixed elastic time step");
+        use_instantaneous_elastic_response_at_timestep_zero =
+          prm.get_bool("Use instantaneous elastic response at timestep zero");
         AssertThrow(fixed_elastic_time_step > 0,
                     ExcMessage("The fixed elastic time step must be greater than zero"));
 
@@ -861,6 +872,10 @@ namespace aspect
         // an increasing body force term in the right-hand-side of the momentum equation.
         const double timestep_ratio = calculate_timestep_ratio();
         const double elastic_viscosity = calculate_elastic_viscosity(shear_modulus);
+        if (use_instantaneous_elastic_response_at_timestep_zero &&
+            this->simulator_is_past_initialization() &&
+            this->get_timestep_number() == 0)
+          return elastic_viscosity;
         return 1. / (1./elastic_viscosity + 1./(viscosity*timestep_ratio));
       }
 

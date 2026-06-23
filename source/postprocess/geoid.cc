@@ -24,6 +24,7 @@
 #include <aspect/utilities.h>
 #include <aspect/postprocess/geoid.h>
 #include <aspect/postprocess/dynamic_topography.h>
+#include <aspect/boundary_traction/self_gravitation.h>
 #include <aspect/postprocess/boundary_densities.h>
 #include <aspect/boundary_traction/interface.h>
 #include <aspect/geometry_model/spherical_shell.h>
@@ -146,7 +147,7 @@ namespace aspect
                         const double cos_component = sph_harm_vals.first; // real / cos part
                         const double sin_component = sph_harm_vals.second; // imaginary / sin part
 
-                        const double density = out.densities[q];
+                        const double density = out.densities[q] - reference_density;
                         const double r_q = in.position[q].norm();
                         const double JxW = fe_values.JxW(q);
 
@@ -486,6 +487,21 @@ namespace aspect
       geoid_coecos.clear();
       geoid_coesin.clear();
 
+      // A self-gravity traction model may contain a current-step ALE
+      // displacement predictor that is not yet committed to the mesh. Use
+      // its converged Phi/g coefficients directly instead of inferring
+      // topography from the total traction (which would also fold the
+      // self-gravity traction back into the inferred load a second time).
+      const auto &traction_manager = this->get_boundary_traction_manager();
+      const bool use_self_gravity_boundary_potential =
+        traction_manager.template has_matching_active_plugin<
+          BoundaryTraction::SelfGravitation<dim>>();
+      const BoundaryTraction::SelfGravitation<dim> *self_gravity =
+        (use_self_gravity_boundary_potential
+         ? &traction_manager.template get_matching_active_plugin<
+             BoundaryTraction::SelfGravitation<dim>>()
+         : nullptr);
+
       // First compute the spherical harmonic contributions from density anomaly, surface topography and CMB topography.
       int ind = 0; // coefficients index
       for (unsigned int ideg =  min_degree; ideg < max_degree+1; ++ideg)
@@ -499,23 +515,49 @@ namespace aspect
 
               if (include_surface_topo_contribution == true || include_CMB_topo_contribution == true)
                 {
-                  const double coecos_surface_topo = (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
-                                                     * surface_delta_rho*SH_surface_topo_coes.second.first.at(ind)*outer_radius;
-                  const double coesin_surface_topo = (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
-                                                     * surface_delta_rho*SH_surface_topo_coes.second.second.at(ind)*outer_radius;
+                  const std::pair<double,double> self_gravity_surface =
+                    (self_gravity != nullptr
+                     ? self_gravity->surface_mass_potential_coefficient(ideg, iord)
+                     : std::pair<double,double>{0.0, 0.0});
+                  const double coecos_surface_topo =
+                    (self_gravity != nullptr
+                     ? self_gravity_surface.first
+                     : (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
+                       * surface_delta_rho*SH_surface_topo_coes.second.first.at(ind)*outer_radius);
+                  const double coesin_surface_topo =
+                    (self_gravity != nullptr
+                     ? self_gravity_surface.second
+                     : (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
+                       * surface_delta_rho*SH_surface_topo_coes.second.second.at(ind)*outer_radius);
                   surface_topo_contribution_coecos.push_back(coecos_surface_topo);
                   surface_topo_contribution_coesin.push_back(coesin_surface_topo);
 
+                  const std::pair<double,double> self_gravity_cmb =
+                    (self_gravity != nullptr
+                     ? self_gravity->cmb_mass_potential_coefficient(ideg, iord)
+                     : std::pair<double,double>{0.0, 0.0});
 #if DEAL_II_VERSION_GTE(9,6,0)
-                  const double coecos_CMB_topo = (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
-                                                 * CMB_delta_rho*SH_CMB_topo_coes.second.first.at(ind)*inner_radius*Utilities::pow(inner_radius/outer_radius,ideg+1);
-                  const double coesin_CMB_topo = (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
-                                                 * CMB_delta_rho*SH_CMB_topo_coes.second.second.at(ind)*inner_radius*Utilities::pow(inner_radius/outer_radius,ideg+1);
+                  const double coecos_CMB_topo =
+                    (self_gravity != nullptr
+                     ? self_gravity_cmb.first
+                     : (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
+                       * CMB_delta_rho*SH_CMB_topo_coes.second.first.at(ind)*inner_radius*Utilities::pow(inner_radius/outer_radius,ideg+1));
+                  const double coesin_CMB_topo =
+                    (self_gravity != nullptr
+                     ? self_gravity_cmb.second
+                     : (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
+                       * CMB_delta_rho*SH_CMB_topo_coes.second.second.at(ind)*inner_radius*Utilities::pow(inner_radius/outer_radius,ideg+1));
 #else
-                  const double coecos_CMB_topo = (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
-                                                 * CMB_delta_rho*SH_CMB_topo_coes.second.first.at(ind)*inner_radius*std::pow(inner_radius/outer_radius,ideg+1);
-                  const double coesin_CMB_topo = (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
-                                                 * CMB_delta_rho*SH_CMB_topo_coes.second.second.at(ind)*inner_radius*std::pow(inner_radius/outer_radius,ideg+1);
+                  const double coecos_CMB_topo =
+                    (self_gravity != nullptr
+                     ? self_gravity_cmb.first
+                     : (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
+                       * CMB_delta_rho*SH_CMB_topo_coes.second.first.at(ind)*inner_radius*std::pow(inner_radius/outer_radius,ideg+1));
+                  const double coesin_CMB_topo =
+                    (self_gravity != nullptr
+                     ? self_gravity_cmb.second
+                     : (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
+                       * CMB_delta_rho*SH_CMB_topo_coes.second.second.at(ind)*inner_radius*std::pow(inner_radius/outer_radius,ideg+1));
 #endif
                   CMB_topo_contribution_coecos.push_back(coecos_CMB_topo);
                   CMB_topo_contribution_coesin.push_back(coesin_CMB_topo);
@@ -1032,6 +1074,13 @@ namespace aspect
           prm.declare_entry("Density below","9900.",
                             Patterns::Double (0.),
                             "The density value below the CMB boundary.");
+          prm.declare_entry("Reference density for anomaly","0.",
+                            Patterns::Double (0.),
+                            "A constant spherically symmetric reference density "
+                            "subtracted from the volume-density integral. This "
+                            "does not change exact coefficients of degree l>0, "
+                            "but prevents mesh quadrature of the background "
+                            "density from leaking into the computed geoid.");
           prm.declare_entry("Output geoid anomaly coefficients", "false",
                             Patterns::Bool(),
                             "Option to output the spherical harmonic coefficients of the geoid anomaly up to the maximum degree. "
@@ -1081,6 +1130,7 @@ namespace aspect
           output_in_lat_lon = prm.get_bool ("Output data in geographical coordinates");
           density_above = prm.get_double ("Density above");
           density_below = prm.get_double ("Density below");
+          reference_density = prm.get_double ("Reference density for anomaly");
           output_geoid_anomaly_SH_coes = prm.get_bool ("Output geoid anomaly coefficients");
           output_surface_topo_contribution_SH_coes = prm.get_bool ("Output surface topography contribution coefficients");
           output_CMB_topo_contribution_SH_coes = prm.get_bool ("Output CMB topography contribution coefficients");

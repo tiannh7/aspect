@@ -309,6 +309,21 @@ namespace aspect
          */
         double get_free_surface_theta () const;
 
+        /** Return the time interval used by the implicit free-boundary
+         * restoring operator. At timestep zero this may be a prescribed
+         * elastic displacement interval rather than Simulator::timestep=0. */
+        double get_free_surface_stabilization_timestep () const;
+
+        /** Whether a physical density jump was prescribed for this boundary. */
+        bool has_free_surface_stabilization_density_contrast (
+          const types::boundary_id boundary_id) const;
+
+        /** Return the prescribed density jump, or the material density when
+         * no boundary-specific value was provided. */
+        double get_free_surface_stabilization_density_contrast (
+          const types::boundary_id boundary_id,
+          const double material_density) const;
+
         /**
          * Return the initial topography stored on
          * the Q1 finite element that describes the mesh geometry.
@@ -614,6 +629,18 @@ namespace aspect
          * et. al. 2010 for more details.
          */
         double surface_theta;
+
+        /** Optional timestep-zero displacement interval for the implicit
+         * restoring matrix, stored in seconds. */
+        double initial_surface_stabilization_timestep;
+
+        /** Optional physical density jumps across deforming interfaces. */
+        std::map<types::boundary_id,double>
+        surface_stabilization_density_contrasts;
+
+        /** Optional timestep-zero overrides for physical density jumps. */
+        std::map<types::boundary_id,double>
+        initial_surface_stabilization_density_contrasts;
 
         /**
          * Name of the linear solver to use for the mesh deformation linear

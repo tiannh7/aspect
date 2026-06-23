@@ -156,6 +156,13 @@ namespace aspect
                        Patterns::Integer (1),
                        "The maximal number of nonlinear iterations to be performed.");
 
+    prm.declare_entry ("Min nonlinear iterations", "1",
+                       Patterns::Integer (1),
+                       "The minimum number of nonlinear iterations to perform "
+                       "before the usual residual convergence test may stop the "
+                       "solver. This is useful for plugins that update a coupled "
+                       "non-local operator after each Stokes solve.");
+
     prm.declare_entry ("Max nonlinear iterations in pre-refinement", boost::lexical_cast<std::string>(std::numeric_limits<int>::max()),
                        Patterns::Integer (0),
                        "The maximal number of nonlinear iterations to be performed in the pre-refinement "
@@ -1782,6 +1789,9 @@ namespace aspect
     nonlinear_tolerance = prm.get_double("Nonlinear solver tolerance");
 
     max_nonlinear_iterations = prm.get_integer ("Max nonlinear iterations");
+    min_nonlinear_iterations = prm.get_integer ("Min nonlinear iterations");
+    AssertThrow(min_nonlinear_iterations <= max_nonlinear_iterations,
+                ExcMessage("Min nonlinear iterations must not exceed Max nonlinear iterations."));
     max_nonlinear_iterations_in_prerefinement = prm.get_integer ("Max nonlinear iterations in pre-refinement");
 
     start_time              = prm.get_double ("Start time");
