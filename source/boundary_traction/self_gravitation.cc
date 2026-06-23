@@ -287,7 +287,10 @@ namespace aspect
 
           std::vector<double> cos_cmb(n_coeff, 0.0);
           std::vector<double> sin_cmb(n_coeff, 0.0);
-          if (include_cmb_contribution && !cmb_topo_pts.empty())
+          // analyze() performs MPI collectives, so every rank must call it.
+          // Ranks without locally owned CMB faces contribute empty vectors,
+          // which correctly produce a zero local contribution.
+          if (include_cmb_contribution)
             {
               std::tie(cos_cmb, sin_cmb) = sh_transform->analyze(
                                              cmb_theta_pts, cmb_phi_pts,
@@ -408,7 +411,10 @@ namespace aspect
 
           std::vector<double> cos_cmb(n_coeff, 0.0);
           std::vector<double> sin_cmb(n_coeff, 0.0);
-          if (include_cmb_contribution && !cmb_topo_pts.empty())
+          // analyze() performs MPI collectives, so every rank must call it.
+          // Ranks without locally owned CMB faces contribute empty vectors,
+          // which correctly produce a zero local contribution.
+          if (include_cmb_contribution)
             {
               std::tie(cos_cmb, sin_cmb) = fourier_transform->analyze(
                                              cmb_phi_pts, cmb_weight_pts, cmb_topo_pts,

@@ -746,10 +746,23 @@ namespace aspect
                 const double timestep_ratio = calculate_timestep_ratio();
 
                 // Compute the total stress at time t.
-                const SymmetricTensor<2, dim>
-                stress_t = 2. * effective_creep_viscosity * Utilities::Tensors::consistent_deviator(in.strain_rate[i])
-                           + effective_creep_viscosity / elastic_viscosity * stress_0_t
-                           + (1. - timestep_ratio) * (1. - effective_creep_viscosity / elastic_viscosity) * stress_old;
+                // If timestep zero was solved as an instantaneous elastic
+                // response, its strain rate represents a purely elastic
+                // displacement accumulated over the fixed elastic interval.
+                // Initialize the stored stress with G*dt rather than the
+                // Maxwell effective viscosity. Otherwise the first finite
+                // viscoelastic step stores only 1/(1+dt/tau_M) of the elastic
+                // stress and spuriously applies part of the load a second time.
+                const bool initialize_instantaneous_elastic_stress =
+                  use_instantaneous_elastic_response_at_timestep_zero
+                  && this->get_timestep_number() == 1;
+
+                const SymmetricTensor<2, dim> stress_t =
+                  initialize_instantaneous_elastic_stress
+                  ? 2. * elastic_viscosity * Utilities::Tensors::consistent_deviator(in.strain_rate[i])
+                  : 2. * effective_creep_viscosity * Utilities::Tensors::consistent_deviator(in.strain_rate[i])
+                    + effective_creep_viscosity / elastic_viscosity * stress_0_t
+                    + (1. - timestep_ratio) * (1. - effective_creep_viscosity / elastic_viscosity) * stress_old;
 
                 // Fill reaction rates.
                 // During this timestep, the reaction rates will be multiplied
