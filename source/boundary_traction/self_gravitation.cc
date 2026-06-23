@@ -28,6 +28,8 @@
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/fe/fe_values.h>
 
+#include <tuple>
+
 namespace aspect
 {
   namespace BoundaryTraction
@@ -36,12 +38,28 @@ namespace aspect
     void
     SelfGravitation<dim>::initialize()
     {
+      top_boundary_id =
+        this->get_geometry_model().translate_symbolic_boundary_name_to_id("top");
+      bottom_boundary_id =
+        this->get_geometry_model().translate_symbolic_boundary_name_to_id("bottom");
+
       if (dim == 3)
         sh_transform = std::make_unique<Utilities::SphericalHarmonicTransform>(
                          max_degree, min_degree);
       else
         fourier_transform = std::make_unique<Utilities::FourierTransform>(
                               max_degree, min_degree);
+
+      if (iterate_with_stokes)
+        this->get_signals().post_stokes_solver.connect(
+          [this](const SimulatorAccess<dim> &,
+                 const unsigned int,
+                 const unsigned int,
+                 const SolverControl &,
+                 const SolverControl &)
+      {
+        this->update_after_stokes_solve();
+      });
     }
 
 
@@ -49,13 +67,22 @@ namespace aspect
     void
     SelfGravitation<dim>::update()
     {
-      compute_self_gravity_correction();
+      compute_self_gravity_correction(false);
     }
 
 
     template <int dim>
     void
-    SelfGravitation<dim>::compute_self_gravity_correction()
+    SelfGravitation<dim>::update_after_stokes_solve()
+    {
+      compute_self_gravity_correction(true);
+    }
+
+
+    template <int dim>
+    void
+    SelfGravitation<dim>::compute_self_gravity_correction(
+      const bool include_current_velocity_increment)
     {
       AssertThrow(Plugins::plugin_type_matches<const GeometryModel::SphericalShell<dim>>(
                     this->get_geometry_model()),
@@ -68,10 +95,9 @@ namespace aspect
       const double outer_radius = geometry.outer_radius();
       const double inner_radius = geometry.inner_radius();
       const double radius_ratio = inner_radius / outer_radius;
-      const types::boundary_id top_boundary_id =
-        this->get_geometry_model().translate_symbolic_boundary_name_to_id("top");
-      const types::boundary_id bottom_boundary_id =
-        this->get_geometry_model().translate_symbolic_boundary_name_to_id("bottom");
+      double displacement_timestep = this->get_timestep();
+      if (displacement_timestep == 0.0)
+        displacement_timestep = initial_displacement_timestep;
 
       // Step 1: Collect surface and CMB topography at quadrature points
       const unsigned int quadrature_degree =
@@ -86,6 +112,9 @@ namespace aspect
                                        update_normal_vectors |
                                        update_JxW_values);
 
+      std::vector<Tensor<1,dim>> velocity_values(
+        fe_face_values.n_quadrature_points);
+
       const double delta_rho_surf = density_below_surface - density_above_surface;
 
       // Surface topography data
@@ -93,6 +122,7 @@ namespace aspect
       std::vector<double> theta_pts; // only used in 3D
       std::vector<double> weight_pts;
       std::vector<double> topo_pts;
+      std::vector<double> surface_increment_pts;
 
       // CMB topography data
       std::vector<double> cmb_phi_pts;
@@ -117,6 +147,10 @@ namespace aspect
 
                 fe_face_values.reinit(cell, f);
 
+                if (include_current_velocity_increment)
+                  fe_face_values[this->introspection().extractors.velocities]
+                  .get_function_values(this->get_solution(), velocity_values);
+
                 for (unsigned int q = 0;
                      q < fe_face_values.n_quadrature_points;
                      ++q)
@@ -130,12 +164,18 @@ namespace aspect
 
                     // scoord: 2D = {r, phi}, 3D = {r, phi, theta}
                     const double ph = scoord[1]; // longitude / azimuthal angle
+                    const Tensor<1,dim> radial_unit = position / scoord[0];
+                    const double predicted_radial_displacement =
+                      (include_current_velocity_increment
+                       ? displacement_timestep * (velocity_values[q] * radial_unit)
+                       : 0.0);
 
                     if (is_top)
                       {
                         const double h_rock =
                           this->get_geometry_model()
-                          .height_above_reference_surface(position);
+                          .height_above_reference_surface(position)
+                          + predicted_radial_displacement;
 
                         // Compute the external load's equivalent height.
                         // The total traction from the boundary traction manager
@@ -180,11 +220,14 @@ namespace aspect
                           theta_pts.push_back(scoord[2]);
                         weight_pts.push_back(w);
                         topo_pts.push_back(h_effective);
+                        surface_increment_pts.push_back(
+                          predicted_radial_displacement);
                       }
                     else // is_bottom
                       {
                         const double r = scoord[0];
-                        const double cmb_topography = r - inner_radius;
+                        const double cmb_topography =
+                          r - inner_radius + predicted_radial_displacement;
                         const double ref_radius = inner_radius;
                         const double w =
                           fe_face_values.JxW(q) /
@@ -212,99 +255,154 @@ namespace aspect
 
       if (dim == 3)
         {
-          // --- 3D: Spherical Harmonic path ---
           auto [cos_topo, sin_topo] = sh_transform->analyze(
                                         theta_pts, phi_pts, weight_pts, topo_pts,
                                         this->get_mpi_communicator());
-
+          std::tie(surface_increment_cos_coeffs,
+                   surface_increment_sin_coeffs) = sh_transform->analyze(
+                     theta_pts, phi_pts, weight_pts,
+                     surface_increment_pts,
+                     this->get_mpi_communicator());
           const unsigned int n_coeff = sh_transform->n_coefficients();
 
-          std::vector<double> surf_filter(max_degree + 1, 0.0);
-          for (unsigned int l = min_degree; l <= max_degree; ++l)
-            surf_filter[l] = 3.0 * delta_rho_surf /
-                             ((2.0 * l + 1.0) * planet_mean_density);
-
-          correction_cos_coeffs = cos_topo;
-          correction_sin_coeffs = sin_topo;
-          sh_transform->apply_degree_filter(correction_cos_coeffs,
-                                            correction_sin_coeffs,
-                                            surf_filter);
-
+          std::vector<double> cos_cmb(n_coeff, 0.0);
+          std::vector<double> sin_cmb(n_coeff, 0.0);
           if (include_cmb_contribution && !cmb_topo_pts.empty())
+            std::tie(cos_cmb, sin_cmb) = sh_transform->analyze(
+                                           cmb_theta_pts, cmb_phi_pts,
+                                           cmb_weight_pts, cmb_topo_pts,
+                                           this->get_mpi_communicator());
+
+          cmb_topography_cos_coeffs = cos_cmb;
+          cmb_topography_sin_coeffs = sin_cmb;
+
+          // Phi/g at the surface.
+          std::vector<double> surface_to_surface(max_degree + 1, 0.0);
+          std::vector<double> cmb_to_surface(max_degree + 1, 0.0);
+          // Phi/g at the CMB.
+          std::vector<double> surface_to_cmb(max_degree + 1, 0.0);
+          std::vector<double> cmb_to_cmb(max_degree + 1, 0.0);
+
+          for (unsigned int l = min_degree; l <= max_degree; ++l)
             {
-              auto [cos_cmb, sin_cmb] = sh_transform->analyze(
-                                          cmb_theta_pts, cmb_phi_pts,
-                                          cmb_weight_pts, cmb_topo_pts,
-                                          this->get_mpi_communicator());
+              const double common =
+                3.0 / ((2.0 * l + 1.0) * planet_mean_density);
+              surface_to_surface[l] = common * delta_rho_surf;
+              cmb_to_surface[l] = common * delta_rho_cmb
+                                  * std::pow(radius_ratio,
+                                             static_cast<int>(l) + 2);
+              surface_to_cmb[l] = common * delta_rho_surf
+                                  * std::pow(radius_ratio,
+                                             static_cast<int>(l));
+              cmb_to_cmb[l] = common * delta_rho_cmb * radius_ratio;
+            }
 
-              std::vector<double> cmb_filter(max_degree + 1, 0.0);
-              for (unsigned int l = min_degree; l <= max_degree; ++l)
-                cmb_filter[l] = 3.0 * delta_rho_cmb /
-                                ((2.0 * l + 1.0) * planet_mean_density)
-                                * std::pow(radius_ratio, static_cast<int>(l) + 2);
+          surface_potential_cos_coeffs = cos_topo;
+          surface_potential_sin_coeffs = sin_topo;
+          sh_transform->apply_degree_filter(surface_potential_cos_coeffs,
+                                            surface_potential_sin_coeffs,
+                                            surface_to_surface);
+          std::vector<double> cmb_at_surface_cos = cos_cmb;
+          std::vector<double> cmb_at_surface_sin = sin_cmb;
+          sh_transform->apply_degree_filter(cmb_at_surface_cos,
+                                            cmb_at_surface_sin,
+                                            cmb_to_surface);
 
-              sh_transform->apply_degree_filter(cos_cmb, sin_cmb, cmb_filter);
+          cmb_potential_cos_coeffs = cos_topo;
+          cmb_potential_sin_coeffs = sin_topo;
+          sh_transform->apply_degree_filter(cmb_potential_cos_coeffs,
+                                            cmb_potential_sin_coeffs,
+                                            surface_to_cmb);
+          std::vector<double> cmb_at_cmb_cos = cos_cmb;
+          std::vector<double> cmb_at_cmb_sin = sin_cmb;
+          sh_transform->apply_degree_filter(cmb_at_cmb_cos,
+                                            cmb_at_cmb_sin,
+                                            cmb_to_cmb);
 
-              for (unsigned int i = 0; i < n_coeff; ++i)
-                {
-                  correction_cos_coeffs[i] += cos_cmb[i];
-                  correction_sin_coeffs[i] += sin_cmb[i];
-                }
+          for (unsigned int i = 0; i < n_coeff; ++i)
+            {
+              surface_potential_cos_coeffs[i] += cmb_at_surface_cos[i];
+              surface_potential_sin_coeffs[i] += cmb_at_surface_sin[i];
+              cmb_potential_cos_coeffs[i] += cmb_at_cmb_cos[i];
+              cmb_potential_sin_coeffs[i] += cmb_at_cmb_sin[i];
             }
         }
       else
         {
-          // --- 2D: Fourier path ---
           auto [cos_topo, sin_topo] = fourier_transform->analyze(
                                         phi_pts, weight_pts, topo_pts,
                                         this->get_mpi_communicator());
-
+          std::tie(surface_increment_cos_coeffs,
+                   surface_increment_sin_coeffs) = fourier_transform->analyze(
+                     phi_pts, weight_pts, surface_increment_pts,
+                     this->get_mpi_communicator());
           const unsigned int n_coeff = fourier_transform->n_coefficients();
 
-          std::vector<double> surf_filter(max_degree + 1, 0.0);
-          for (unsigned int n = std::max(min_degree, 1u); n <= max_degree; ++n)
-            surf_filter[n] = 2.0 * delta_rho_surf /
-                             (static_cast<double>(n) * planet_mean_density);
-
-          correction_cos_coeffs = cos_topo;
-          correction_sin_coeffs = sin_topo;
-          fourier_transform->apply_degree_filter(correction_cos_coeffs,
-                                                 correction_sin_coeffs,
-                                                 surf_filter);
-
+          std::vector<double> cos_cmb(n_coeff, 0.0);
+          std::vector<double> sin_cmb(n_coeff, 0.0);
           if (include_cmb_contribution && !cmb_topo_pts.empty())
+            std::tie(cos_cmb, sin_cmb) = fourier_transform->analyze(
+                                           cmb_phi_pts, cmb_weight_pts, cmb_topo_pts,
+                                           this->get_mpi_communicator());
+
+          cmb_topography_cos_coeffs = cos_cmb;
+          cmb_topography_sin_coeffs = sin_cmb;
+
+          std::vector<double> surface_to_surface(max_degree + 1, 0.0);
+          std::vector<double> cmb_to_surface(max_degree + 1, 0.0);
+          std::vector<double> surface_to_cmb(max_degree + 1, 0.0);
+          std::vector<double> cmb_to_cmb(max_degree + 1, 0.0);
+          for (unsigned int n = std::max(min_degree, 1u); n <= max_degree; ++n)
             {
-              auto [cos_cmb, sin_cmb] = fourier_transform->analyze(
-                                          cmb_phi_pts, cmb_weight_pts, cmb_topo_pts,
-                                          this->get_mpi_communicator());
+              const double common =
+                2.0 / (static_cast<double>(n) * planet_mean_density);
+              surface_to_surface[n] = common * delta_rho_surf;
+              cmb_to_surface[n] = common * delta_rho_cmb
+                                  * std::pow(radius_ratio,
+                                             static_cast<int>(n) + 1);
+              surface_to_cmb[n] = common * delta_rho_surf
+                                  * std::pow(radius_ratio,
+                                             static_cast<int>(n));
+              cmb_to_cmb[n] = common * delta_rho_cmb * radius_ratio;
+            }
 
-              std::vector<double> cmb_filter(max_degree + 1, 0.0);
-              for (unsigned int n = std::max(min_degree, 1u); n <= max_degree; ++n)
-                cmb_filter[n] = 2.0 * delta_rho_cmb /
-                                (static_cast<double>(n) * planet_mean_density)
-                                * std::pow(radius_ratio, static_cast<int>(n) + 1);
+          surface_potential_cos_coeffs = cos_topo;
+          surface_potential_sin_coeffs = sin_topo;
+          fourier_transform->apply_degree_filter(surface_potential_cos_coeffs,
+                                                 surface_potential_sin_coeffs,
+                                                 surface_to_surface);
+          std::vector<double> cmb_at_surface_cos = cos_cmb;
+          std::vector<double> cmb_at_surface_sin = sin_cmb;
+          fourier_transform->apply_degree_filter(cmb_at_surface_cos,
+                                                 cmb_at_surface_sin,
+                                                 cmb_to_surface);
 
-              fourier_transform->apply_degree_filter(cos_cmb, sin_cmb, cmb_filter);
+          cmb_potential_cos_coeffs = cos_topo;
+          cmb_potential_sin_coeffs = sin_topo;
+          fourier_transform->apply_degree_filter(cmb_potential_cos_coeffs,
+                                                 cmb_potential_sin_coeffs,
+                                                 surface_to_cmb);
+          std::vector<double> cmb_at_cmb_cos = cos_cmb;
+          std::vector<double> cmb_at_cmb_sin = sin_cmb;
+          fourier_transform->apply_degree_filter(cmb_at_cmb_cos,
+                                                 cmb_at_cmb_sin,
+                                                 cmb_to_cmb);
 
-              for (unsigned int i = 0; i < n_coeff; ++i)
-                {
-                  correction_cos_coeffs[i] += cos_cmb[i];
-                  correction_sin_coeffs[i] += sin_cmb[i];
-                }
+          for (unsigned int i = 0; i < n_coeff; ++i)
+            {
+              surface_potential_cos_coeffs[i] += cmb_at_surface_cos[i];
+              surface_potential_sin_coeffs[i] += cmb_at_surface_sin[i];
+              cmb_potential_cos_coeffs[i] += cmb_at_cmb_cos[i];
+              cmb_potential_sin_coeffs[i] += cmb_at_cmb_sin[i];
             }
         }
-
-      // Cache for later point queries
-      cached_phi = phi_pts;
-      if (dim == 3)
-        cached_theta = theta_pts;
     }
 
 
     template <int dim>
     Tensor<1, dim>
     SelfGravitation<dim>::boundary_traction(
-      const types::boundary_id /*boundary_indicator*/,
+      const types::boundary_id boundary_indicator,
       const Point<dim> &position,
       const Tensor<1, dim> &normal_vector) const
     {
@@ -314,42 +412,88 @@ namespace aspect
           position);
       const double ph = scoord[1]; // longitude / azimuthal angle
 
-      // If no coefficients have been computed yet (first timestep),
-      // return zero traction.
-      if (correction_cos_coeffs.empty())
+      if (surface_potential_cos_coeffs.empty())
         return Tensor<1, dim>();
 
-      // Synthesize the self-gravity correction at this point
-      double correction_value = 0.0;
+      const bool is_surface = boundary_indicator == top_boundary_id;
+      const bool is_cmb = boundary_indicator == bottom_boundary_id;
+      if (!is_surface && !is_cmb)
+        return Tensor<1, dim>();
+
+      const std::vector<double> &potential_cos =
+        (is_surface ? surface_potential_cos_coeffs : cmb_potential_cos_coeffs);
+      const std::vector<double> &potential_sin =
+        (is_surface ? surface_potential_sin_coeffs : cmb_potential_sin_coeffs);
+
+      double potential_height = 0.0;
+      double surface_increment = 0.0;
+      double cmb_topography = 0.0;
       if (dim == 3)
         {
           const double th = scoord[2]; // colatitude
           const std::vector<double> th_vec = {th};
           const std::vector<double> ph_vec = {ph};
-          const std::vector<double> correction =
-            sh_transform->synthesize(correction_cos_coeffs,
-                                     correction_sin_coeffs,
+          const std::vector<double> potential =
+            sh_transform->synthesize(potential_cos,
+                                     potential_sin,
                                      th_vec, ph_vec);
-          correction_value = correction[0];
+          potential_height = potential[0];
+
+          if (is_surface && !surface_increment_cos_coeffs.empty())
+            surface_increment = sh_transform->synthesize(
+                                  surface_increment_cos_coeffs,
+                                  surface_increment_sin_coeffs,
+                                  th_vec, ph_vec)[0];
+
+          if (is_cmb && include_cmb_contribution)
+            cmb_topography = sh_transform->synthesize(
+                               cmb_topography_cos_coeffs,
+                               cmb_topography_sin_coeffs,
+                               th_vec, ph_vec)[0];
         }
       else
         {
           const std::vector<double> ph_vec = {ph};
-          const std::vector<double> correction =
-            fourier_transform->synthesize(correction_cos_coeffs,
-                                          correction_sin_coeffs,
+          const std::vector<double> potential =
+            fourier_transform->synthesize(potential_cos,
+                                          potential_sin,
                                           ph_vec);
-          correction_value = correction[0];
+          potential_height = potential[0];
+
+          if (is_surface && !surface_increment_cos_coeffs.empty())
+            surface_increment = fourier_transform->synthesize(
+                                  surface_increment_cos_coeffs,
+                                  surface_increment_sin_coeffs,
+                                  ph_vec)[0];
+
+          if (is_cmb && include_cmb_contribution)
+            cmb_topography = fourier_transform->synthesize(
+                               cmb_topography_cos_coeffs,
+                               cmb_topography_sin_coeffs,
+                               ph_vec)[0];
         }
 
-      // The correction traction is outward-pointing (reducing the load):
-      //   T = delta_rho_surf * g * correction(position)
       const Tensor<1, dim> gravity =
         this->get_gravity_model().gravity_vector(position);
       const double g_magnitude = gravity.norm();
-      const double delta_rho_surf = density_below_surface - density_above_surface;
+      const double delta_rho_surface =
+        density_below_surface - density_above_surface;
+      const double delta_rho_cmb = density_below_cmb - density_above_cmb;
 
-      return delta_rho_surf * g_magnitude * correction_value * normal_vector;
+      if (is_surface)
+        // Incremental free-boundary condition. The potential term is outward;
+        // the direct density-interface restoring term is inward. The committed
+        // topography is already contained in the ALE total-stress state, so
+        // only the current fixed-point displacement increment is subtracted.
+        return g_magnitude
+               * (density_below_surface * potential_height
+                  - delta_rho_surface * surface_increment)
+               * normal_vector;
+
+      // Fluid-core CMB condition after subtracting the mantle hydrostatic
+      // reference state: Delta rho * (g*h_b - Phi_b) n.
+      return delta_rho_cmb * g_magnitude
+             * (cmb_topography - potential_height) * normal_vector;
     }
 
 
@@ -405,6 +549,21 @@ namespace aspect
                             "Whether to include the CMB topography contribution "
                             "to the self-gravitational potential perturbation. "
                             "Set to false if only surface topography feedback is needed.");
+
+          prm.declare_entry("Iterate with Stokes", "true",
+                            Patterns::Bool(),
+                            "Recompute the non-local surface/CMB potential from "
+                            "the current Stokes velocity after every Stokes solve. "
+                            "The updated traction is used by the next nonlinear "
+                            "iteration in the same time step.");
+
+          prm.declare_entry("Initial displacement time step", "0",
+                            Patterns::Double(0),
+                            "Displacement interval used to convert the timestep-0 "
+                            "Stokes velocity into an incremental boundary displacement. "
+                            "Set this to the elastic time step for an instantaneously "
+                            "applied load. Units are years when 'Use years instead of "
+                            "seconds' is enabled, otherwise seconds.");
         }
         prm.leave_subsection();
       }
@@ -428,10 +587,21 @@ namespace aspect
           density_below_cmb = prm.get_double("Density below cmb");
           planet_mean_density = prm.get_double("Planet mean density");
           include_cmb_contribution = prm.get_bool("Include cmb contribution");
+          iterate_with_stokes = prm.get_bool("Iterate with Stokes");
+          initial_displacement_timestep =
+            prm.get_double("Initial displacement time step");
+
+          if (this->convert_output_to_years())
+            initial_displacement_timestep *= year_in_seconds;
         }
         prm.leave_subsection();
       }
       prm.leave_subsection();
+
+      AssertThrow(min_degree <= max_degree,
+                  ExcMessage("Minimum degree must not exceed Maximum degree."));
+      AssertThrow(planet_mean_density > 0.0,
+                  ExcMessage("Planet mean density must be positive."));
     }
   }
 }

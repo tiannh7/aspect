@@ -48,22 +48,17 @@ namespace aspect
      *   - Earth CMB: density_above_cmb=5500 (lower mantle), density_below_cmb=9900 (outer core)
      *   - Mars CMB: density_above_cmb=3800 (lower mantle), density_below_cmb=6200 (core)
      *
-     * The gravitational potential perturbation at spherical harmonic degree l:
+     * The gravitational potential perturbation must be evaluated separately
+     * at the surface and CMB. At spherical harmonic degree l:
      *
-     *   delta_Phi_l = (4*pi*G*R/(2l+1)) * [ delta_rho_surf * h_surf_l
-     *                                       + delta_rho_cmb * h_cmb_l * (r_cmb/R)^(l+2) ]
+     *   Phi_s = 4*pi*G/(2l+1) *
+     *           [delta_rho_s*h_s*R + delta_rho_b*h_b*Rb*(Rb/R)^(l+1)]
+     *   Phi_b = 4*pi*G/(2l+1) *
+     *           [delta_rho_s*h_s*R*(Rb/R)^l + delta_rho_b*h_b*Rb]
      *
-     * The self-gravity ratio per degree (surface contribution):
-     *
-     *   Rsg_surf_l = 3 * delta_rho_surf / ((2l+1) * rho_mean)
-     *
-     * The CMB contribution (applied as correction at the surface):
-     *
-     *   Rsg_cmb_l = 3 * delta_rho_cmb / ((2l+1) * rho_mean) * (r_cmb/R)^(l+2)
-     *
-     * These are applied as outward normal traction corrections on the
-     * respective boundaries, reducing the effective load by accounting for
-     * the gravitational attraction of the deformed surfaces.
+     * The surface traction uses Phi_s. The fluid-core CMB traction uses
+     * delta_rho_cmb * (g*h_cmb - Phi_b), after subtracting the mantle
+     * reference hydrostatic state. The two operators are not interchangeable.
      *
      * Usage in input file:
      * @code
@@ -105,7 +100,12 @@ namespace aspect
          * analysis, applies the self-gravity kernel, and synthesizes the
          * correction field. Stores results for use by boundary_traction().
          */
-        void compute_self_gravity_correction();
+        void compute_self_gravity_correction(const bool include_current_velocity_increment);
+
+        /** Update the non-local boundary operator after a Stokes solve so
+         * that the next nonlinear iteration uses the current displacement
+         * estimate, rather than lagging the feedback by a full time step. */
+        void update_after_stokes_solve();
 
         unsigned int max_degree;
         unsigned int min_degree;
@@ -116,6 +116,11 @@ namespace aspect
         double density_below_cmb;
         double planet_mean_density;
         bool   include_cmb_contribution;
+        bool   iterate_with_stokes;
+        double initial_displacement_timestep;
+
+        types::boundary_id top_boundary_id;
+        types::boundary_id bottom_boundary_id;
 
         /**
          * The SH transform utility (3D) or Fourier transform (2D).
@@ -123,22 +128,23 @@ namespace aspect
         std::unique_ptr<Utilities::SphericalHarmonicTransform> sh_transform;
         std::unique_ptr<Utilities::FourierTransform> fourier_transform;
 
-        /**
-         * Cached data from the last update():
-         * positions, normals, and the self-gravity correction values
-         * at surface quadrature points.
-         */
-        std::vector<double> cached_theta;
-        std::vector<double> cached_phi;
-        std::vector<double> cached_correction;
+        // Coefficients of Phi/g evaluated at each boundary.
+        std::vector<double> surface_potential_cos_coeffs;
+        std::vector<double> surface_potential_sin_coeffs;
+        std::vector<double> cmb_potential_cos_coeffs;
+        std::vector<double> cmb_potential_sin_coeffs;
 
-        /**
-         * SH coefficients of the total self-gravity correction
-         * (surface + CMB contributions combined, for synthesis
-         * at arbitrary points on the surface boundary).
-         */
-        std::vector<double> correction_cos_coeffs;
-        std::vector<double> correction_sin_coeffs;
+        // Current-step surface displacement increment. The committed ALE
+        // geometry is already represented by the total-stress formulation;
+        // only this increment needs the direct -Delta(rho)*g*delta_h
+        // restoring traction during the boundary fixed-point iteration.
+        std::vector<double> surface_increment_cos_coeffs;
+        std::vector<double> surface_increment_sin_coeffs;
+
+        // CMB topography coefficients used by the direct density-jump
+        // restoring traction.
+        std::vector<double> cmb_topography_cos_coeffs;
+        std::vector<double> cmb_topography_sin_coeffs;
     };
   }
 }
