@@ -44,6 +44,11 @@ namespace aspect
       bottom_boundary_id =
         this->get_geometry_model().translate_symbolic_boundary_name_to_id("bottom");
 
+      last_text_output_time = -1.0;
+      last_text_output_step = 0;
+      current_tracked_step = (unsigned int)-1;
+      printing_this_step = true;
+
       if (dim == 3)
         sh_transform = std::make_unique<Utilities::SphericalHarmonicTransform>(
                          max_degree, min_degree);
@@ -300,12 +305,43 @@ namespace aspect
 
           if (min_degree <= 2 && max_degree >= 2)
             {
-              const unsigned int i20 = sh_transform->index(2, 0);
-              this->get_pcout()
-                << "      Self-gravity effective boundary C20 [m]: surface="
-                << std::scientific << std::setprecision(6) << cos_topo[i20]
-                << ", CMB=" << cos_cmb[i20] << std::defaultfloat
-                << std::endl;
+              const unsigned int step = this->get_timestep_number();
+              const double time = this->get_time();
+              
+              if (current_tracked_step != step)
+                {
+                  current_tracked_step = step;
+                  printing_this_step = false;
+                  
+                  // Use specific parameters if given
+                  const double eff_time_interval = time_between_text_output;
+                  const unsigned int eff_step_interval = time_steps_between_text_output;
+                  
+                  if (step == 0 || time == 0.0)
+                    printing_this_step = true;
+                  else if (eff_step_interval > 0 && (step - last_text_output_step >= eff_step_interval))
+                    printing_this_step = true;
+                  else if (eff_time_interval > 0 && (time - last_text_output_time >= eff_time_interval))
+                    printing_this_step = true;
+                  else if (eff_step_interval == 0 && eff_time_interval == 0.0)
+                    printing_this_step = true; // print every step if both are 0
+                    
+                  if (printing_this_step)
+                    {
+                      last_text_output_step = step;
+                      last_text_output_time = time;
+                    }
+                }
+
+              if (printing_this_step)
+                {
+                  const unsigned int i20 = sh_transform->index(2, 0);
+                  this->get_pcout()
+                    << "      Self-gravity effective boundary C20 [m]: surface="
+                    << std::scientific << std::setprecision(6) << cos_topo[i20]
+                    << ", CMB=" << cos_cmb[i20] << std::defaultfloat
+                    << std::endl;
+                }
             }
 
           // Phi/g at the surface.
@@ -710,6 +746,14 @@ namespace aspect
                             "weak-form and outward-domain-normal conventions "
                             "are combined. The -1 option is retained only for "
                             "sign-audit benchmark experiments.");
+          prm.declare_entry("Time between text output", "0.",
+                            Patterns::Double(0.),
+                            "The time interval in years between text outputs (printing C20 to the terminal). "
+                            "If zero, this parameter is ignored.");
+          prm.declare_entry("Time steps between text output", "0",
+                            Patterns::Integer(0),
+                            "The number of time steps between text outputs (printing C20 to the terminal). "
+                            "If zero, this parameter is ignored. If both parameters are zero, output is printed every time step.");
         }
         prm.leave_subsection();
       }
@@ -740,10 +784,15 @@ namespace aspect
             prm.get_double("Potential convergence tolerance");
           cmb_potential_traction_sign =
             prm.get_double("CMB potential traction sign");
+          time_between_text_output = prm.get_double("Time between text output");
+          time_steps_between_text_output = prm.get_integer("Time steps between text output");
           potential_relative_change = std::numeric_limits<double>::infinity();
 
           if (this->convert_output_to_years())
-            initial_displacement_timestep *= year_in_seconds;
+            {
+              initial_displacement_timestep *= year_in_seconds;
+              time_between_text_output *= year_in_seconds;
+            }
         }
         prm.leave_subsection();
       }

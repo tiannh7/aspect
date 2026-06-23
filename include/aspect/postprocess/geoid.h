@@ -156,6 +156,13 @@ namespace aspect
         bool use_free_CMB_topography;
 
         /**
+         * Output interval control parameters.
+         */
+        double       time_between_text_output = 0.;
+        unsigned int time_steps_between_text_output = 1;
+        double       last_text_output_time = -1e20;
+
+        /**
          * Function to compute the real spherical harmonic coefficients (cos and sin part) from min degree to max degree
          * The input spherical_function is a vector of vectors.
          * The inner vector stores theta, phi, spherical infinitesimal, and function value on a spherical surface.

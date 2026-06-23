@@ -428,6 +428,22 @@ namespace aspect
     std::pair<std::string,std::string>
     Geoid<dim>::execute (TableHandler &)
     {
+      bool output_needed = false;
+      if (time_steps_between_text_output > 0 && this->get_timestep_number() % time_steps_between_text_output == 0)
+        output_needed = true;
+      if (time_between_text_output > 0 && this->get_time() - last_text_output_time >= time_between_text_output)
+        output_needed = true;
+      if (this->get_timestep_number() == 0)
+        output_needed = true;
+
+      if (last_text_output_time == -1e20)
+        {
+          last_text_output_time = this->get_time();
+          output_needed = true;
+        }
+
+      if (!output_needed)
+        return std::make_pair("", "");
       // Current geoid code only works for spherical shell geometry.
       AssertThrow (Plugins::plugin_type_matches<const GeometryModel::SphericalShell<dim>>(this->get_geometry_model())
                    &&
@@ -965,6 +981,8 @@ namespace aspect
           Utilities::collect_and_write_file_content(filename, output_gravity_anomaly.str(), this->get_mpi_communicator());
         }
 
+      last_text_output_time = this->get_time();
+
       return std::pair<std::string,std::string>("Writing geoid anomaly:",
                                                 filename);
     }
@@ -1097,6 +1115,12 @@ namespace aspect
                             Patterns::Bool(),
                             "Option to output the spherical harmonic coefficients of the density anomaly contribution to the "
                             "maximum degree. The default is false. ");
+          prm.declare_entry("Time between text output", "0.",
+                            Patterns::Double(0.),
+                            "The simulation time interval between text file outputs.");
+          prm.declare_entry("Time steps between text output", "1",
+                            Patterns::Integer(0),
+                            "The number of time steps between text file outputs.");
           prm.declare_entry("Output gravity anomaly", "false",
                             Patterns::Bool(),
                             "Option to output the free-air gravity anomaly up to the maximum degree. "
@@ -1135,6 +1159,10 @@ namespace aspect
           output_surface_topo_contribution_SH_coes = prm.get_bool ("Output surface topography contribution coefficients");
           output_CMB_topo_contribution_SH_coes = prm.get_bool ("Output CMB topography contribution coefficients");
           output_density_anomaly_contribution_SH_coes = prm.get_bool ("Output density anomaly contribution coefficients");
+          time_between_text_output = prm.get_double("Time between text output");
+          if (this->convert_output_to_years())
+            time_between_text_output *= constants::year_in_seconds;
+          time_steps_between_text_output = prm.get_integer("Time steps between text output");
           output_gravity_anomaly = prm.get_bool ("Output gravity anomaly");
         }
         prm.leave_subsection ();

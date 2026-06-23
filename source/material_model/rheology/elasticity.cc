@@ -305,15 +305,20 @@ namespace aspect
         else
           AssertThrow(false, ExcNotImplemented());
 
-        // We need to iterate over the Advection and Stokes equations.
+        // We need to iterate over the Advection and Stokes equations for standard Eulerian setups,
+        // but for pure ALE setups (mesh velocity = material velocity), single Advection, iterated Stokes
+        // is also perfectly valid and more efficient.
         AssertThrow((this->get_parameters().nonlinear_solver ==
+                     Parameters<dim>::NonlinearSolver::single_Advection_iterated_Stokes ||
+                     this->get_parameters().nonlinear_solver ==
                      Parameters<dim>::NonlinearSolver::iterated_Advection_and_Stokes ||
                      this->get_parameters().nonlinear_solver ==
                      Parameters<dim>::NonlinearSolver::iterated_Advection_and_Newton_Stokes ||
                      this->get_parameters().nonlinear_solver ==
                      Parameters<dim>::NonlinearSolver::iterated_Advection_and_defect_correction_Stokes),
                     ExcMessage("The material model will only work with the nonlinear "
-                               "solver schemes 'iterated Advection and Stokes', "
+                               "solver schemes 'single Advection, iterated Stokes', "
+                               "'iterated Advection and Stokes', "
                                "'iterated Advection and defect correction Stokes', "
                                "'iterated Advection and Newton Stokes'."));
 

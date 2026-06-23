@@ -142,6 +142,14 @@ namespace aspect
         double potential_relative_change;
         double cmb_potential_traction_sign;
 
+        double time_between_text_output;
+        unsigned int time_steps_between_text_output;
+
+        mutable double last_text_output_time;
+        mutable unsigned int last_text_output_step;
+        mutable unsigned int current_tracked_step;
+        mutable bool printing_this_step;
+
         types::boundary_id top_boundary_id;
         types::boundary_id bottom_boundary_id;
 
