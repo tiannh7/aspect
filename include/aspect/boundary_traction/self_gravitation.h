@@ -26,6 +26,7 @@
 #include <aspect/utilities.h>
 
 #include <memory>
+#include <string>
 
 namespace aspect
 {
@@ -141,6 +142,7 @@ namespace aspect
         double potential_convergence_tolerance;
         double potential_relative_change;
         double cmb_potential_traction_sign;
+        std::string cmb_local_topography_mode;
 
         double time_between_text_output;
         unsigned int time_steps_between_text_output;
@@ -179,9 +181,11 @@ namespace aspect
         std::vector<double> cmb_topography_cos_coeffs;
         std::vector<double> cmb_topography_sin_coeffs;
 
-        // Committed CMB topography. The current displacement increment is
-        // represented implicitly in the free-boundary restoring matrix and
-        // must not be duplicated on the traction RHS.
+        // Committed CMB topography. These coefficients are retained separately
+        // from cmb_topography_* because the CMB direct density-jump traction
+        // can be evaluated either from the committed state, from the current
+        // post-Stokes topography estimate, or omitted entirely in diagnostic
+        // Zhong et al. (2022) benchmark experiments.
         std::vector<double> cmb_committed_topography_cos_coeffs;
         std::vector<double> cmb_committed_topography_sin_coeffs;
     };

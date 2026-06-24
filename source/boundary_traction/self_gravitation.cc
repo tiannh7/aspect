@@ -633,10 +633,23 @@ namespace aspect
 
 
           if (is_cmb && include_cmb_contribution)
-            cmb_topography = sh_transform->synthesize(
-                               cmb_committed_topography_cos_coeffs,
-                               cmb_committed_topography_sin_coeffs,
-                               th_vec, ph_vec)[0];
+            {
+              if (cmb_local_topography_mode == "committed")
+                cmb_topography = sh_transform->synthesize(
+                                   cmb_committed_topography_cos_coeffs,
+                                   cmb_committed_topography_sin_coeffs,
+                                   th_vec, ph_vec)[0];
+              else if (cmb_local_topography_mode == "current")
+                cmb_topography = sh_transform->synthesize(
+                                   cmb_topography_cos_coeffs,
+                                   cmb_topography_sin_coeffs,
+                                   th_vec, ph_vec)[0];
+              else if (cmb_local_topography_mode == "none")
+                cmb_topography = 0.0;
+              else
+                AssertThrow(false,
+                            ExcMessage("Unknown CMB local topography mode."));
+            }
         }
       else
         {
@@ -649,10 +662,23 @@ namespace aspect
 
 
           if (is_cmb && include_cmb_contribution)
-            cmb_topography = fourier_transform->synthesize(
-                               cmb_committed_topography_cos_coeffs,
-                               cmb_committed_topography_sin_coeffs,
-                               ph_vec)[0];
+            {
+              if (cmb_local_topography_mode == "committed")
+                cmb_topography = fourier_transform->synthesize(
+                                   cmb_committed_topography_cos_coeffs,
+                                   cmb_committed_topography_sin_coeffs,
+                                   ph_vec)[0];
+              else if (cmb_local_topography_mode == "current")
+                cmb_topography = fourier_transform->synthesize(
+                                   cmb_topography_cos_coeffs,
+                                   cmb_topography_sin_coeffs,
+                                   ph_vec)[0];
+              else if (cmb_local_topography_mode == "none")
+                cmb_topography = 0.0;
+              else
+                AssertThrow(false,
+                            ExcMessage("Unknown CMB local topography mode."));
+            }
         }
 
       const Tensor<1, dim> gravity =
@@ -758,6 +784,19 @@ namespace aspect
                             "weak-form and outward-domain-normal conventions "
                             "are combined. The -1 option is retained only for "
                             "sign-audit benchmark experiments.");
+          prm.declare_entry("CMB local topography mode", "committed",
+                            Patterns::Selection("committed|current|none"),
+                            "Select which CMB topography state is used in the "
+                            "direct local density-jump traction term "
+                            "Delta rho * g * h_cmb. The 'committed' option "
+                            "uses only the mesh geometry already committed at "
+                            "the beginning of the traction evaluation and "
+                            "reproduces the previous behavior. The 'current' "
+                            "option uses the most recent self-gravity update, "
+                            "including the current Stokes velocity increment "
+                            "when Iterate with Stokes is enabled. The 'none' "
+                            "option omits the local CMB topography term and "
+                            "retains only the CMB gravitational-potential term.");
           prm.declare_entry("Time between text output", "0.",
                             Patterns::Double(0.),
                             "The time interval in years between text outputs (printing C20 to the terminal). "
@@ -796,6 +835,8 @@ namespace aspect
             prm.get_double("Potential convergence tolerance");
           cmb_potential_traction_sign =
             prm.get_double("CMB potential traction sign");
+          cmb_local_topography_mode =
+            prm.get("CMB local topography mode");
           time_between_text_output = prm.get_double("Time between text output");
           time_steps_between_text_output = prm.get_integer("Time steps between text output");
           potential_relative_change = std::numeric_limits<double>::infinity();
