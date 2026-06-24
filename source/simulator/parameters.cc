@@ -237,6 +237,15 @@ namespace aspect
                        "point number, implying an unlimited time step."
                        "Units: Years or seconds, depending on the ``Use years instead of seconds'' parameter.");
 
+    prm.declare_entry ("Initial elastic response time step",
+                       "0.",
+                       Patterns::Double (0.),
+                       "The physical time step size representing the interval over which the "
+                       "instantaneous elastic response is accumulated at timestep zero. "
+                       "This should be matched with the timestep used in gravity "
+                       "and boundary operators for timestep zero. "
+                       "Units: Years or seconds, depending on the ``Use years instead of seconds'' parameter.");
+
     prm.declare_entry ("Maximum first time step",
                        /* boost::lexical_cast<std::string>(std::numeric_limits<double>::max() /
                                                            year_in_seconds) = */ "5.69e+300",
@@ -1677,6 +1686,10 @@ namespace aspect
     maximum_first_time_step = prm.get_double("Maximum first time step");
     if (convert_to_years == true)
       maximum_first_time_step *= year_in_seconds;
+
+    initial_elastic_response_time_step = prm.get_double("Initial elastic response time step");
+    if (convert_to_years == true)
+      initial_elastic_response_time_step *= year_in_seconds;
 
     {
       const std::string solver_scheme = prm.get ("Nonlinear solver scheme");

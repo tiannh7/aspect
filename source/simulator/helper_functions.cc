@@ -1656,6 +1656,196 @@ namespace aspect
 
 
   template <int dim>
+  void Simulator<dim>::initialize_elastic_stress_fields()
+  {
+    const unsigned int stress_start_index = introspection.compositional_index_for_name("ve_stress_xx");
+    if (stress_start_index == numbers::invalid_unsigned_int)
+      return;
+
+    pcout << "   Initializing instantaneous elastic stress... " << std::flush;
+
+    std::vector<Point<dim>> unique_support_points;
+    std::vector<std::vector<unsigned int>> support_point_index_by_field;
+    std::vector<AdvectionField> advection_fields;
+
+    advection_fields.push_back(AdvectionField::temperature());
+    for (unsigned int c=0; c<introspection.n_compositional_fields; ++c)
+      advection_fields.push_back(AdvectionField::composition(c));
+
+    compute_unique_advection_support_points(advection_fields, unique_support_points, support_point_index_by_field);
+
+    const Quadrature<dim> combined_support_points(unique_support_points);
+    FEValues<dim> fe_values (*mapping,
+                             dof_handler.get_fe(),
+                             combined_support_points,
+                             update_quadrature_points | update_values | update_gradients);
+
+    const unsigned int n_q_points = combined_support_points.size();
+    std::vector<types::global_dof_index> local_dof_indices (dof_handler.get_fe().dofs_per_cell);
+    MaterialModel::MaterialModelInputs<dim> in(n_q_points, introspection.n_compositional_fields);
+    MaterialModel::MaterialModelOutputs<dim> out(n_q_points, introspection.n_compositional_fields);
+
+    material_model->create_additional_named_outputs(out);
+
+    LinearAlgebra::BlockVector distributed_vector (introspection.index_sets.system_partitioning,
+                                                   mpi_communicator);
+
+    const unsigned int n_independent_components = (dim == 2 ? 3 : 6);
+    const unsigned int component_idx_T = introspection.component_indices.temperature;
+
+    const double dt_elastic = parameters.initial_elastic_response_time_step;
+
+    std::vector<SymmetricTensor<2, dim>> strain_rates (n_q_points);
+
+    double sum_tau0_sq = 0.0;
+    unsigned int count_tau0 = 0;
+    double sum_trace_tau0_sq = 0.0;
+    unsigned int count_tau0_points = 0;
+
+    for (const auto &cell : dof_handler.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          fe_values.reinit (cell);
+          in.reinit(fe_values, cell, introspection, solution);
+
+          fe_values[introspection.extractors.velocities].get_function_symmetric_gradients(solution, strain_rates);
+
+          material_model->fill_additional_material_model_inputs(in, solution, fe_values, introspection);
+          material_model->evaluate(in, out);
+
+          const std::shared_ptr<MaterialModel::ElasticAdditionalOutputs<dim>> elastic_out =
+            out.template get_additional_output_object<MaterialModel::ElasticAdditionalOutputs<dim>>();
+
+          if (elastic_out == nullptr)
+            continue;
+
+          std::vector<std::vector<double>> cell_stress_update (n_q_points, std::vector<double> (introspection.n_compositional_fields, 0.0));
+
+          for (unsigned int q=0; q<n_q_points; ++q)
+            {
+              const double shear_modulus = elastic_out->elastic_shear_moduli[q];
+              const SymmetricTensor<2, dim> dev_strain_rate = Utilities::Tensors::consistent_deviator(strain_rates[q]);
+              const SymmetricTensor<2, dim> tau0 = 2.0 * shear_modulus * dt_elastic * dev_strain_rate;
+
+              sum_trace_tau0_sq += trace(tau0) * trace(tau0);
+              ++count_tau0_points;
+
+              for (unsigned int comp=0; comp<n_independent_components; ++comp)
+                {
+                   double tau_comp = 0.0;
+                   if (dim == 2) {
+                     if (comp == 0) tau_comp = tau0[0][0]; // xx
+                     else if (comp == 1) tau_comp = tau0[1][1]; // yy
+                     else if (comp == 2) tau_comp = tau0[0][1]; // xy
+                   } else {
+                     if (comp == 0) tau_comp = tau0[0][0]; // xx
+                     else if (comp == 1) tau_comp = tau0[1][1]; // yy
+                     else if (comp == 2) tau_comp = tau0[2][2]; // zz
+                     else if (comp == 3) tau_comp = tau0[0][1]; // xy
+                     else if (comp == 4) tau_comp = tau0[0][2]; // xz
+                     else if (comp == 5) tau_comp = tau0[1][2]; // yz
+                   }
+
+                   cell_stress_update[q][stress_start_index + comp] = tau_comp;
+
+                   sum_tau0_sq += tau_comp * tau_comp;
+                   count_tau0++;
+                }
+            }
+
+          cell->get_dof_indices (local_dof_indices);
+
+          for (unsigned int dof_idx = 0; dof_idx < local_dof_indices.size(); ++dof_idx)
+            {
+              const auto comp_pair = dof_handler.get_fe().system_to_component_index(dof_idx);
+              const unsigned int component_idx = comp_pair.first;
+              if (component_idx >= component_idx_T)
+                {
+                  const unsigned int index_within = comp_pair.second;
+                  const unsigned int field_index = component_idx - component_idx_T;
+                  const unsigned int point_idx = support_point_index_by_field[field_index][index_within];
+
+                  if (dof_handler.locally_owned_dofs().is_element(local_dof_indices[dof_idx]) &&
+                      !current_constraints.is_constrained(local_dof_indices[dof_idx]))
+                    {
+                      if (component_idx > component_idx_T)
+                        {
+                          const unsigned int composition = field_index - 1;
+                          if (composition >= stress_start_index
+                              && composition < stress_start_index + n_independent_components)
+                            {
+                              distributed_vector(local_dof_indices[dof_idx]) = cell_stress_update[point_idx][composition];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+    distributed_vector.compress (VectorOperation::insert);
+    current_constraints.distribute(distributed_vector);
+
+    for (unsigned int i=0; i<introspection.n_compositional_fields; ++i)
+      {
+        if (i >= stress_start_index && i < stress_start_index + n_independent_components)
+          {
+            const unsigned int advection_block = introspection.block_indices.compositional_fields[i];
+            solution.block(advection_block) = distributed_vector.block(advection_block);
+            old_solution.block(advection_block) = distributed_vector.block(advection_block);
+            current_linearization_point.block(advection_block) = distributed_vector.block(advection_block);
+          }
+      }
+
+    double global_sum_tau0_sq = Utilities::MPI::sum(sum_tau0_sq, mpi_communicator);
+    unsigned int global_count_tau0 = Utilities::MPI::sum(count_tau0, mpi_communicator);
+    const double global_sum_trace_tau0_sq =
+      Utilities::MPI::sum(sum_trace_tau0_sq, mpi_communicator);
+    const unsigned int global_count_tau0_points =
+      Utilities::MPI::sum(count_tau0_points, mpi_communicator);
+
+    const double rms_tau0 = global_count_tau0 > 0
+                            ? std::sqrt(global_sum_tau0_sq / global_count_tau0)
+                            : 0.0;
+    const double rms_trace_tau0 = global_count_tau0_points > 0
+                                  ? std::sqrt(global_sum_trace_tau0_sq /
+                                              global_count_tau0_points)
+                                  : 0.0;
+
+    const auto stress_field_rms = [&] (const LinearAlgebra::BlockVector &vector)
+    {
+      double local_norm_square = 0.0;
+      types::global_dof_index local_n_dofs = 0;
+      for (unsigned int i=0; i<n_independent_components; ++i)
+        {
+          const unsigned int composition = stress_start_index + i;
+          const unsigned int block =
+            introspection.block_indices.compositional_fields[composition];
+          for (const types::global_dof_index index :
+               vector.block(block).locally_owned_elements())
+            {
+              local_norm_square += vector.block(block)[index]
+                                   * vector.block(block)[index];
+              ++local_n_dofs;
+            }
+        }
+      const double norm_square =
+        Utilities::MPI::sum(local_norm_square, mpi_communicator);
+      const types::global_dof_index n_dofs =
+        Utilities::MPI::sum(local_n_dofs, mpi_communicator);
+      return n_dofs > 0 ? std::sqrt(norm_square / n_dofs) : 0.0;
+    };
+
+    pcout << "done. Initial tau0 component RMS = " << rms_tau0
+          << ", trace(tau0) RMS = " << rms_trace_tau0 << '\n'
+          << "      Initialized ve_stress RMS: solution="
+          << stress_field_rms(solution)
+          << ", old_solution=" << stress_field_rms(old_solution)
+          << ", current_linearization_point="
+          << stress_field_rms(current_linearization_point)
+          << std::endl;
+  }
+
+  template <int dim>
   void Simulator<dim>::compute_reactions ()
   {
     // if the time step has a length of zero, there are no reactions

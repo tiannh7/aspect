@@ -195,6 +195,13 @@ namespace aspect
           get_elastic_shear_moduli () const;
 
           /**
+           * Return whether instantaneous elastic response is used at timestep zero.
+           */
+          bool
+          get_use_instantaneous_elastic_response_at_timestep_zero() const
+          { return use_instantaneous_elastic_response_at_timestep_zero; }
+
+          /**
            * Calculate the effective elastic viscosity (this is the equivalent viscosity of
            * a material which was unstressed at the end of the previous timestep).
            */

@@ -204,6 +204,13 @@ namespace aspect
     {
       elastic_rheology.create_elastic_additional_outputs(out);
     }
+
+    template <int dim>
+    bool
+    Viscoelastic<dim>::use_instantaneous_elastic_response_at_timestep_zero() const
+    {
+      return elastic_rheology.get_use_instantaneous_elastic_response_at_timestep_zero();
+    }
   }
 }
 

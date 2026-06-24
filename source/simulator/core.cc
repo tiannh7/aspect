@@ -20,6 +20,9 @@
 
 
 #include <aspect/simulator.h>
+
+extern "C" void print_diag_b(unsigned int mpi_rank);
+
 #include <aspect/global.h>
 #include <aspect/utilities.h>
 #include <aspect/melt.h>
@@ -2275,6 +2278,16 @@ namespace aspect
 
             // then do the core work: assemble systems and solve
             solve_timestep ();
+
+            // If we are at timestep 0 and using instantaneous elastic response,
+            // explicitly initialize the viscoelastic stress compositions.
+            if (timestep_number == 0 && parameters.enable_elasticity &&
+                material_model->use_instantaneous_elastic_response_at_timestep_zero())
+              {
+                computing_timer.enter_subsection("Setup initial conditions");
+                initialize_elastic_stress_fields();
+                computing_timer.leave_subsection("Setup initial conditions");
+              }
           }
 
         // See if we have to start over with a new adaptive refinement cycle

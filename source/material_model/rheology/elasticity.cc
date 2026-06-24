@@ -549,8 +549,11 @@ namespace aspect
 
             const double elastic_viscosity = calculate_elastic_viscosity(average_elastic_shear_moduli[i]);
 
+            
+            
             // Apply the stress update to get the total deviatoric stress of timestep t.
             elastic_additional_out->deviatoric_stress[i] = 2. * eta * deviatoric_strain_rate + eta / elastic_viscosity * stress_0_advected + (1. - timestep_ratio) * (1. - eta / elastic_viscosity) * stress_old;
+
             elastic_additional_out->elastic_shear_moduli[i] = average_elastic_shear_moduli[i];
             elastic_additional_out->elastic_viscosity[i] = elastic_viscosity;
           }
@@ -663,6 +666,18 @@ namespace aspect
         if (this->get_timestep_number() == 0)
           return;
 
+        // The instantaneous timestep-zero solve is followed by an explicit
+        // initialization of the stress fields from that solve. Consequently,
+        // at the beginning of timestep 1 the first ve_stress_* group already
+        // contains the complete stress at t=0. Reconstructing the previous
+        // stress here from the timestep-zero velocity would apply the elastic
+        // predictor a second time. CitcomSVE likewise stores the stress once in
+        // update_stress_strain() after the instantaneous solve and then uses
+        // that single stored field as prestress in the first Maxwell solve.
+        if (use_instantaneous_elastic_response_at_timestep_zero
+            && this->get_timestep_number() == 1)
+          return;
+
         // At the moment when the reaction rates are required (at the beginning of the timestep),
         // the solution vector 'solution' holds the stress from the previous timestep,
         // advected into the new position of the previous timestep, so $\tau^{t}_{0adv}$.
@@ -746,23 +761,10 @@ namespace aspect
                 const double timestep_ratio = calculate_timestep_ratio();
 
                 // Compute the total stress at time t.
-                // If timestep zero was solved as an instantaneous elastic
-                // response, its strain rate represents a purely elastic
-                // displacement accumulated over the fixed elastic interval.
-                // Initialize the stored stress with G*dt rather than the
-                // Maxwell effective viscosity. Otherwise the first finite
-                // viscoelastic step stores only 1/(1+dt/tau_M) of the elastic
-                // stress and spuriously applies part of the load a second time.
-                const bool initialize_instantaneous_elastic_stress =
-                  use_instantaneous_elastic_response_at_timestep_zero
-                  && this->get_timestep_number() == 1;
-
                 const SymmetricTensor<2, dim> stress_t =
-                  initialize_instantaneous_elastic_stress
-                  ? 2. * elastic_viscosity * Utilities::Tensors::consistent_deviator(in.strain_rate[i])
-                  : 2. * effective_creep_viscosity * Utilities::Tensors::consistent_deviator(in.strain_rate[i])
-                    + effective_creep_viscosity / elastic_viscosity * stress_0_t
-                    + (1. - timestep_ratio) * (1. - effective_creep_viscosity / elastic_viscosity) * stress_old;
+                  2. * effective_creep_viscosity * Utilities::Tensors::consistent_deviator(in.strain_rate[i])
+                  + effective_creep_viscosity / elastic_viscosity * stress_0_t
+                  + (1. - timestep_ratio) * (1. - effective_creep_viscosity / elastic_viscosity) * stress_old;
 
                 // Fill reaction rates.
                 // During this timestep, the reaction rates will be multiplied

@@ -66,6 +66,12 @@ namespace aspect
       {
         this->update_after_stokes_solve();
       });
+
+      this->get_signals().post_mesh_deformation.connect(
+        [this](const SimulatorAccess<dim> &)
+      {
+        this->compute_self_gravity_correction(false);
+      });
     }
 
 

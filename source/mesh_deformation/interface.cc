@@ -986,7 +986,6 @@ namespace aspect
         {
           std::string reason = (sim.parameters.skip_mesh_deformation_assembly_at_timestep < -1) ? "parameter set to skip all timesteps" : "timestep " + std::to_string(this->get_timestep_number());
           this->get_pcout() << "   Skipping mesh deformation assembly and solve because " << reason << "." << std::endl;
-          mesh_displacements = 0;
           fs_mesh_velocity = 0;
           return;
         }
@@ -997,7 +996,6 @@ namespace aspect
         {
           std::string reason = (sim.parameters.skip_mesh_deformation_assembly_at_timestep < -1) ? "parameter set to skip all timesteps" : "timestep " + std::to_string(this->get_timestep_number());
           this->get_pcout() << "   Skipping mesh deformation assembly and solve because " << reason << "." << std::endl;
-          mesh_displacements = 0;
           fs_mesh_velocity = 0;
           return;
         }
@@ -1153,13 +1151,11 @@ namespace aspect
           // during the simulation, we add dt*solution
           LinearAlgebra::Vector distributed_mesh_displacements(mesh_locally_owned, sim.mpi_communicator);
           distributed_mesh_displacements = mesh_displacements;
-          distributed_mesh_displacements.add(this->get_timestep(), solution);
+          double dt = this->get_timestep();
+          if (dt == 0.0 && this->get_timestep_number() == 0)
+            dt = sim.parameters.initial_elastic_response_time_step;
+          distributed_mesh_displacements.add(dt, solution);
           mesh_displacements = distributed_mesh_displacements;
-        }
-      else
-        {
-          // In the initial step we apply 100% of the initial displacement
-          mesh_displacements = solution;
         }
 
     }
@@ -1193,7 +1189,6 @@ namespace aspect
         {
           std::string reason = (sim.parameters.skip_mesh_deformation_assembly_at_timestep < -1) ? "parameter set to skip all timesteps" : "timestep " + std::to_string(this->get_timestep_number());
           this->get_pcout() << "   Skipping mesh deformation assembly and solve because " << reason << "." << std::endl;
-          mesh_displacements = 0;
           fs_mesh_velocity = 0;
           return;
         }
@@ -1487,13 +1482,11 @@ namespace aspect
           // during the simulation, we add dt*solution
           LinearAlgebra::Vector distributed_mesh_displacements(mesh_locally_owned, sim.mpi_communicator);
           distributed_mesh_displacements = mesh_displacements;
-          distributed_mesh_displacements.add(this->get_timestep(), solution_tmp);
+          double dt = this->get_timestep();
+          if (dt == 0.0 && this->get_timestep_number() == 0)
+            dt = sim.parameters.initial_elastic_response_time_step;
+          distributed_mesh_displacements.add(dt, solution_tmp);
           mesh_displacements = distributed_mesh_displacements;
-        }
-      else
-        {
-          // In the initial step we apply 100% of the initial displacement
-          mesh_displacements = solution_tmp;
         }
 
       update_multilevel_deformation();

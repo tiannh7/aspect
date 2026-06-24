@@ -1286,6 +1286,13 @@ namespace aspect
       void compute_reactions ();
 
       /**
+       * Initialize viscoelastic stress fields from the instantaneous elastic displacement
+       * at timestep 0. This populates `ve_stress_*` compositional fields with the
+       * true elastic stress $2 G \Delta t_{elastic} \dot{\epsilon}(v_0)$.
+       */
+      void initialize_elastic_stress_fields();
+
+      /**
        * Update the indicated block of the solution vector with the
        * corresponding block of the handed over @p distributed_vector. Also
        * update reaction_vector with the corresponding block of @p

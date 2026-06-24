@@ -197,6 +197,9 @@ namespace aspect
         void
         create_additional_named_outputs(MaterialModel::MaterialModelOutputs<dim> &out) const override;
 
+        bool
+        use_instantaneous_elastic_response_at_timestep_zero() const override;
+
       private:
         /**
          * Enumeration for selecting which viscosity averaging scheme to use.

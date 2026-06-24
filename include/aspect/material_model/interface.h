@@ -1416,6 +1416,8 @@ namespace aspect
         void
         create_additional_named_outputs (MaterialModelOutputs &outputs) const;
 
+        virtual bool
+        use_instantaneous_elastic_response_at_timestep_zero() const { return false; }
 
         /**
          * Fill the additional material model inputs that have been attached
