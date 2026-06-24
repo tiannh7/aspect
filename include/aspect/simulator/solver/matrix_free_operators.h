@@ -195,6 +195,33 @@ namespace aspect
       std::set<types::boundary_id> free_surface_boundary_indicators;
 
       /**
+       * If true, apply a CitcomSVE-style radial density-interface restoring
+       * term on the selected CMB boundary in the matrix-free Stokes operator.
+       */
+      bool use_citcom_style_cmb_radial_restoring;
+
+      /**
+       * Boundary id for the CitcomSVE-style CMB radial restoring term.
+       */
+      types::boundary_id citcom_style_cmb_radial_restoring_boundary_indicator;
+
+      /**
+       * Density contrast used for the CitcomSVE-style CMB radial restoring term.
+       */
+      double citcom_style_cmb_radial_restoring_density_contrast;
+
+      /**
+       * Dimensionless scale factor for the CitcomSVE-style CMB radial restoring term.
+       */
+      double citcom_style_cmb_radial_restoring_scale;
+
+      /**
+       * Per-boundary-face quadrature coefficient for the CitcomSVE-style CMB
+       * radial restoring term. This stores Delta rho * g * dt * scale.
+       */
+      Table<2, VectorizedArray<number>> citcom_style_cmb_radial_restoring_coefficient_table;
+
+      /**
        * Determine an estimate for the memory consumption (in bytes) of this
        * object.
        */

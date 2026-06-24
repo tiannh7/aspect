@@ -106,7 +106,9 @@ namespace aspect
              + strain_rate_table.memory_consumption()
              + newton_factor_wrt_strain_rate_table.memory_consumption()
              + dilation_derivative_wrt_pressure_table.memory_consumption()
-             + dilation_derivative_wrt_strain_rate_table.memory_consumption();
+             + dilation_derivative_wrt_strain_rate_table.memory_consumption()
+             + free_surface_stabilization_term_table.memory_consumption()
+             + citcom_style_cmb_radial_restoring_coefficient_table.memory_consumption();
     }
 
 
@@ -116,12 +118,18 @@ namespace aspect
     OperatorCellData<dim,number>::clear()
     {
       enable_newton_derivatives = false;
+      use_citcom_style_cmb_radial_restoring = false;
+      citcom_style_cmb_radial_restoring_boundary_indicator = numbers::invalid_boundary_id;
+      citcom_style_cmb_radial_restoring_density_contrast = 0.0;
+      citcom_style_cmb_radial_restoring_scale = 0.0;
       viscosity.clear();
       newton_factor_wrt_pressure_table.clear();
       strain_rate_table.clear();
       newton_factor_wrt_strain_rate_table.clear();
       dilation_derivative_wrt_pressure_table.clear();
       dilation_derivative_wrt_strain_rate_table.clear();
+      free_surface_stabilization_term_table.clear();
+      citcom_style_cmb_radial_restoring_coefficient_table.clear();
     }
   }
 
@@ -363,39 +371,76 @@ namespace aspect
                               const dealii::LinearAlgebra::distributed::BlockVector<number> &src,
                               const std::pair<unsigned int, unsigned int> &face_range) const
   {
-    // Assemble the fictive stabilization stress (phi_u[i].g)*(phi_u[j].n)
-    // g=pressure_perturbation * g_hat is stored in free_surface_stabilization_term_table
-    //  n is the normal vector
+    // Apply boundary-face operators used by the Stokes velocity block.
+    //
+    // The first contribution is ASPECT's existing free-surface stabilization.
+    // The second contribution is a diagnostic CitcomSVE-style CMB radial
+    // density-interface restoring term:
+    //
+    //   int_Gamma Delta rho g dt (w.n)(v.n) dS.
+    //
+    // On a spherical CMB, n = -e_r, so (u.n)n = (u.e_r)e_r. The sign of the
+    // boundary normal therefore cancels out.
+
     FEFaceEvaluation<dim, degree_v, degree_v + 1, dim, number> velocity(data);
     const unsigned int n_faces_interior = data.n_inner_face_batches();
 
     for (unsigned int face = face_range.first; face < face_range.second; ++face)
       {
         const auto boundary_id = data.get_boundary_id(face);
-        if (cell_data->free_surface_boundary_indicators.find(boundary_id)
-            == cell_data->free_surface_boundary_indicators.end())
+
+        const bool is_free_surface_face =
+          (cell_data->free_surface_boundary_indicators.find(boundary_id)
+           != cell_data->free_surface_boundary_indicators.end());
+
+        const bool is_citcom_cmb_face =
+          (cell_data->use_citcom_style_cmb_radial_restoring
+           && boundary_id == cell_data->citcom_style_cmb_radial_restoring_boundary_indicator);
+
+        if (!is_free_surface_face && !is_citcom_cmb_face)
           continue;
 
         velocity.reinit(face);
-        velocity.gather_evaluate (src.block(0), EvaluationFlags::values);
+        velocity.gather_evaluate(src.block(0), EvaluationFlags::values);
 
         for (const unsigned int q : velocity.quadrature_point_indices())
           {
             const Tensor<1, dim, VectorizedArray<number>> phi_u_i = velocity.get_value(q);
+
 #if DEAL_II_VERSION_GTE(9,7,0)
             const auto &normal_vector = velocity.normal_vector(q);
 #else
             const auto &normal_vector = velocity.get_normal_vector(q);
 #endif
-            const auto stabilization_tensor = cell_data->free_surface_stabilization_term_table(face - n_faces_interior, q);
-            const auto value_submit = -(stabilization_tensor * phi_u_i) * normal_vector;
+
+            Tensor<1, dim, VectorizedArray<number>> value_submit;
+            for (unsigned int d=0; d<dim; ++d)
+              value_submit[d] = 0.0;
+
+            if (is_free_surface_face)
+              {
+                const auto stabilization_tensor =
+                  cell_data->free_surface_stabilization_term_table(face - n_faces_interior, q);
+
+                value_submit -= (stabilization_tensor * phi_u_i) * normal_vector;
+              }
+
+            if (is_citcom_cmb_face)
+              {
+                const VectorizedArray<number> coefficient =
+                  cell_data->citcom_style_cmb_radial_restoring_coefficient_table(face - n_faces_interior, q);
+
+                const VectorizedArray<number> normal_velocity = phi_u_i * normal_vector;
+
+                value_submit += coefficient * normal_velocity * normal_vector;
+              }
 
             velocity.submit_value(value_submit, q);
           }
+
         velocity.integrate_scatter(EvaluationFlags::values, dst.block(0));
       }
   }
-
 
 
   template <int dim, int degree_v, typename number>

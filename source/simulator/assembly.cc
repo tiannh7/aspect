@@ -136,8 +136,18 @@ namespace aspect
     // This is assembled on boundary faces and is independent of ASPECT's
     // generic free-surface stabilization.
     if (parameters.use_citcom_style_cmb_radial_restoring)
-      assemblers->stokes_system_on_boundary_face.push_back(
-        std::make_unique<aspect::Assemblers::StokesCitcomStyleCMBRadialRestoring<dim>>());
+      {
+        this->pcout << "Registering Citcom-style CMB radial restoring boundary-face assembler. "
+                    << "boundary id = "
+                    << static_cast<unsigned int>(parameters.citcom_style_cmb_radial_restoring_boundary_indicator)
+                    << ", density contrast = "
+                    << parameters.citcom_style_cmb_radial_restoring_density_contrast
+                    << ", scale = "
+                    << parameters.citcom_style_cmb_radial_restoring_scale
+                    << std::endl;
+        assemblers->stokes_system_on_boundary_face.push_back(
+          std::make_unique<aspect::Assemblers::StokesCitcomStyleCMBRadialRestoring<dim>>());
+      }
 
     // add the terms necessary to normalize the pressure
     if (do_pressure_rhs_compatibility_modification)

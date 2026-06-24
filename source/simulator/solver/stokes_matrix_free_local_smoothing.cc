@@ -354,6 +354,15 @@ namespace aspect
     active_cell_data.is_compressible = this->get_material_model().is_compressible();
     active_cell_data.pressure_scaling = this->get_pressure_scaling();
 
+    active_cell_data.use_citcom_style_cmb_radial_restoring =
+      this->get_parameters().use_citcom_style_cmb_radial_restoring;
+    active_cell_data.citcom_style_cmb_radial_restoring_boundary_indicator =
+      this->get_parameters().citcom_style_cmb_radial_restoring_boundary_indicator;
+    active_cell_data.citcom_style_cmb_radial_restoring_density_contrast =
+      this->get_parameters().citcom_style_cmb_radial_restoring_density_contrast;
+    active_cell_data.citcom_style_cmb_radial_restoring_scale =
+      this->get_parameters().citcom_style_cmb_radial_restoring_scale;
+
     // Store viscosity tables and other data into the active level matrix-free objects.
     stokes_matrix.set_cell_data(active_cell_data);
     BT_block.set_cell_data(active_cell_data);
@@ -385,6 +394,15 @@ namespace aspect
       {
         level_cell_data[level].is_compressible = this->get_material_model().is_compressible();
         level_cell_data[level].pressure_scaling = this->get_pressure_scaling();
+
+        // The Citcom-style CMB radial restoring term is currently applied
+        // only on the active-level matrix-free Stokes operator. This follows
+        // ASPECT's existing treatment of free-surface stabilization in GMG,
+        // where multilevel surface terms are not implemented.
+        level_cell_data[level].use_citcom_style_cmb_radial_restoring = false;
+        level_cell_data[level].citcom_style_cmb_radial_restoring_boundary_indicator = numbers::invalid_boundary_id;
+        level_cell_data[level].citcom_style_cmb_radial_restoring_density_contrast = 0.0;
+        level_cell_data[level].citcom_style_cmb_radial_restoring_scale = 0.0;
 
         // Create viscosity tables on each level.
         const unsigned int n_cells = mg_matrices_A_block[level].get_matrix_free()->n_cell_batches();
@@ -677,8 +695,13 @@ namespace aspect
 
       // TODO: implement multilevel surface terms for the free surface stabilization.
 
-      active_cell_data.apply_stabilization_free_surface_faces = this->get_parameters().mesh_deformation_enabled
-                                                                && !this->get_mesh_deformation_handler().get_free_surface_boundary_indicators().empty();
+      active_cell_data.free_surface_boundary_indicators =
+        this->get_mesh_deformation_handler().get_free_surface_boundary_indicators();
+
+      active_cell_data.apply_stabilization_free_surface_faces =
+        (this->get_parameters().mesh_deformation_enabled
+         && !active_cell_data.free_surface_boundary_indicators.empty())
+        || active_cell_data.use_citcom_style_cmb_radial_restoring;
       if (active_cell_data.apply_stabilization_free_surface_faces == true)
         {
           const double free_surface_theta = this->get_mesh_deformation_handler().get_free_surface_theta();
@@ -708,6 +731,7 @@ namespace aspect
           MaterialModel::MaterialModelOutputs<dim> face_material_outputs(n_face_q_points, this->introspection().n_compositional_fields);
 
           active_cell_data.free_surface_stabilization_term_table.reinit(n_faces_boundary, n_face_q_points);
+          active_cell_data.citcom_style_cmb_radial_restoring_coefficient_table.reinit(n_faces_boundary, n_face_q_points);
 
           for (unsigned int face=n_faces_interior; face<n_faces_boundary + n_faces_interior; ++face)
             {
@@ -772,6 +796,67 @@ namespace aspect
                     }
                 }
             }
+
+          // Fill the CitcomSVE-style CMB radial restoring coefficient table.
+          // The operator itself is applied in local_apply_boundary_face() as
+          // coefficient * (u.n) n. On a spherical CMB, this is equivalent to
+          // coefficient * (u.e_r) e_r because the sign of n cancels.
+          if (active_cell_data.use_citcom_style_cmb_radial_restoring)
+            {
+              double effective_time_step = this->get_timestep();
+
+              if (this->get_timestep_number() == 0
+                  && effective_time_step == 0.0
+                  && this->get_parameters().initial_elastic_response_time_step > 0.0)
+                effective_time_step = this->get_parameters().initial_elastic_response_time_step;
+
+              for (unsigned int face=n_faces_interior; face<n_faces_boundary + n_faces_interior; ++face)
+                {
+                  const types::boundary_id boundary_indicator =
+                    stokes_matrix.get_matrix_free()->get_boundary_id(face);
+
+                  if (boundary_indicator != active_cell_data.citcom_style_cmb_radial_restoring_boundary_indicator)
+                    continue;
+
+                  const unsigned int n_components_filled =
+                    stokes_matrix.get_matrix_free()->n_active_entries_per_face_batch(face);
+
+                  for (unsigned int i=0; i<n_components_filled; ++i)
+                    {
+                      const auto cell_face_pair =
+                        stokes_matrix.get_matrix_free()->get_face_iterator(face, i, true);
+
+                      typename DoFHandler<dim>::active_cell_iterator matrix_free_cell =
+                        cell_face_pair.first;
+
+                      typename DoFHandler<dim>::active_cell_iterator simulator_cell(&(this->get_triangulation()),
+                                                                                  matrix_free_cell->level(),
+                                                                                  matrix_free_cell->index(),
+                                                                                  &(this->get_dof_handler()));
+
+                      Assert(boundary_indicator == simulator_cell->face(cell_face_pair.second)->boundary_id(),
+                             ExcInternalError());
+
+                      fe_face_values.reinit(simulator_cell, cell_face_pair.second);
+
+                      for (unsigned int q = 0; q < n_face_q_points; ++q)
+                        {
+                          const Tensor<1,dim> gravity =
+                            this->get_gravity_model().gravity_vector(fe_face_values.quadrature_point(q));
+
+                          const double coefficient =
+                            active_cell_data.citcom_style_cmb_radial_restoring_scale *
+                            active_cell_data.citcom_style_cmb_radial_restoring_density_contrast *
+                            gravity.norm() *
+                            effective_time_step;
+
+                          active_cell_data.citcom_style_cmb_radial_restoring_coefficient_table(face - n_faces_interior, q)[i]
+                            = coefficient;
+                        }
+                    }
+                }
+            }
+
         }
     }
 
