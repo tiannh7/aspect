@@ -124,6 +124,12 @@ namespace aspect
          * local boundary restoring is supplied by a separate operator.
          */
         bool force_constant_pressure_at_bottom_boundary;
+
+        /**
+         * Diagnostic switch that removes this background traction after the
+         * instantaneous elastic solve at timestep zero.
+         */
+        bool disable_after_timestep_zero;
     };
   }
 }

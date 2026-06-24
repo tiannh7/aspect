@@ -238,14 +238,9 @@ namespace aspect
                                                                const std::set<types::boundary_id> &boundary_ids) const
     {
       // For the free surface indicators we constrain the displacement to be v.n
-      LinearAlgebra::Vector boundary_velocity;
-
-      const IndexSet &mesh_locally_owned = mesh_deformation_dof_handler.locally_owned_dofs();
-      const IndexSet mesh_locally_relevant = DoFTools::extract_locally_relevant_dofs (mesh_deformation_dof_handler);
-      boundary_velocity.reinit(mesh_locally_owned, mesh_locally_relevant,
-                               this->get_mpi_communicator());
-      project_velocity_onto_boundary(mesh_deformation_dof_handler, mesh_locally_owned,
-                                     mesh_locally_relevant, boundary_velocity);
+      const LinearAlgebra::Vector &boundary_velocity =
+        this->get_mesh_deformation_handler()
+        .get_projected_free_surface_velocity();
 
       // now insert the relevant part of the solution into the mesh constraints
       const IndexSet constrained_dofs =

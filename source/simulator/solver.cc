@@ -931,18 +931,20 @@ namespace aspect
         solution_vector.block(velocity_block_index) = distributed_stokes_solution.block(velocity_block_index);
         solution_vector.block(pressure_block_index) = distributed_stokes_solution.block(pressure_block_index);
 
-        // signal successful solver
-        signals.post_stokes_solver(*this,
-                                   schur->n_iterations(),
-                                   inverse_velocity_block_cheap.n_iterations()+inverse_velocity_block_expensive.n_iterations(),
-                                   solver_control_cheap,
-                                   solver_control_expensive);
-
         // do some cleanup now that we have the solution
         remove_nullspace(solution_vector, distributed_stokes_solution);
 
         if (assemble_newton_stokes_system == false)
           outputs.pressure_normalization_adjustment = normalize_pressure(solution_vector);
+
+        // Signal only after the solution has been distributed and its
+        // nullspace removed, so post-Stokes consumers see the velocity that
+        // will actually be used by mesh deformation and advection.
+        signals.post_stokes_solver(*this,
+                                   schur->n_iterations(),
+                                   inverse_velocity_block_cheap.n_iterations()+inverse_velocity_block_expensive.n_iterations(),
+                                   solver_control_cheap,
+                                   solver_control_expensive);
       }
 
     last_pressure_normalization_adjustment = outputs.pressure_normalization_adjustment;

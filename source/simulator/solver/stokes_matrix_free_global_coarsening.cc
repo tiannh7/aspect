@@ -1613,13 +1613,6 @@ namespace aspect
           }
       }
 
-    //signal successful solver
-    this->get_signals().post_stokes_solver(sim,
-                                           schur_approximation_cheap.n_iterations() + schur_approximation_expensive.n_iterations(),
-                                           inverse_velocity_block_cheap.n_iterations() + inverse_velocity_block_expensive.n_iterations(),
-                                           solver_control_cheap,
-                                           solver_control_expensive);
-
     // distribute hanging node and other constraints
     solution_copy.update_ghost_values();
     internal::ChangeVectorTypes::copy(distributed_stokes_solution,solution_copy);
@@ -1658,6 +1651,13 @@ namespace aspect
     this->remove_nullspace(solution_vector, distributed_stokes_solution);
     if (solve_newton_system == false)
       outputs.pressure_normalization_adjustment = this->normalize_pressure(solution_vector);
+
+    // Signal only after the finalized solution is available to plugins.
+    this->get_signals().post_stokes_solver(sim,
+                                           schur_approximation_cheap.n_iterations() + schur_approximation_expensive.n_iterations(),
+                                           inverse_velocity_block_cheap.n_iterations() + inverse_velocity_block_expensive.n_iterations(),
+                                           solver_control_cheap,
+                                           solver_control_expensive);
 
     return outputs;
   }

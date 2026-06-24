@@ -218,6 +218,12 @@ namespace aspect
          */
         std::vector<double> thermal_conductivities;
 
+        /**
+         * Constant reference density whose gravitational body force is
+         * removed through the optional additional Stokes right-hand side.
+         */
+        double reference_density_for_perturbation_stokes;
+
         Rheology::Elasticity<dim> elastic_rheology;
     };
 

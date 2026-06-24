@@ -70,6 +70,17 @@ namespace aspect
                                                  const std::set<types::boundary_id> &boundary_ids) const override;
 
         /**
+         * Project the current Stokes velocity onto all free-surface boundaries
+         * in the mesh-deformation finite element space. This is public so that
+         * other boundary operators can use exactly the same discrete velocity
+         * that will later advect the ALE mesh.
+         */
+        void project_velocity_onto_boundary (const DoFHandler<dim> &free_surface_dof_handler,
+                                             const IndexSet &mesh_locally_owned,
+                                             const IndexSet &mesh_locally_relevant,
+                                             LinearAlgebra::Vector &output) const;
+
+        /**
          * Returns whether or not the plugin requires surface stabilization
          */
         bool needs_surface_stabilization () const override;
@@ -86,15 +97,6 @@ namespace aspect
         void parse_parameters (ParameterHandler &prm) override;
 
       private:
-        /**
-         * Project the Stokes velocity solution onto the
-         * free surface. Called by make_constraints()
-         */
-        void project_velocity_onto_boundary (const DoFHandler<dim> &free_surface_dof_handler,
-                                             const IndexSet &mesh_locally_owned,
-                                             const IndexSet &mesh_locally_relevant,
-                                             LinearAlgebra::Vector &output) const;
-
         /**
          * A struct for holding information about how to advect the free surface.
          */

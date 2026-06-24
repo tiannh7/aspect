@@ -349,6 +349,15 @@ namespace aspect
         get_mesh_displacements () const;
 
         /**
+         * Return the current Stokes velocity projected onto all free-surface
+         * boundaries in the mesh-deformation finite element space. A forced
+         * refresh replaces the cached field; the ALE constraint assembly then
+         * reuses that field for the mesh update.
+         */
+        const LinearAlgebra::Vector &
+        get_projected_free_surface_velocity (const bool force_refresh = false) const;
+
+        /**
          * Return the DoFHandler used to represent the mesh deformation space.
          */
         const DoFHandler<dim> &
@@ -517,6 +526,10 @@ namespace aspect
          * mesh_displacements from the last time step.
          */
         LinearAlgebra::Vector old_mesh_displacements;
+
+        /** Boundary velocity shared by post-Stokes predictors and ALE. */
+        mutable LinearAlgebra::Vector projected_free_surface_velocity;
+        mutable bool projected_free_surface_velocity_is_valid;
 
         /**
          * Vector for storing the positions of the mesh vertices at the initial timestep.

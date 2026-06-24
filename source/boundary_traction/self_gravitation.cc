@@ -96,6 +96,10 @@ namespace aspect
     SelfGravitation<dim>::compute_self_gravity_correction(
       const bool include_current_velocity_increment)
     {
+      if (freeze_potential_after_timestep_zero &&
+          this->get_timestep_number() > 0)
+        return;
+
       const std::vector<double> old_surface_potential_cos =
         surface_potential_cos_coeffs;
       const std::vector<double> old_surface_potential_sin =
@@ -138,8 +142,24 @@ namespace aspect
                                        update_normal_vectors |
                                        update_JxW_values);
 
-      std::vector<Tensor<1,dim>> velocity_values(
-        fe_face_values.n_quadrature_points);
+      const auto &mesh_deformation_handler =
+        this->get_mesh_deformation_handler();
+      const DoFHandler<dim> &mesh_deformation_dof_handler =
+        mesh_deformation_handler.get_mesh_deformation_dof_handler();
+      FEFaceValues<dim> mesh_face_values(
+        this->get_mapping(),
+        mesh_deformation_dof_handler.get_fe(),
+        quadrature_formula_face,
+        update_values);
+      const FEValuesExtractors::Vector mesh_velocity_extractor(0);
+
+      const LinearAlgebra::Vector *projected_mesh_velocity = nullptr;
+      if (include_current_velocity_increment)
+        projected_mesh_velocity =
+          &mesh_deformation_handler.get_projected_free_surface_velocity(true);
+
+      std::vector<Tensor<1,dim>> projected_mesh_velocity_values(
+        mesh_face_values.n_quadrature_points);
 
       const double delta_rho_surf = density_below_surface - density_above_surface;
 
@@ -156,13 +176,17 @@ namespace aspect
       std::vector<double> cmb_topo_pts;
       std::vector<double> cmb_committed_topo_pts;
 
+      auto mesh_cell = mesh_deformation_dof_handler.begin_active();
       for (const auto &cell : this->get_dof_handler().active_cell_iterators())
-        if (cell->is_locally_owned() && cell->at_boundary())
-          {
-            for (const unsigned int f : cell->face_indices())
-              {
-                if (!cell->at_boundary(f))
-                  continue;
+        {
+          const auto current_mesh_cell = mesh_cell;
+          ++mesh_cell;
+          if (cell->is_locally_owned() && cell->at_boundary())
+            {
+              for (const unsigned int f : cell->face_indices())
+                {
+                  if (!cell->at_boundary(f))
+                    continue;
 
                 const types::boundary_id bid = cell->face(f)->boundary_id();
                 const bool is_top    = (bid == top_boundary_id);
@@ -174,8 +198,12 @@ namespace aspect
                 fe_face_values.reinit(cell, f);
 
                 if (include_current_velocity_increment)
-                  fe_face_values[this->introspection().extractors.velocities]
-                  .get_function_values(this->get_solution(), velocity_values);
+                  {
+                    mesh_face_values.reinit(current_mesh_cell, f);
+                    mesh_face_values[mesh_velocity_extractor]
+                    .get_function_values(*projected_mesh_velocity,
+                                         projected_mesh_velocity_values);
+                  }
 
                 for (unsigned int q = 0;
                      q < fe_face_values.n_quadrature_points;
@@ -193,7 +221,8 @@ namespace aspect
                     const Tensor<1,dim> radial_unit = position / scoord[0];
                     const double predicted_radial_displacement =
                       (include_current_velocity_increment
-                       ? displacement_timestep * (velocity_values[q] * radial_unit)
+                       ? displacement_timestep
+                         * (projected_mesh_velocity_values[q] * radial_unit)
                        : 0.0);
 
                     if (is_top)
@@ -271,8 +300,12 @@ namespace aspect
                           committed_cmb_topography);
                       }
                   }
-              }
-          }
+                }
+            }
+        }
+
+      Assert(mesh_cell == mesh_deformation_dof_handler.end(),
+             ExcInternalError());
 
       // Step 2 & 3: SH/Fourier analysis + self-gravity kernel
       //
@@ -688,17 +721,34 @@ namespace aspect
       const double delta_rho_cmb = density_below_cmb - density_above_cmb;
 
       if (is_surface)
-        // The local -Delta(rho)*g*delta_h restoring term belongs to the
-        // Stokes matrix (CitcomSVE add_restoring). This plugin supplies only
-        // the non-local gravitational potential contribution on the RHS.
-        return density_below_surface * g_magnitude
-               * potential_height * normal_vector;
+        {
+          double committed_surface_topography = 0.0;
+          if (enable_committed_surface_local_topography_traction &&
+              this->get_timestep_number() > 0)
+            committed_surface_topography =
+              this->get_geometry_model().height_above_reference_surface(position);
+
+          if (!enable_surface_potential_traction &&
+              !enable_committed_surface_local_topography_traction)
+            return Tensor<1, dim>();
+
+          // CitcomSVE keeps the current displacement increment in the local
+          // restoring matrix and carries committed topography as an RHS load.
+          return density_below_surface * g_magnitude
+                 * (-committed_surface_topography
+                    + (enable_surface_potential_traction
+                       ? surface_potential_traction_sign * potential_height
+                       : 0.0))
+                 * normal_vector;
+        }
 
       // Fluid-core CMB condition after subtracting the mantle hydrostatic
       // reference state: Delta rho * (g*h_b - Phi_b) n.
       return delta_rho_cmb * g_magnitude
              * (cmb_topography
-                + cmb_potential_traction_sign * potential_height)
+                + (enable_cmb_potential_traction
+                   ? cmb_potential_traction_sign * potential_height
+                   : 0.0))
              * normal_vector;
     }
 
@@ -762,6 +812,11 @@ namespace aspect
                             "the current Stokes velocity after every Stokes solve. "
                             "The updated traction is used by the next nonlinear "
                             "iteration in the same time step.");
+          prm.declare_entry("Freeze potential after timestep zero", "false",
+                            Patterns::Bool(),
+                            "Diagnostic switch that retains the converged "
+                            "timestep-zero non-local potential coefficients "
+                            "without recomputing them at later timesteps.");
 
           prm.declare_entry("Initial displacement time step", "0",
                             Patterns::Double(0),
@@ -777,14 +832,37 @@ namespace aspect
                             "coefficient vectors. Zhong et al. (2022) author "
                             "inputfile10 uses 1e-3 for its self-gravity "
                             "iteration cutoff.");
+          prm.declare_entry("Enable surface potential traction", "true",
+                            Patterns::Bool(),
+                            "Diagnostic switch controlling whether Phi/g is "
+                            "applied as a non-local traction at the outer "
+                            "surface. Harmonic analysis and output remain "
+                            "active when this switch is false.");
+          prm.declare_entry("Enable committed surface local topography traction", "false",
+                            Patterns::Bool(),
+                            "Diagnostic perturbation-formulation switch that "
+                            "adds the committed outer-surface local restoring "
+                            "load to the RHS from timestep one onward. The "
+                            "current displacement increment remains in the "
+                            "free-surface stabilization matrix.");
+          prm.declare_entry("Enable CMB potential traction", "true",
+                            Patterns::Bool(),
+                            "Diagnostic switch controlling whether Phi/g is "
+                            "applied as a non-local traction at the CMB. The "
+                            "local CMB topography term is unaffected.");
+          prm.declare_entry("Surface potential traction sign", "1",
+                            Patterns::Double(-1, 1),
+                            "Diagnostic multiplier on Phi/g in the outer "
+                            "surface traction. The default +1 preserves the "
+                            "current implementation; -1 is for sign audits.");
           prm.declare_entry("CMB potential traction sign", "1",
                             Patterns::Double(-1, 1),
                             "Diagnostic multiplier on Phi/g in the fluid-core "
-                            "CMB traction. CitcomSVE's positive radial CMB "
-                            "load maps to +1 after ASPECT's inner-boundary "
-                            "weak-form and outward-domain-normal conventions "
-                            "are combined. The -1 option is retained only for "
-                            "sign-audit benchmark experiments.");
+                            "CMB traction. The default +1 preserves the "
+                            "previous ASPECT benchmark implementation. Direct "
+                            "comparison with CitcomSVE's inward-normal CMB "
+                            "load maps to -1 when the matching local CMB "
+                            "restoring term is supplied by the Stokes matrix.");
           prm.declare_entry("CMB local topography mode", "committed",
                             Patterns::Selection("committed|current|none|matrix"),
                             "Select which CMB topography state is used in the "
@@ -836,10 +914,20 @@ namespace aspect
           planet_mean_density = prm.get_double("Planet mean density");
           include_cmb_contribution = prm.get_bool("Include cmb contribution");
           iterate_with_stokes = prm.get_bool("Iterate with Stokes");
+          freeze_potential_after_timestep_zero =
+            prm.get_bool("Freeze potential after timestep zero");
           initial_displacement_timestep =
             prm.get_double("Initial displacement time step");
           potential_convergence_tolerance =
             prm.get_double("Potential convergence tolerance");
+          enable_surface_potential_traction =
+            prm.get_bool("Enable surface potential traction");
+          enable_committed_surface_local_topography_traction =
+            prm.get_bool("Enable committed surface local topography traction");
+          enable_cmb_potential_traction =
+            prm.get_bool("Enable CMB potential traction");
+          surface_potential_traction_sign =
+            prm.get_double("Surface potential traction sign");
           cmb_potential_traction_sign =
             prm.get_double("CMB potential traction sign");
           cmb_local_topography_mode =

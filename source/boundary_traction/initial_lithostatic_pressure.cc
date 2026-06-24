@@ -287,6 +287,9 @@ namespace aspect
                        const Point<dim> &position,
                        const Tensor<1,dim> &normal_vector) const
     {
+      if (disable_after_timestep_zero && this->get_timestep_number() > 0)
+        return Tensor<1,dim>();
+
       // We want to set the normal component to the vertical boundary
       // to the lithostatic pressure, the rest of the traction
       // components are left set to zero. We get the lithostatic pressure
@@ -368,6 +371,12 @@ namespace aspect
                             "dependent local pressure perturbation from the background "
                             "lithostatic profile, which is useful for perturbation-style "
                             "free-boundary benchmarks.");
+          prm.declare_entry("Disable after timestep zero", "false",
+                            Patterns::Bool(),
+                            "Diagnostic switch that applies the initial "
+                            "lithostatic traction during the instantaneous "
+                            "elastic solve only, and returns zero traction "
+                            "from timestep one onward.");
         }
         prm.leave_subsection();
       }
@@ -399,6 +408,8 @@ namespace aspect
           n_points = prm.get_integer("Number of integration points");
           force_constant_pressure_at_bottom_boundary =
             prm.get_bool("Force constant pressure at bottom boundary");
+          disable_after_timestep_zero =
+            prm.get_bool("Disable after timestep zero");
         }
         prm.leave_subsection();
       }

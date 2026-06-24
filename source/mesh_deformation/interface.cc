@@ -21,6 +21,7 @@
 
 #include <aspect/global.h>
 #include <aspect/mesh_deformation/interface.h>
+#include <aspect/mesh_deformation/free_surface.h>
 #include <aspect/geometry_model/initial_topography_model/zero_topography.h>
 #include <aspect/geometry_model/box.h>
 #include <aspect/simulator.h>
@@ -243,6 +244,7 @@ namespace aspect
       : sim(simulator),  // reference to the simulator that owns the MeshDeformationHandler
         mesh_deformation_fe (FE_Q<dim>(sim.parameters.mesh_deformation_polynomial_degree),dim),
         mesh_deformation_dof_handler (sim.triangulation),
+        projected_free_surface_velocity_is_valid(false),
         include_initial_topography(false),
         mesh_deformation_solver("gmres")
     {
@@ -699,6 +701,10 @@ namespace aspect
       // finite element space as used in the Stokes solve, which
       // is needed for the ALE corrections.
       interpolate_mesh_velocity();
+
+      // The cached field has now been consumed by the ALE update. Do not let
+      // the next time step reuse a projection of the previous Stokes solution.
+      projected_free_surface_velocity_is_valid = false;
 
       // After changing the mesh we need to rebuild things
       sim.rebuild_stokes_matrix = sim.rebuild_stokes_preconditioner = true;
@@ -1925,6 +1931,41 @@ namespace aspect
     MeshDeformationHandler<dim>::get_mesh_displacements () const
     {
       return mesh_displacements;
+    }
+
+
+
+    template <int dim>
+    const LinearAlgebra::Vector &
+    MeshDeformationHandler<dim>::get_projected_free_surface_velocity (
+      const bool force_refresh) const
+    {
+      AssertThrow(!free_surface_boundary_indicators.empty(),
+                  ExcMessage("A projected free-surface velocity was requested, "
+                             "but no free-surface mesh deformation boundary is active."));
+
+      if (force_refresh || !projected_free_surface_velocity_is_valid)
+        {
+          const IndexSet &mesh_locally_owned =
+            mesh_deformation_dof_handler.locally_owned_dofs();
+          const IndexSet mesh_locally_relevant =
+            DoFTools::extract_locally_relevant_dofs(mesh_deformation_dof_handler);
+
+          projected_free_surface_velocity.reinit(mesh_locally_owned,
+                                                 mesh_locally_relevant,
+                                                 sim.mpi_communicator);
+
+          const auto &free_surface =
+            get_matching_mesh_deformation_object<FreeSurface<dim>>();
+          free_surface.project_velocity_onto_boundary(
+            mesh_deformation_dof_handler,
+            mesh_locally_owned,
+            mesh_locally_relevant,
+            projected_free_surface_velocity);
+          projected_free_surface_velocity_is_valid = true;
+        }
+
+      return projected_free_surface_velocity;
     }
 
 

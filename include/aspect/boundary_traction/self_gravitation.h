@@ -138,9 +138,14 @@ namespace aspect
         double planet_mean_density;
         bool   include_cmb_contribution;
         bool   iterate_with_stokes;
+        bool   freeze_potential_after_timestep_zero;
         double initial_displacement_timestep;
         double potential_convergence_tolerance;
         double potential_relative_change;
+        bool   enable_surface_potential_traction;
+        bool   enable_committed_surface_local_topography_traction;
+        bool   enable_cmb_potential_traction;
+        double surface_potential_traction_sign;
         double cmb_potential_traction_sign;
         std::string cmb_local_topography_mode;
 

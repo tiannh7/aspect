@@ -36,6 +36,10 @@ namespace aspect
     {
       EquationOfStateOutputs<dim> eos_outputs (this->introspection().get_number_of_fields_of_type(CompositionalFieldDescription::chemical_composition)+1);
 
+      const std::shared_ptr<MaterialModel::AdditionalMaterialOutputsStokesRHS<dim>>
+      additional_stokes_rhs =
+        out.template get_additional_output_object<MaterialModel::AdditionalMaterialOutputsStokesRHS<dim>>();
+
       std::vector<double> average_elastic_shear_moduli (in.n_evaluation_points());
       std::vector<double> elastic_shear_moduli(elastic_rheology.get_elastic_shear_moduli());
 
@@ -65,6 +69,12 @@ namespace aspect
 
           for (unsigned int c=0; c<in.composition[i].size(); ++c)
             out.reaction_terms[i][c] = 0.0;
+
+          if (additional_stokes_rhs != nullptr &&
+              reference_density_for_perturbation_stokes > 0.0)
+            additional_stokes_rhs->rhs_u[i] =
+              -reference_density_for_perturbation_stokes
+              * this->get_gravity_model().gravity_vector(in.position[i]);
 
           // Average the viscous viscosity and the shear modulus over the compositions
           average_elastic_shear_moduli[i] = MaterialUtilities::average_value(volume_fractions, elastic_shear_moduli, viscosity_averaging);
@@ -144,6 +154,15 @@ namespace aspect
                              "with different viscosities, we need to come up with an average "
                              "viscosity at that point.  Select a weighted harmonic, arithmetic, "
                              "geometric, or maximum composition.");
+          prm.declare_entry ("Reference density for perturbation Stokes", "0",
+                             Patterns::Double (0.),
+                             "Constant reference density whose body force is "
+                             "subtracted through the additional Stokes RHS. "
+                             "A value of zero leaves the full-pressure "
+                             "formulation unchanged. This diagnostic permits "
+                             "an incompressible perturbation-pressure weak form "
+                             "while retaining physical material density for "
+                             "other model components. Units: kg/m^3.");
         }
         prm.leave_subsection();
       }
@@ -181,6 +200,8 @@ namespace aspect
           viscosities = Utilities::MapParsing::parse_map_to_double_array (prm.get("Viscosities"), options);
           options.property_name = "Thermal conductivities";
           thermal_conductivities = Utilities::MapParsing::parse_map_to_double_array (prm.get("Thermal conductivities"), options);
+          reference_density_for_perturbation_stokes =
+            prm.get_double("Reference density for perturbation Stokes");
         }
         prm.leave_subsection();
       }
