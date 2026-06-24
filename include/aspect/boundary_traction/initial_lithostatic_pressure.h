@@ -116,6 +116,14 @@ namespace aspect
          * actual depth.
          */
         bool prescribe_constant_pressure_at_bottom_boundary;
+
+        /**
+         * Whether to always use the deepest reference pressure at the
+         * bottom boundary, independent of the current deformed boundary
+         * position. This is useful for perturbation-style benchmarks where
+         * local boundary restoring is supplied by a separate operator.
+         */
+        bool force_constant_pressure_at_bottom_boundary;
     };
   }
 }

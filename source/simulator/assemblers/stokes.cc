@@ -999,6 +999,109 @@ namespace aspect
             }
         }
     }
+
+    template <int dim>
+    void
+    StokesCitcomStyleCMBRadialRestoring<dim>::execute (internal::Assembly::Scratch::ScratchBase<dim>   &scratch_base,
+                                                       internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const
+    {
+      internal::Assembly::Scratch::StokesSystem<dim> &scratch =
+        dynamic_cast<internal::Assembly::Scratch::StokesSystem<dim>&> (scratch_base);
+      internal::Assembly::CopyData::StokesSystem<dim> &data =
+        dynamic_cast<internal::Assembly::CopyData::StokesSystem<dim>&> (data_base);
+
+      if (!scratch.rebuild_stokes_matrix)
+        return;
+
+      const Parameters<dim> &parameters = this->get_parameters();
+
+      const typename DoFHandler<dim>::face_iterator face =
+        scratch.cell->face(scratch.face_number);
+
+      if (face->boundary_id() != parameters.citcom_style_cmb_radial_restoring_boundary_indicator)
+        return;
+
+      double effective_time_step = this->get_timestep();
+
+      if (this->get_timestep_number() == 0 &&
+          effective_time_step == 0.0 &&
+          parameters.initial_elastic_response_time_step > 0.0)
+        effective_time_step = parameters.initial_elastic_response_time_step;
+
+      if (effective_time_step == 0.0)
+        return;
+
+      const double density_contrast =
+        parameters.citcom_style_cmb_radial_restoring_density_contrast;
+      const double scale =
+        parameters.citcom_style_cmb_radial_restoring_scale;
+
+      if (density_contrast == 0.0 || scale == 0.0)
+        return;
+
+      const Introspection<dim> &introspection = this->introspection();
+      const FiniteElement<dim> &fe = scratch.finite_element_values.get_fe();
+
+      const unsigned int stokes_dofs_per_cell = data.local_dof_indices.size();
+
+      for (unsigned int q=0; q<scratch.face_finite_element_values.n_quadrature_points; ++q)
+        {
+          const Point<dim> point =
+            scratch.face_finite_element_values.quadrature_point(q);
+
+          Tensor<1,dim> radial_unit;
+          for (unsigned int d=0; d<dim; ++d)
+            radial_unit[d] = point[d];
+
+          const double radius = radial_unit.norm();
+
+          AssertThrow(radius > 0.0,
+                      ExcMessage("Cannot construct a radial unit vector at radius zero."));
+
+          radial_unit /= radius;
+
+          const Tensor<1,dim> gravity =
+            this->get_gravity_model().gravity_vector(point);
+
+          const double g_magnitude = gravity.norm();
+
+          const double coefficient =
+            scale * density_contrast * g_magnitude * effective_time_step;
+
+          const double JxW = scratch.face_finite_element_values.JxW(q);
+
+          for (unsigned int i=0, i_stokes=0; i_stokes<stokes_dofs_per_cell; /* increment below */)
+            {
+              if (introspection.is_stokes_component(fe.system_to_component_index(i).first))
+                {
+                  const Tensor<1,dim> phi_i =
+                    scratch.face_finite_element_values[introspection.extractors.velocities].value(i,q);
+                  const double phi_i_radial = phi_i * radial_unit;
+
+                  for (unsigned int j=0, j_stokes=0; j_stokes<stokes_dofs_per_cell; /* increment below */)
+                    {
+                      if (introspection.is_stokes_component(fe.system_to_component_index(j).first))
+                        {
+                          const Tensor<1,dim> phi_j =
+                            scratch.face_finite_element_values[introspection.extractors.velocities].value(j,q);
+                          const double phi_j_radial = phi_j * radial_unit;
+
+                          data.local_matrix(i_stokes,j_stokes) +=
+                            coefficient * phi_i_radial * phi_j_radial * JxW;
+
+                          ++j_stokes;
+                        }
+                      ++j;
+                    }
+
+                  ++i_stokes;
+                }
+              ++i;
+            }
+        }
+    }
+
+
   }
 } // namespace aspect
 
@@ -1018,7 +1121,8 @@ namespace aspect
   template class StokesHydrostaticCompressionTerm<dim>; \
   template class StokesProjectedDensityFieldTerm<dim>; \
   template class StokesPressureRHSCompatibilityModification<dim>; \
-  template class StokesBoundaryTraction<dim>;
+  template class StokesBoundaryTraction<dim>; \
+  template class StokesCitcomStyleCMBRadialRestoring<dim>;
 
     ASPECT_INSTANTIATE(INSTANTIATE)
 

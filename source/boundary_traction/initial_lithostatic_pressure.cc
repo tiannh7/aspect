@@ -298,7 +298,9 @@ namespace aspect
       // with horizontal coordinates other than the reference point
       // will not have a depth equal to the deepest depth of the profile.
       Tensor<1, dim> traction;
-      if (prescribe_constant_pressure_at_bottom_boundary && boundary_indicator == bottom_boundary_id)
+      if ((force_constant_pressure_at_bottom_boundary ||
+           prescribe_constant_pressure_at_bottom_boundary) &&
+          boundary_indicator == bottom_boundary_id)
         traction = -pressure.back() * normal_vector;
       else
         traction = -interpolate_pressure(position) * normal_vector;
@@ -358,6 +360,14 @@ namespace aspect
                             Patterns::Integer(0),
                             "The number of integration points over which we integrate the lithostatic pressure "
                             "downwards.");
+          prm.declare_entry("Force constant pressure at bottom boundary", "false",
+                            Patterns::Bool(),
+                            "If true, the traction on the bottom boundary uses the deepest "
+                            "reference lithostatic pressure everywhere, independent of the "
+                            "current deformed boundary position. This avoids adding a geometry-"
+                            "dependent local pressure perturbation from the background "
+                            "lithostatic profile, which is useful for perturbation-style "
+                            "free-boundary benchmarks.");
         }
         prm.leave_subsection();
       }
@@ -387,6 +397,8 @@ namespace aspect
           for (unsigned int d = 0; d<dim; ++d)
             representative_point[d] = rep_point[d];
           n_points = prm.get_integer("Number of integration points");
+          force_constant_pressure_at_bottom_boundary =
+            prm.get_bool("Force constant pressure at bottom boundary");
         }
         prm.leave_subsection();
       }

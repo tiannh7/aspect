@@ -132,6 +132,13 @@ namespace aspect
           std::make_unique<aspect::Assemblers::StokesBoundaryTraction<dim>>());
       }
 
+    // Add a diagnostic CitcomSVE-style CMB radial restoring matrix term.
+    // This is assembled on boundary faces and is independent of ASPECT's
+    // generic free-surface stabilization.
+    if (parameters.use_citcom_style_cmb_radial_restoring)
+      assemblers->stokes_system_on_boundary_face.push_back(
+        std::make_unique<aspect::Assemblers::StokesCitcomStyleCMBRadialRestoring<dim>>());
+
     // add the terms necessary to normalize the pressure
     if (do_pressure_rhs_compatibility_modification)
       assemblers->stokes_system.push_back(

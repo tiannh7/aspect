@@ -246,6 +246,29 @@ namespace aspect
                        "and boundary operators for timestep zero. "
                        "Units: Years or seconds, depending on the ``Use years instead of seconds'' parameter.");
 
+    prm.declare_entry ("Use Citcom-style CMB radial restoring", "false",
+                       Patterns::Bool(),
+                       "If true, assemble a diagnostic boundary matrix term "
+                       "int_Gamma Delta rho g dt (w.e_r)(v.e_r) dS on the selected "
+                       "CMB boundary. This term is intended to mimic the radial "
+                       "density-interface restoring operator used in CitcomSVE add_restoring, "
+                       "not the generic ASPECT free-surface stabilization.");
+    prm.declare_entry ("Citcom-style CMB radial restoring boundary indicator", "0",
+                       Patterns::Integer(0),
+                       "Boundary indicator on which the Citcom-style CMB radial restoring "
+                       "matrix term is assembled. For the spherical shell geometry used in "
+                       "the Zhong et al. benchmark, the inner boundary is usually 0.");
+    prm.declare_entry ("Citcom-style CMB radial restoring density contrast", "0.",
+                       Patterns::Double(0.),
+                       "Density contrast Delta rho used in the Citcom-style CMB radial "
+                       "restoring matrix term, in kg/m^3. For the V1 Zhong et al. benchmark "
+                       "this is rho_core - rho_mantle = 5401 kg/m^3.");
+    prm.declare_entry ("Citcom-style CMB radial restoring scale", "1.",
+                       Patterns::Double(),
+                       "Dimensionless multiplier for the Citcom-style CMB radial restoring "
+                       "matrix term. Use 1 for the physical diagnostic and other values only "
+                       "for sign or amplitude audits.");
+
     prm.declare_entry ("Maximum first time step",
                        /* boost::lexical_cast<std::string>(std::numeric_limits<double>::max() /
                                                            year_in_seconds) = */ "5.69e+300",
@@ -1690,6 +1713,15 @@ namespace aspect
     initial_elastic_response_time_step = prm.get_double("Initial elastic response time step");
     if (convert_to_years == true)
       initial_elastic_response_time_step *= year_in_seconds;
+
+    use_citcom_style_cmb_radial_restoring =
+      prm.get_bool("Use Citcom-style CMB radial restoring");
+    citcom_style_cmb_radial_restoring_boundary_indicator =
+      static_cast<types::boundary_id>(prm.get_integer("Citcom-style CMB radial restoring boundary indicator"));
+    citcom_style_cmb_radial_restoring_density_contrast =
+      prm.get_double("Citcom-style CMB radial restoring density contrast");
+    citcom_style_cmb_radial_restoring_scale =
+      prm.get_double("Citcom-style CMB radial restoring scale");
 
     {
       const std::string solver_scheme = prm.get ("Nonlinear solver scheme");

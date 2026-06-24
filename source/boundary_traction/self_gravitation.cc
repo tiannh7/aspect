@@ -644,7 +644,8 @@ namespace aspect
                                    cmb_topography_cos_coeffs,
                                    cmb_topography_sin_coeffs,
                                    th_vec, ph_vec)[0];
-              else if (cmb_local_topography_mode == "none")
+              else if (cmb_local_topography_mode == "none" ||
+                       cmb_local_topography_mode == "matrix")
                 cmb_topography = 0.0;
               else
                 AssertThrow(false,
@@ -785,7 +786,7 @@ namespace aspect
                             "are combined. The -1 option is retained only for "
                             "sign-audit benchmark experiments.");
           prm.declare_entry("CMB local topography mode", "committed",
-                            Patterns::Selection("committed|current|none"),
+                            Patterns::Selection("committed|current|none|matrix"),
                             "Select which CMB topography state is used in the "
                             "direct local density-jump traction term "
                             "Delta rho * g * h_cmb. The 'committed' option "
@@ -794,9 +795,15 @@ namespace aspect
                             "reproduces the previous behavior. The 'current' "
                             "option uses the most recent self-gravity update, "
                             "including the current Stokes velocity increment "
-                            "when Iterate with Stokes is enabled. The 'none' "
-                            "option omits the local CMB topography term and "
-                            "retains only the CMB gravitational-potential term.");
+                            "when Iterate with Stokes is enabled. The 'matrix' "
+                            "option omits the local CMB topography term from "
+                            "this RHS traction and assumes that the local "
+                            "CMB density-interface restoring is supplied by "
+                            "the Stokes matrix, analogous to CitcomSVE "
+                            "add_restoring. The 'none' option also omits "
+                            "the local CMB topography term, but is intended "
+                            "for diagnostics in which no CMB matrix restoring "
+                            "is active.");
           prm.declare_entry("Time between text output", "0.",
                             Patterns::Double(0.),
                             "The time interval in years between text outputs (printing C20 to the terminal). "

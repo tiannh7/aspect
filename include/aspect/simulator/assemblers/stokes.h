@@ -204,6 +204,26 @@ namespace aspect
     };
 
     /**
+     * Assemble a diagnostic CitcomSVE-style CMB radial density-interface
+     * restoring term on a selected boundary face:
+     *
+     *   int_Gamma Delta rho g dt (w.e_r)(v.e_r) dS.
+     *
+     * This operator is intended for self-gravitating viscoelastic benchmark
+     * experiments. It should not be confused with ASPECT's generic
+     * free-surface stabilization.
+     */
+    template <int dim>
+    class StokesCitcomStyleCMBRadialRestoring : public Assemblers::Interface<dim>,
+      public SimulatorAccess<dim>
+    {
+      public:
+        void
+        execute(internal::Assembly::Scratch::ScratchBase<dim>   &scratch_base,
+                internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const override;
+    };
+
+    /**
      * This class computes the local pressure shape function integrals that
      * are later used to make the Stokes equations compatible to its right hand
      * side. For more information why this is necessary see Section 3.2.2 of

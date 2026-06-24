@@ -688,6 +688,17 @@ namespace aspect
     bool                           enable_prescribed_dilation;
 
     /**
+     * Diagnostic boundary matrix term for Zhong et al. (2022)-style
+     * CMB radial density-interface restoring. This is not the generic
+     * ASPECT free-surface stabilization term. It assembles
+     * int_Gamma Delta rho g dt (w.e_r)(v.e_r) dS on a selected boundary.
+     */
+    bool                           use_citcom_style_cmb_radial_restoring;
+    types::boundary_id             citcom_style_cmb_radial_restoring_boundary_indicator;
+    double                         citcom_style_cmb_radial_restoring_density_contrast;
+    double                         citcom_style_cmb_radial_restoring_scale;
+
+    /**
      * A set of boundary ids on which the boundary_heat_flux objects
      * will be applied.
      */
