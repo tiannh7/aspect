@@ -31,6 +31,8 @@
 #include <deal.II/base/parameter_handler.h>
 #include <deal.II/base/quadrature_lib.h>
 
+#include <cmath>
+
 
 namespace aspect
 {
@@ -124,6 +126,26 @@ namespace aspect
                            "matches benchmarks whose t=0 solution is the "
                            "instantaneous elastic limit before finite viscoelastic "
                            "time steps begin.");
+        prm.declare_entry ("Viscoelastic stress update scheme", "backward euler",
+                           Patterns::Selection("backward euler|theta|exponential"),
+                           "Select the time discretization used for the linear "
+                           "Maxwell stress update. The 'backward euler' option "
+                           "recovers ASPECT's existing effective-viscosity "
+                           "update. The 'theta' option uses the value of "
+                           "'Viscoelastic stress update theta'. The "
+                           "'exponential' option uses the exact stress "
+                           "relaxation factor exp(-dt/tau_M) over each time "
+                           "step, with the current strain rate representing "
+                           "the forcing over the step.");
+        prm.declare_entry ("Viscoelastic stress update theta", "1.0",
+                           Patterns::Double (0.5, 1.0),
+                           "Theta parameter for the linear Maxwell stress "
+                           "update when 'Viscoelastic stress update scheme' is "
+                           "'theta'. A value of 1.0 recovers the "
+                           "backward-Euler retention factor, while 0.5 gives "
+                           "the centered Crank-Nicolson-like retention "
+                           "(1-dt/(2 tau_M))/(1+dt/(2 tau_M)). Values between "
+                           "0.5 and 1.0 add controlled numerical dissipation.");
         prm.declare_entry ("Stabilization time scale factor", "1.",
                            Patterns::Double (1.),
                            "A stabilization factor for the elastic stresses that influences how fast "
@@ -185,6 +207,18 @@ namespace aspect
         fixed_elastic_time_step = prm.get_double ("Fixed elastic time step");
         use_instantaneous_elastic_response_at_timestep_zero =
           prm.get_bool("Use instantaneous elastic response at timestep zero");
+        const std::string viscoelastic_stress_update_scheme_string =
+          prm.get("Viscoelastic stress update scheme");
+        if (viscoelastic_stress_update_scheme_string == "backward euler")
+          viscoelastic_stress_update_scheme = ViscoelasticStressUpdateScheme::backward_euler;
+        else if (viscoelastic_stress_update_scheme_string == "theta")
+          viscoelastic_stress_update_scheme = ViscoelasticStressUpdateScheme::theta;
+        else if (viscoelastic_stress_update_scheme_string == "exponential")
+          viscoelastic_stress_update_scheme = ViscoelasticStressUpdateScheme::exponential;
+        else
+          AssertThrow(false, ExcMessage("Unknown viscoelastic stress update scheme."));
+        viscoelastic_stress_update_theta =
+          prm.get_double("Viscoelastic stress update theta");
         AssertThrow(fixed_elastic_time_step > 0,
                     ExcMessage("The fixed elastic time step must be greater than zero"));
 
@@ -479,12 +513,15 @@ namespace aspect
                 // linearly interpolate between the two.
                 const double timestep_ratio = calculate_timestep_ratio();
                 // The elastic viscosity has also already been scaled with the timestep ratio.
-                const double viscosity_ratio = effective_creep_viscosity / calculate_elastic_viscosity(average_elastic_shear_moduli[i]);
+                const double elastic_viscosity = calculate_elastic_viscosity(average_elastic_shear_moduli[i]);
+                const double old_stress_coefficient =
+                  calculate_old_stress_coefficient(effective_creep_viscosity,
+                                                   elastic_viscosity);
 
                 if (elastic_out != nullptr)
                   {
-                    elastic_out->elastic_force[i] = -1. * (viscosity_ratio * stress_0_advected
-                                                           + (1. - timestep_ratio) * (1. - viscosity_ratio) * stress_old);
+                    elastic_out->elastic_force[i] = -1. * (old_stress_coefficient * stress_0_advected
+                                                           + (1. - timestep_ratio) * (1. - old_stress_coefficient) * stress_old);
 
                     // The viscoelastic strain rate is needed only when the Newton method is selected.
                     const typename Parameters<dim>::NonlinearSolver::Kind nonlinear_solver = this->get_parameters().nonlinear_solver;
@@ -495,8 +532,8 @@ namespace aspect
                   }
 
                 // Apply the stress update to get the total stress of timestep t.
-                const SymmetricTensor<2, dim> stress = 2. * effective_creep_viscosity * deviatoric_strain_rate + viscosity_ratio * stress_0_advected +
-                                                       (1. - timestep_ratio) * (1. - viscosity_ratio) * stress_old;
+                const SymmetricTensor<2, dim> stress = 2. * effective_creep_viscosity * deviatoric_strain_rate + old_stress_coefficient * stress_0_advected +
+                                                       (1. - timestep_ratio) * (1. - old_stress_coefficient) * stress_old;
 
                 // Obtain the computational timestep by multiplying the ratio between the computational
                 // and elastic timestep $\frac{\Delta t_c}{\Delta t_{el}}$ with the elastic timestep.
@@ -756,6 +793,9 @@ namespace aspect
                 // in light of the linear interpolation between $t$ and $t+ \Delta t_{el}$
                 // when  $\Delta t_c$ and $t+\Delta t_el$ differ.
                 const double elastic_viscosity = calculate_elastic_viscosity(average_elastic_shear_moduli[i]);
+                const double old_stress_coefficient =
+                  calculate_old_stress_coefficient(effective_creep_viscosity,
+                                                   elastic_viscosity);
 
                 // The ratio between the computational and elastic timestep $\frac{\Delta t_c} / {\Delta t_{el}}$.
                 const double timestep_ratio = calculate_timestep_ratio();
@@ -763,8 +803,8 @@ namespace aspect
                 // Compute the total stress at time t.
                 const SymmetricTensor<2, dim> stress_t =
                   2. * effective_creep_viscosity * Utilities::Tensors::consistent_deviator(in.strain_rate[i])
-                  + effective_creep_viscosity / elastic_viscosity * stress_0_t
-                  + (1. - timestep_ratio) * (1. - effective_creep_viscosity / elastic_viscosity) * stress_old;
+                  + old_stress_coefficient * stress_0_t
+                  + (1. - timestep_ratio) * (1. - old_stress_coefficient) * stress_old;
 
                 // Fill reaction rates.
                 // During this timestep, the reaction rates will be multiplied
@@ -896,7 +936,93 @@ namespace aspect
             this->simulator_is_past_initialization() &&
             this->get_timestep_number() == 0)
           return elastic_viscosity;
-        return 1. / (1./elastic_viscosity + 1./(viscosity*timestep_ratio));
+
+        const double scaled_viscous_viscosity = viscosity * timestep_ratio;
+        const double maxwell_ratio = elastic_viscosity / scaled_viscous_viscosity;
+        switch (viscoelastic_stress_update_scheme)
+          {
+            case ViscoelasticStressUpdateScheme::backward_euler:
+              return elastic_viscosity / (1. + maxwell_ratio);
+
+            case ViscoelasticStressUpdateScheme::theta:
+              return elastic_viscosity / (1. + viscoelastic_stress_update_theta * maxwell_ratio);
+
+            case ViscoelasticStressUpdateScheme::exponential:
+              return scaled_viscous_viscosity * (1. - std::exp(-maxwell_ratio));
+
+            default:
+              AssertThrow(false, ExcNotImplemented());
+              return numbers::signaling_nan<double>();
+          }
+      }
+
+
+
+      template <int dim>
+      double
+      Elasticity<dim>::
+      calculate_old_stress_coefficient (const double effective_creep_viscosity,
+                                        const double elastic_viscosity) const
+      {
+        const double effective_to_elastic_viscosity = effective_creep_viscosity / elastic_viscosity;
+        switch (viscoelastic_stress_update_scheme)
+          {
+            case ViscoelasticStressUpdateScheme::backward_euler:
+              return effective_to_elastic_viscosity;
+
+            case ViscoelasticStressUpdateScheme::theta:
+              {
+                if (viscoelastic_stress_update_theta == 1.)
+                  return effective_to_elastic_viscosity;
+
+                // For a theta-method Maxwell update with a = dt/tau_M,
+                // eta_eff / (G dt) = 1 / (1 + theta a), and the old-stress
+                // retention coefficient is
+                // r = (1 - (1 - theta) a) / (1 + theta a).
+                return effective_to_elastic_viscosity
+                       - (1. - viscoelastic_stress_update_theta)
+                       * (1. - effective_to_elastic_viscosity)
+                       / viscoelastic_stress_update_theta;
+              }
+
+            case ViscoelasticStressUpdateScheme::exponential:
+              {
+                // For the exponential update,
+                // eta_eff / (G dt) = (1 - exp(-a)) / a. Recover a by
+                // monotone bisection and return exp(-a). This keeps the
+                // stress RHS consistent with the effective viscosity path
+                // without storing an extra history coefficient.
+                if (effective_to_elastic_viscosity >= 1.)
+                  return 1.;
+                if (effective_to_elastic_viscosity <= 0.)
+                  return 0.;
+
+                double lower = 0.;
+                double upper = 1.;
+                auto effective_ratio = [](const double x)
+                {
+                  return (1. - std::exp(-x)) / x;
+                };
+
+                while (effective_ratio(upper) > effective_to_elastic_viscosity)
+                  upper *= 2.;
+
+                for (unsigned int iteration = 0; iteration < 64; ++iteration)
+                  {
+                    const double middle = 0.5 * (lower + upper);
+                    if (effective_ratio(middle) > effective_to_elastic_viscosity)
+                      lower = middle;
+                    else
+                      upper = middle;
+                  }
+
+                return std::exp(-0.5 * (lower + upper));
+              }
+
+            default:
+              AssertThrow(false, ExcNotImplemented());
+              return numbers::signaling_nan<double>();
+          }
       }
 
 
@@ -922,13 +1048,16 @@ namespace aspect
         const double elastic_viscosity = calculate_elastic_viscosity(shear_modulus);
         // viscosity_pre_yield is also already scaled with the timestep ratio.
         const double creep_viscosity = viscosity_pre_yield;
+        const double old_stress_coefficient =
+          calculate_old_stress_coefficient(creep_viscosity,
+                                           elastic_viscosity);
 
         // The ratio between the computational and elastic timestep.
         const double timestep_ratio = calculate_timestep_ratio();
 
         const SymmetricTensor<2, dim>
-        edot = strain_rate + 0.5 * stress_0_advected / elastic_viscosity
-               + 0.5 * (1. - timestep_ratio) * (1.  - creep_viscosity/elastic_viscosity) * stress_old / creep_viscosity;
+        edot = strain_rate + 0.5 * old_stress_coefficient * stress_0_advected / creep_viscosity
+               + 0.5 * (1. - timestep_ratio) * (1.  - old_stress_coefficient) * stress_old / creep_viscosity;
 
         return edot;
       }

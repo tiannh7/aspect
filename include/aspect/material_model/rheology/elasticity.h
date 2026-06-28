@@ -255,6 +255,24 @@ namespace aspect
 
         private:
           /**
+           * Time discretization used for the linear Maxwell stress update.
+           */
+          enum class ViscoelasticStressUpdateScheme
+          {
+            backward_euler,
+            theta,
+            exponential
+          };
+
+          /**
+           * Return the coefficient multiplying the advected stress from the
+           * previous time step in the linear Maxwell update.
+           */
+          double
+          calculate_old_stress_coefficient (const double effective_creep_viscosity,
+                                            const double elastic_viscosity) const;
+
+          /**
            * Get the stored stress of the previous timestep. For fields, use a
            * composition evaluator of the old solution. For particles, get the
            * stress directly from the particles, which is available from in.composition
@@ -303,6 +321,19 @@ namespace aspect
            * time step to create a time scale.
            */
           double stabilization_time_scale_factor;
+
+          /**
+           * Select the stress update scheme for linear Maxwell rheology.
+           */
+          ViscoelasticStressUpdateScheme viscoelastic_stress_update_scheme;
+
+          /**
+           * Theta parameter for the linear Maxwell stress update when
+           * viscoelastic_stress_update_scheme is theta. A value of 1.0 recovers
+           * the original backward-Euler-style ASPECT update, and 0.5 gives a
+           * centered Crank-Nicolson-like update.
+           */
+          double viscoelastic_stress_update_theta;
 
           /**
            * We cache the evaluators that are necessary to evaluate the velocity
