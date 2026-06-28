@@ -135,6 +135,23 @@ namespace aspect
          * discrete mesh otherwise creates spurious harmonic leakage. */
         double reference_density;
 
+        enum class DensityAnomalyMode
+        {
+          auto_detect,
+          always,
+          never
+        };
+
+        /**
+         * Controls whether the volume-density geoid term is evaluated.
+         */
+        DensityAnomalyMode density_anomaly_mode;
+
+        /**
+         * Absolute tolerance used by the automatic density-anomaly detector.
+         */
+        double density_anomaly_tolerance;
+
         /**
          * A parameter to control whether to include the surface topography contribution on geoid
          */

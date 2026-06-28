@@ -32,6 +32,8 @@
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/fe/fe_values.h>
 
+#include <cmath>
+
 
 namespace aspect
 {
@@ -93,6 +95,21 @@ namespace aspect
     std::pair<std::vector<double>,std::vector<double>>
     Geoid<3>::density_contribution (const double &outer_radius) const
     {
+      unsigned int n_coefficients = 0;
+      for (unsigned int degree = min_degree; degree <= max_degree; ++degree)
+        n_coefficients += degree + 1;
+
+      std::vector<double> SH_density_coecos(n_coefficients, 0.0);
+      std::vector<double> SH_density_coesin(n_coefficients, 0.0);
+
+      if (density_anomaly_mode == DensityAnomalyMode::never)
+        {
+          this->get_pcout()
+            << "      Skipping geoid density-anomaly volume integral "
+            << "(mode = never)." << std::endl;
+          return std::make_pair(SH_density_coecos, SH_density_coesin);
+        }
+
       const unsigned int quadrature_degree = this->introspection().polynomial_degree.temperature;
 
       // Need to evaluate density contribution of each volume quadrature point.
@@ -110,60 +127,100 @@ namespace aspect
       MaterialModel::MaterialModelOutputs<3> out(fe_values.n_quadrature_points, this->n_compositional_fields());
       in.requested_properties = MaterialModel::MaterialProperties::density;
 
-      std::vector<std::vector<double>>
-      composition_values(this->n_compositional_fields(), std::vector<double>(quadrature_formula.size()));
+      const double effective_tolerance =
+        (density_anomaly_tolerance > 0.0
+         ? density_anomaly_tolerance
+         : 1e-12 * std::max(1.0, std::abs(reference_density)));
 
-      // Directly do the global 3d integral over each quadrature point of every cell (different from traditional way to do layer integral).
-      // This is necessary because of ASPECT's adaptive mesh refinement feature.
-      std::vector<double> SH_density_coecos;
-      std::vector<double> SH_density_coesin;
-      for (unsigned int ideg =  min_degree; ideg < max_degree+1; ++ideg)
+      if (density_anomaly_mode == DensityAnomalyMode::auto_detect)
         {
-          for (unsigned int iord = 0; iord < ideg+1; ++iord)
+          double local_max_density_anomaly = 0.0;
+
+          for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+            if (cell->is_locally_owned())
+              {
+                fe_values.reinit(cell);
+                in.reinit(fe_values, cell, this->introspection(), this->get_solution());
+                this->get_material_model().evaluate(in, out);
+
+                for (unsigned int q=0; q<quadrature_formula.size(); ++q)
+                  local_max_density_anomaly =
+                    std::max(local_max_density_anomaly,
+                             std::abs(out.densities[q] - reference_density));
+              }
+
+          const double global_max_density_anomaly =
+            Utilities::MPI::max(local_max_density_anomaly,
+                                this->get_mpi_communicator());
+
+          if (global_max_density_anomaly <= effective_tolerance)
             {
-              // Initialization of the density contribution integral per degree, order.
-              double integrated_density_cos_component = 0;
-              double integrated_density_sin_component = 0;
-
-              // Loop over all of the cells.
-              for (const auto &cell : this->get_dof_handler().active_cell_iterators())
-                if (cell->is_locally_owned())
-                  {
-                    fe_values.reinit (cell);
-                    // Set use_strain_rates to false since we don't need viscosity.
-                    in.reinit(fe_values, cell, this->introspection(), this->get_solution());
-
-                    this->get_material_model().evaluate(in, out);
-
-                    // Compute the integral of the density function
-                    // over the cell, by looping over all quadrature points.
-                    for (unsigned int q=0; q<quadrature_formula.size(); ++q)
-                      {
-                        // Convert coordinates from [x,y,z] to [r, phi, theta].
-                        const std::array<double,3> scoord = aspect::Utilities::Coordinates::cartesian_to_spherical_coordinates(in.position[q]);
-
-                        // Normalization after Dahlen and Tromp (1986) Appendix B.6.
-                        const std::pair<double,double> sph_harm_vals = aspect::Utilities::real_spherical_harmonic(ideg,iord,scoord[2],scoord[1]);
-                        const double cos_component = sph_harm_vals.first; // real / cos part
-                        const double sin_component = sph_harm_vals.second; // imaginary / sin part
-
-                        const double density = out.densities[q] - reference_density;
-                        const double r_q = in.position[q].norm();
-                        const double JxW = fe_values.JxW(q);
-
-#if DEAL_II_VERSION_GTE(9,6,0)
-                        integrated_density_cos_component += density * (1./r_q) * Utilities::pow(r_q/outer_radius,ideg+1) * cos_component * JxW;
-                        integrated_density_sin_component += density * (1./r_q) * Utilities::pow(r_q/outer_radius,ideg+1) * sin_component * JxW;
-#else
-                        integrated_density_cos_component += density * (1./r_q) * std::pow(r_q/outer_radius,ideg+1) * cos_component * JxW;
-                        integrated_density_sin_component += density * (1./r_q) * std::pow(r_q/outer_radius,ideg+1) * sin_component * JxW;
-#endif
-                      }
-                  }
-              SH_density_coecos.push_back(integrated_density_cos_component);
-              SH_density_coesin.push_back(integrated_density_sin_component);
+              this->get_pcout()
+                << "      Skipping geoid density-anomaly volume integral "
+                << "(auto: max |rho-rho_ref| = "
+                << std::scientific << global_max_density_anomaly
+                << " <= " << effective_tolerance << std::defaultfloat
+                << ")." << std::endl;
+              return std::make_pair(SH_density_coecos, SH_density_coesin);
             }
         }
+
+      // Directly integrate over every volume quadrature point. This handles
+      // adaptive meshes without a separate layer projection. The accumulated
+      // coefficient is
+      //   int_Omega delta_rho / r * (r/R)^(l+1) * Y_lm(theta,phi) dV,
+      // which is converted to geoid height later by
+      //   4*pi*G / (g_s*(2*l+1)).
+      for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
+            fe_values.reinit (cell);
+            in.reinit(fe_values, cell, this->introspection(), this->get_solution());
+
+            this->get_material_model().evaluate(in, out);
+
+            for (unsigned int q=0; q<quadrature_formula.size(); ++q)
+              {
+                const double density_anomaly = out.densities[q] - reference_density;
+
+                if (density_anomaly == 0.0)
+                  continue;
+
+                const std::array<double,3> scoord =
+                  aspect::Utilities::Coordinates::cartesian_to_spherical_coordinates(in.position[q]);
+                const double r_q = in.position[q].norm();
+                const double JxW = fe_values.JxW(q);
+
+                unsigned int coefficient_index = 0;
+                for (unsigned int degree = min_degree; degree <= max_degree; ++degree)
+                  {
+#if DEAL_II_VERSION_GTE(9,6,0)
+                    const double radial_kernel =
+                      (1.0/r_q) * Utilities::pow(r_q/outer_radius, degree+1);
+#else
+                    const double radial_kernel =
+                      (1.0/r_q) * std::pow(r_q/outer_radius, degree+1);
+#endif
+
+                    for (unsigned int order = 0; order <= degree; ++order, ++coefficient_index)
+                      {
+                        // Normalization after Dahlen and Tromp (1986),
+                        // Appendix B.6.
+                        const std::pair<double,double> sph_harm_vals =
+                          aspect::Utilities::real_spherical_harmonic(
+                            degree, order, scoord[2], scoord[1]);
+
+                        const double weighted_density =
+                          density_anomaly * radial_kernel * JxW;
+                        SH_density_coecos[coefficient_index] +=
+                          weighted_density * sph_harm_vals.first;
+                        SH_density_coesin[coefficient_index] +=
+                          weighted_density * sph_harm_vals.second;
+                      }
+                  }
+              }
+          }
+
       // Sum over each processor.
       dealii::Utilities::MPI::sum (SH_density_coecos,this->get_mpi_communicator(),SH_density_coecos);
       dealii::Utilities::MPI::sum (SH_density_coesin,this->get_mpi_communicator(),SH_density_coesin);
@@ -477,21 +534,45 @@ namespace aspect
       std::pair<double, std::pair<std::vector<double>,std::vector<double>>> SH_surface_topo_coes;
       std::pair<double, std::pair<std::vector<double>,std::vector<double>>> SH_CMB_topo_coes;
 
+      // A self-gravity traction model may contain a current-step ALE
+      // displacement predictor that is not yet committed to the mesh. Use
+      // its converged Phi/g coefficients directly instead of inferring
+      // topography from the total traction.
+      const auto &traction_manager = this->get_boundary_traction_manager();
+      const bool use_self_gravity_boundary_potential =
+        traction_manager.template has_matching_active_plugin<
+          BoundaryTraction::SelfGravitation<dim>>();
+      const BoundaryTraction::SelfGravitation<dim> *self_gravity =
+        (use_self_gravity_boundary_potential
+         ? &traction_manager.template get_matching_active_plugin<
+             BoundaryTraction::SelfGravitation<dim>>()
+         : nullptr);
+
       // Initialize the surface and CMB density contrasts with NaNs because they may be unused in case of no topography contribution.
       double surface_delta_rho = numbers::signaling_nan<double>();
       double CMB_delta_rho = numbers::signaling_nan<double>();
 
-      // Get the spherical harmonic coefficients of the surface and CMB topography.
-      std::pair<std::pair<double, std::pair<std::vector<double>,std::vector<double>>>, std::pair<double, std::pair<std::vector<double>,std::vector<double>>>> SH_topo_coes;
-      SH_topo_coes = topography_contribution(outer_radius,inner_radius);
-      SH_surface_topo_coes = SH_topo_coes.first;
-      SH_CMB_topo_coes = SH_topo_coes.second;
+      if (include_surface_topo_contribution == true ||
+          include_CMB_topo_contribution == true)
+        {
+          if (self_gravity != nullptr)
+            {
+              surface_delta_rho = self_gravity->surface_density_jump();
+              CMB_delta_rho = self_gravity->cmb_density_jump();
+            }
+          else
+            {
+              // Get the spherical harmonic coefficients of the surface and CMB topography.
+              std::pair<std::pair<double, std::pair<std::vector<double>,std::vector<double>>>, std::pair<double, std::pair<std::vector<double>,std::vector<double>>>> SH_topo_coes;
+              SH_topo_coes = topography_contribution(outer_radius,inner_radius);
+              SH_surface_topo_coes = SH_topo_coes.first;
+              SH_CMB_topo_coes = SH_topo_coes.second;
 
-      // Get the density contrast at the surface and CMB to replace the initialized NaN values.
-      // The surface and CMB density contrasts will be used later to calculate geoid,
-      // and the spherical harmonic output of the surface and CMB topography contribution to geoid.
-      surface_delta_rho =  SH_surface_topo_coes.first - density_above;
-      CMB_delta_rho = density_below - SH_CMB_topo_coes.first;
+              // Get the density contrasts at the surface and CMB.
+              surface_delta_rho = SH_surface_topo_coes.first - density_above;
+              CMB_delta_rho = density_below - SH_CMB_topo_coes.first;
+            }
+        }
 
       // Compute the spherical harmonic coefficients of geoid anomaly.
       std::vector<double> density_anomaly_contribution_coecos;
@@ -502,21 +583,6 @@ namespace aspect
       std::vector<double> CMB_topo_contribution_coesin;
       geoid_coecos.clear();
       geoid_coesin.clear();
-
-      // A self-gravity traction model may contain a current-step ALE
-      // displacement predictor that is not yet committed to the mesh. Use
-      // its converged Phi/g coefficients directly instead of inferring
-      // topography from the total traction (which would also fold the
-      // self-gravity traction back into the inferred load a second time).
-      const auto &traction_manager = this->get_boundary_traction_manager();
-      const bool use_self_gravity_boundary_potential =
-        traction_manager.template has_matching_active_plugin<
-          BoundaryTraction::SelfGravitation<dim>>();
-      const BoundaryTraction::SelfGravitation<dim> *self_gravity =
-        (use_self_gravity_boundary_potential
-         ? &traction_manager.template get_matching_active_plugin<
-             BoundaryTraction::SelfGravitation<dim>>()
-         : nullptr);
 
       // First compute the spherical harmonic contributions from density anomaly, surface topography and CMB topography.
       int ind = 0; // coefficients index
@@ -1099,6 +1165,20 @@ namespace aspect
                             "does not change exact coefficients of degree l>0, "
                             "but prevents mesh quadrature of the background "
                             "density from leaking into the computed geoid.");
+          prm.declare_entry("Density anomaly contribution mode", "auto",
+                            Patterns::Selection("auto|always|never"),
+                            "Controls the volume-density contribution to the "
+                            "geoid. 'always' evaluates the full volume integral. "
+                            "'never' skips it and returns zero density-anomaly "
+                            "coefficients. 'auto' first checks "
+                            "max(|rho-reference density|) and skips the integral "
+                            "when the anomaly is below the configured tolerance.");
+          prm.declare_entry("Density anomaly tolerance", "0.",
+                            Patterns::Double(0.),
+                            "Absolute tolerance for detecting a zero "
+                            "density-anomaly field in auto mode. A value of "
+                            "zero uses 1e-12*max(1,|reference density|). "
+                            "Units: kg/m^3.");
           prm.declare_entry("Output geoid anomaly coefficients", "false",
                             Patterns::Bool(),
                             "Option to output the spherical harmonic coefficients of the geoid anomaly up to the maximum degree. "
@@ -1155,6 +1235,18 @@ namespace aspect
           density_above = prm.get_double ("Density above");
           density_below = prm.get_double ("Density below");
           reference_density = prm.get_double ("Reference density for anomaly");
+          const std::string density_anomaly_mode_string =
+            prm.get("Density anomaly contribution mode");
+          if (density_anomaly_mode_string == "auto")
+            density_anomaly_mode = DensityAnomalyMode::auto_detect;
+          else if (density_anomaly_mode_string == "always")
+            density_anomaly_mode = DensityAnomalyMode::always;
+          else if (density_anomaly_mode_string == "never")
+            density_anomaly_mode = DensityAnomalyMode::never;
+          else
+            AssertThrow(false,
+                        ExcMessage("Unknown density anomaly contribution mode."));
+          density_anomaly_tolerance = prm.get_double("Density anomaly tolerance");
           output_geoid_anomaly_SH_coes = prm.get_bool ("Output geoid anomaly coefficients");
           output_surface_topo_contribution_SH_coes = prm.get_bool ("Output surface topography contribution coefficients");
           output_CMB_topo_contribution_SH_coes = prm.get_bool ("Output CMB topography contribution coefficients");

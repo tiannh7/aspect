@@ -626,6 +626,22 @@ namespace aspect
 
 
     template <int dim>
+    double
+    SelfGravitation<dim>::surface_density_jump() const
+    {
+      return density_below_surface - density_above_surface;
+    }
+
+
+    template <int dim>
+    double
+    SelfGravitation<dim>::cmb_density_jump() const
+    {
+      return density_below_cmb - density_above_cmb;
+    }
+
+
+    template <int dim>
     Tensor<1, dim>
     SelfGravitation<dim>::boundary_traction(
       const types::boundary_id boundary_indicator,

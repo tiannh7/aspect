@@ -104,6 +104,12 @@ namespace aspect
         cmb_mass_potential_coefficient(const unsigned int degree,
                                        const unsigned int order) const;
 
+        /** Return the density jump used for the surface mass term. */
+        double surface_density_jump() const;
+
+        /** Return the density jump used for the CMB mass term. */
+        double cmb_density_jump() const;
+
         /** Whether the last post-Stokes update changed the combined surface
          * and CMB Phi/g coefficient vectors by less than the configured
          * relative tolerance. */
