@@ -28,8 +28,11 @@
 #include <deal.II/base/symmetric_tensor.h>
 #include <deal.II/fe/fe_values.h>
 
+#include <fstream>
 #include <map>
 #include <iomanip>
+#include <array>
+#include <tuple>
 
 
 namespace aspect
@@ -75,16 +78,41 @@ namespace aspect
       in.requested_properties = MaterialModel::MaterialProperties::viscosity | MaterialModel::MaterialProperties::additional_outputs;
       this->get_material_model().create_additional_named_outputs(out);
 
-      // Maps keyed by boundary id to arrays over tensor components (shear stress)
+      // Maps keyed by boundary id to arrays over tensor components.
+      std::map<types::boundary_id, std::vector<double>> local_min_stress;
+      std::map<types::boundary_id, std::vector<double>> local_max_stress;
+      std::map<types::boundary_id, std::vector<double>> local_stress_integral;
+
       std::map<types::boundary_id, std::vector<double>> local_min_shear_stress;
       std::map<types::boundary_id, std::vector<double>> local_max_shear_stress;
       std::map<types::boundary_id, std::vector<double>> local_shear_stress_integral;
       std::map<types::boundary_id, double> local_boundary_area;
 
+      const types::boundary_id top_boundary_id = (dim == 3
+                                                  ? this->get_geometry_model().translate_symbolic_boundary_name_to_id("top")
+                                                  : numbers::invalid_boundary_id);
+      const unsigned int stress_sh_max_degree = 20;
+      const unsigned int n_stress_sh_coefficients = (stress_sh_max_degree + 1) * (stress_sh_max_degree + 2) / 2;
+
       const unsigned int n_components = SymmetricTensor<2,dim>::n_independent_components;
+      std::vector<std::vector<double>> local_surface_total_stress_sh_cos(n_components,
+                                                                         std::vector<double>(n_stress_sh_coefficients, 0.0));
+      std::vector<std::vector<double>> local_surface_total_stress_sh_sin(n_components,
+                                                                         std::vector<double>(n_stress_sh_coefficients, 0.0));
+      std::vector<std::vector<double>> local_surface_deviatoric_stress_sh_cos(n_components,
+                                                                              std::vector<double>(n_stress_sh_coefficients, 0.0));
+      std::vector<std::vector<double>> local_surface_deviatoric_stress_sh_sin(n_components,
+                                                                              std::vector<double>(n_stress_sh_coefficients, 0.0));
+      std::vector<double> local_surface_tangential_deviatoric_stress_sh_cos(n_stress_sh_coefficients, 0.0);
+      std::vector<double> local_surface_tangential_deviatoric_stress_sh_sin(n_stress_sh_coefficients, 0.0);
+
       const std::set<types::boundary_id> boundary_indicators = this->get_geometry_model().get_used_boundary_indicators();
       for (const auto id : boundary_indicators)
         {
+          local_min_stress[id] = std::vector<double>(n_components, std::numeric_limits<double>::max());
+          local_max_stress[id] = std::vector<double>(n_components, std::numeric_limits<double>::lowest());
+          local_stress_integral[id] = std::vector<double>(n_components, 0.0);
+
           local_min_shear_stress[id] = std::vector<double>(n_components, std::numeric_limits<double>::max());
           local_max_shear_stress[id] = std::vector<double>(n_components, std::numeric_limits<double>::lowest());
           local_shear_stress_integral[id] = std::vector<double>(n_components, 0.0);
@@ -144,24 +172,81 @@ namespace aspect
                         deviatoric_stress = 2.0 * eta * dsr;
                       }
 
-                    // Shear stress is the deviatoric part, with geoscience sign convention
+                    // Total stress and shear/deviatoric stress use the geoscience
+                    // sign convention, matching StressStatistics.
+                    SymmetricTensor<2,dim> stress = in.pressure[q] * unit_symmetric_tensor<dim>();
+                    stress -= deviatoric_stress;
                     SymmetricTensor<2,dim> shear_stress = -deviatoric_stress;
                     if (output_spherical || is_spherical_like)
-                      shear_stress = - Utilities::Coordinates::cartesian_to_spherical_tensor(deviatoric_stress, in.position[q]);
+                      {
+                        stress = Utilities::Coordinates::cartesian_to_spherical_tensor(stress, in.position[q]);
+                        shear_stress = - Utilities::Coordinates::cartesian_to_spherical_tensor(deviatoric_stress, in.position[q]);
+                      }
+
+                    if constexpr (dim == 3)
+                      if (bid == top_boundary_id)
+                        {
+                          const std::array<double,dim> spherical_coordinates =
+                            Utilities::Coordinates::cartesian_to_spherical_coordinates(in.position[q]);
+                          const double radius = spherical_coordinates[0];
+                          const double phi = spherical_coordinates[1];
+                          const double theta = spherical_coordinates[2];
+                          const double area_weight = fe_face_values.JxW(q) / (radius * radius);
+                          const double tangential_deviatoric_stress =
+                            0.5 * (shear_stress[1][1] + shear_stress[2][2]);
+
+                          for (unsigned int degree = 0, coefficient_index = 0;
+                               degree <= stress_sh_max_degree;
+                               ++degree)
+                            for (unsigned int order = 0; order <= degree; ++order, ++coefficient_index)
+                              {
+                                const std::pair<double,double> spherical_harmonic =
+                                  Utilities::real_spherical_harmonic(degree, order, theta, phi);
+                                local_surface_tangential_deviatoric_stress_sh_cos[coefficient_index] +=
+                                  tangential_deviatoric_stress * spherical_harmonic.first * area_weight;
+                                local_surface_tangential_deviatoric_stress_sh_sin[coefficient_index] +=
+                                  tangential_deviatoric_stress * spherical_harmonic.second * area_weight;
+
+                                for (unsigned int i=0; i<n_components; ++i)
+                                  {
+                                    const TableIndices<2> idx = SymmetricTensor<2,dim>::unrolled_to_component_indices(i);
+                                    const double total_value = stress[idx[0]][idx[1]];
+                                    const double deviatoric_value = shear_stress[idx[0]][idx[1]];
+                                    local_surface_total_stress_sh_cos[i][coefficient_index] +=
+                                      total_value * spherical_harmonic.first * area_weight;
+                                    local_surface_total_stress_sh_sin[i][coefficient_index] +=
+                                      total_value * spherical_harmonic.second * area_weight;
+                                    local_surface_deviatoric_stress_sh_cos[i][coefficient_index] +=
+                                      deviatoric_value * spherical_harmonic.first * area_weight;
+                                    local_surface_deviatoric_stress_sh_sin[i][coefficient_index] +=
+                                      deviatoric_value * spherical_harmonic.second * area_weight;
+                                  }
+                              }
+                        }
 
                     for (unsigned int i=0; i<n_components; ++i)
                       {
                         const TableIndices<2> idx = SymmetricTensor<2,dim>::unrolled_to_component_indices(i);
-                        const double val = shear_stress[idx[0]][idx[1]];
-                        local_min_shear_stress[bid][i] = std::min(local_min_shear_stress[bid][i], val);
-                        local_max_shear_stress[bid][i] = std::max(local_max_shear_stress[bid][i], val);
-                        local_shear_stress_integral[bid][i] += val * fe_face_values.JxW(q);
+                        const double stress_value = stress[idx[0]][idx[1]];
+                        const double shear_stress_value = shear_stress[idx[0]][idx[1]];
+
+                        local_min_stress[bid][i] = std::min(local_min_stress[bid][i], stress_value);
+                        local_max_stress[bid][i] = std::max(local_max_stress[bid][i], stress_value);
+                        local_stress_integral[bid][i] += stress_value * fe_face_values.JxW(q);
+
+                        local_min_shear_stress[bid][i] = std::min(local_min_shear_stress[bid][i], shear_stress_value);
+                        local_max_shear_stress[bid][i] = std::max(local_max_shear_stress[bid][i], shear_stress_value);
+                        local_shear_stress_integral[bid][i] += shear_stress_value * fe_face_values.JxW(q);
                       }
                     local_boundary_area[bid] += fe_face_values.JxW(q);
                   }
               }
 
       // MPI reductions per boundary id
+      std::map<types::boundary_id, std::vector<double>> global_min_stress;
+      std::map<types::boundary_id, std::vector<double>> global_max_stress;
+      std::map<types::boundary_id, std::vector<double>> global_avg_stress;
+
       std::map<types::boundary_id, std::vector<double>> global_min_shear_stress;
       std::map<types::boundary_id, std::vector<double>> global_max_shear_stress;
       std::map<types::boundary_id, std::vector<double>> global_avg_shear_stress;
@@ -169,26 +254,135 @@ namespace aspect
       for (const auto bid : boundary_indicators)
         {
           // gather local arrays into linear vectors for reduction
+          std::vector<double> local_total_min = local_min_stress[bid];
+          std::vector<double> local_total_max = local_max_stress[bid];
+          std::vector<double> local_total_int = local_stress_integral[bid];
           std::vector<double> local_min = local_min_shear_stress[bid];
           std::vector<double> local_max = local_max_shear_stress[bid];
           std::vector<double> local_int = local_shear_stress_integral[bid];
           double local_area = local_boundary_area[bid];
 
+          std::vector<double> g_total_min(local_total_min.size());
+          std::vector<double> g_total_max(local_total_max.size());
+          std::vector<double> g_total_int(local_total_int.size());
           std::vector<double> gmin(local_min.size());
           std::vector<double> gmax(local_max.size());
           std::vector<double> gint(local_int.size());
           double garea;
+
+          Utilities::MPI::min(local_total_min, this->get_mpi_communicator(), g_total_min);
+          Utilities::MPI::max(local_total_max, this->get_mpi_communicator(), g_total_max);
+          Utilities::MPI::sum(local_total_int, this->get_mpi_communicator(), g_total_int);
 
           Utilities::MPI::min(local_min, this->get_mpi_communicator(), gmin);
           Utilities::MPI::max(local_max, this->get_mpi_communicator(), gmax);
           Utilities::MPI::sum(local_int, this->get_mpi_communicator(), gint);
           garea = Utilities::MPI::sum(local_area, this->get_mpi_communicator());
 
+          global_min_stress[bid] = g_total_min;
+          global_max_stress[bid] = g_total_max;
+          global_avg_stress[bid] = std::vector<double>(g_total_int.size());
+          for (unsigned int i=0; i<g_total_int.size(); ++i)
+            global_avg_stress[bid][i] = (garea > 0.0 ? g_total_int[i] / garea : 0.0);
+
           global_min_shear_stress[bid] = gmin;
           global_max_shear_stress[bid] = gmax;
           global_avg_shear_stress[bid] = std::vector<double>(gint.size());
           for (unsigned int i=0; i<gint.size(); ++i)
             global_avg_shear_stress[bid][i] = (garea > 0.0 ? gint[i] / garea : 0.0);
+        }
+
+      if constexpr (dim == 3)
+        {
+          std::vector<std::vector<double>> global_surface_total_stress_sh_cos(n_components,
+                                                                               std::vector<double>(n_stress_sh_coefficients, 0.0));
+          std::vector<std::vector<double>> global_surface_total_stress_sh_sin(n_components,
+                                                                               std::vector<double>(n_stress_sh_coefficients, 0.0));
+          std::vector<std::vector<double>> global_surface_deviatoric_stress_sh_cos(n_components,
+                                                                                   std::vector<double>(n_stress_sh_coefficients, 0.0));
+          std::vector<std::vector<double>> global_surface_deviatoric_stress_sh_sin(n_components,
+                                                                                   std::vector<double>(n_stress_sh_coefficients, 0.0));
+
+          for (unsigned int i=0; i<n_components; ++i)
+            {
+              Utilities::MPI::sum(local_surface_total_stress_sh_cos[i],
+                                  this->get_mpi_communicator(),
+                                  global_surface_total_stress_sh_cos[i]);
+              Utilities::MPI::sum(local_surface_total_stress_sh_sin[i],
+                                  this->get_mpi_communicator(),
+                                  global_surface_total_stress_sh_sin[i]);
+              Utilities::MPI::sum(local_surface_deviatoric_stress_sh_cos[i],
+                                  this->get_mpi_communicator(),
+                                  global_surface_deviatoric_stress_sh_cos[i]);
+              Utilities::MPI::sum(local_surface_deviatoric_stress_sh_sin[i],
+                                  this->get_mpi_communicator(),
+                                  global_surface_deviatoric_stress_sh_sin[i]);
+            }
+
+          std::vector<double> global_surface_tangential_deviatoric_stress_sh_cos(n_stress_sh_coefficients, 0.0);
+          std::vector<double> global_surface_tangential_deviatoric_stress_sh_sin(n_stress_sh_coefficients, 0.0);
+          Utilities::MPI::sum(local_surface_tangential_deviatoric_stress_sh_cos,
+                              this->get_mpi_communicator(),
+                              global_surface_tangential_deviatoric_stress_sh_cos);
+          Utilities::MPI::sum(local_surface_tangential_deviatoric_stress_sh_sin,
+                              this->get_mpi_communicator(),
+                              global_surface_tangential_deviatoric_stress_sh_sin);
+
+          Utilities::create_directory(this->get_output_directory() + "surface_stress/",
+                                      this->get_mpi_communicator(),
+                                      false);
+
+          if (Utilities::MPI::this_mpi_process(this->get_mpi_communicator()) == 0)
+            {
+              const std::vector<std::string> component_names = stress_component_names_3d;
+
+              const auto write_sh_coefficients =
+                [this, n_stress_sh_coefficients, stress_sh_max_degree]
+                (const std::string &filename,
+                 const std::string &field_description,
+                 const std::vector<double> &cos_coefficients,
+                 const std::vector<double> &sin_coefficients)
+                {
+                  Assert(cos_coefficients.size() == n_stress_sh_coefficients,
+                         ExcInternalError());
+                  Assert(sin_coefficients.size() == n_stress_sh_coefficients,
+                         ExcInternalError());
+
+                  std::ofstream output(this->get_output_directory() + "surface_stress/" + filename);
+                  output << "# degree order cosine_coefficient sine_coefficient\n";
+                  output << "# field: " << field_description << ", Pa\n";
+                  output << "# spherical harmonic normalization: ASPECT real_spherical_harmonic\n";
+
+                  for (unsigned int degree = 0, coefficient_index = 0;
+                       degree <= stress_sh_max_degree;
+                       ++degree)
+                    for (unsigned int order = 0; order <= degree; ++order, ++coefficient_index)
+                      output << degree << ' '
+                             << order << ' '
+                             << cos_coefficients[coefficient_index] << ' '
+                             << sin_coefficients[coefficient_index] << '\n';
+                };
+
+              const std::string timestep_suffix =
+                "." + Utilities::int_to_string(this->get_timestep_number(), 5);
+
+              write_sh_coefficients("surface_tangential_deviatoric_stress_SH_coefficients" + timestep_suffix,
+                                    "0.5*(deviatoric_stress_tt + deviatoric_stress_pp), geoscience sign convention",
+                                    global_surface_tangential_deviatoric_stress_sh_cos,
+                                    global_surface_tangential_deviatoric_stress_sh_sin);
+
+              for (unsigned int i=0; i<n_components; ++i)
+                {
+                  write_sh_coefficients("surface_total_stress_" + component_names[i] + "_SH_coefficients" + timestep_suffix,
+                                        "total_stress_" + component_names[i] + ", geoscience sign convention",
+                                        global_surface_total_stress_sh_cos[i],
+                                        global_surface_total_stress_sh_sin[i]);
+                  write_sh_coefficients("surface_deviatoric_stress_" + component_names[i] + "_SH_coefficients" + timestep_suffix,
+                                        "deviatoric_stress_" + component_names[i] + ", geoscience sign convention",
+                                        global_surface_deviatoric_stress_sh_cos[i],
+                                        global_surface_deviatoric_stress_sh_sin[i]);
+                }
+            }
         }
 
       const std::vector<std::string> component_names = (dim==2) ? stress_component_names_2d : stress_component_names_3d;
@@ -201,22 +395,26 @@ namespace aspect
 
           for (unsigned int i=0; i<n_components; ++i)
             {
-              const std::string base = "Surface shear stress " + component_names[i] + " on boundary " + boundary_name + " (Pa)";
+              const std::string total_base = "Surface stress " + component_names[i] + " on boundary " + boundary_name + " (Pa)";
+              const std::string shear_base = "Surface shear stress " + component_names[i] + " on boundary " + boundary_name + " (Pa)";
 
-              const std::string name_min = "Minimal " + base;
-              const std::string name_avg = "Average " + base;
-              const std::string name_max = "Maximal " + base;
+              const std::array<std::tuple<std::string, double>, 6> table_entries =
+              {{
+                {"Minimal " + total_base, global_min_stress[bid][i]},
+                {"Average " + total_base, global_avg_stress[bid][i]},
+                {"Maximal " + total_base, global_max_stress[bid][i]},
+                {"Minimal " + shear_base, global_min_shear_stress[bid][i]},
+                {"Average " + shear_base, global_avg_shear_stress[bid][i]},
+                {"Maximal " + shear_base, global_max_shear_stress[bid][i]}
+              }};
 
-              statistics.add_value(name_min, global_min_shear_stress[bid][i]);
-              statistics.add_value(name_avg, global_avg_shear_stress[bid][i]);
-              statistics.add_value(name_max, global_max_shear_stress[bid][i]);
-
-              statistics.set_precision(name_min, 8);
-              statistics.set_scientific(name_min, true);
-              statistics.set_precision(name_avg, 8);
-              statistics.set_scientific(name_avg, true);
-              statistics.set_precision(name_max, 8);
-              statistics.set_scientific(name_max, true);
+              for (const auto &entry : table_entries)
+                {
+                  const std::string &name = std::get<0>(entry);
+                  statistics.add_value(name, std::get<1>(entry));
+                  statistics.set_precision(name, 8);
+                  statistics.set_scientific(name, true);
+                }
             }
         }
 
@@ -224,7 +422,7 @@ namespace aspect
       std::ostringstream screen_text;
       screen_text.precision(4);
       screen_text << std::scientific;
-      screen_text << "Surface shear stress min/avg/max (Pa):\n";
+      screen_text << "Surface stress min/avg/max (Pa):\n";
 
       for (const auto bid : boundary_indicators)
         {
@@ -234,7 +432,11 @@ namespace aspect
           screen_text << "[" << bname << "]\n";
           for (unsigned int i=0; i<n_components; ++i)
             {
-              screen_text << std::setw(2) << std::left << component_names[i] << ": "
+              screen_text << std::setw(2) << std::left << component_names[i] << " total: "
+                          << std::right << std::setw(13) << global_min_stress[bid][i] << ' '
+                          << std::setw(13) << global_avg_stress[bid][i] << ' '
+                          << std::setw(13) << global_max_stress[bid][i] << "\n";
+              screen_text << std::setw(2) << std::left << component_names[i] << " dev:   "
                           << std::right << std::setw(13) << global_min_shear_stress[bid][i] << ' '
                           << std::setw(13) << global_avg_shear_stress[bid][i] << ' '
                           << std::setw(13) << global_max_shear_stress[bid][i] << "\n";
