@@ -1010,16 +1010,6 @@ namespace aspect
       internal::Assembly::CopyData::StokesSystem<dim> &data =
         dynamic_cast<internal::Assembly::CopyData::StokesSystem<dim>&> (data_base);
 
-      static bool printed_entry = false;
-      if (!printed_entry)
-        {
-          this->get_pcout() << "Entered Citcom-style CMB radial restoring assembler. "
-                            << "rebuild_stokes_matrix = " << scratch.rebuild_stokes_matrix
-                            << ", timestep = " << this->get_timestep_number()
-                            << std::endl;
-          printed_entry = true;
-        }
-
       if (!scratch.rebuild_stokes_matrix)
         return;
 
@@ -1077,20 +1067,6 @@ namespace aspect
 
           const double coefficient =
             scale * density_contrast * g_magnitude * effective_time_step;
-
-          static bool printed_coefficient = false;
-      if (!printed_coefficient)
-        {
-          this->get_pcout() << "Citcom-style CMB radial restoring coefficient = "
-                            << coefficient
-                            << ", density_contrast = " << density_contrast
-                            << ", g = " << g_magnitude
-                            << ", effective_dt = " << effective_time_step
-                            << ", scale = " << scale
-                            << ", timestep = " << this->get_timestep_number()
-                            << std::endl;
-          printed_coefficient = true;
-        }
 
       const double JxW = scratch.face_finite_element_values.JxW(q);
 

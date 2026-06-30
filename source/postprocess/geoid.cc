@@ -581,6 +581,8 @@ namespace aspect
       std::vector<double> surface_topo_contribution_coesin;
       std::vector<double> CMB_topo_contribution_coecos;
       std::vector<double> CMB_topo_contribution_coesin;
+      std::vector<double> applied_potential_contribution_coecos;
+      std::vector<double> applied_potential_contribution_coesin;
       geoid_coecos.clear();
       geoid_coesin.clear();
 
@@ -646,6 +648,13 @@ namespace aspect
 
                 }
 
+              const std::pair<double,double> applied_potential =
+                (self_gravity != nullptr
+                 ? self_gravity->applied_surface_potential_coefficient(ideg, iord)
+                 : std::pair<double,double>{0.0, 0.0});
+              applied_potential_contribution_coecos.push_back(applied_potential.first);
+              applied_potential_contribution_coesin.push_back(applied_potential.second);
+
               ++ind;
             }
         }
@@ -658,13 +667,21 @@ namespace aspect
             {
               if (include_surface_topo_contribution == true || include_CMB_topo_contribution == true)
                 {
-                  geoid_coecos.push_back(density_anomaly_contribution_coecos.at(ind)+surface_topo_contribution_coecos.at(ind)+CMB_topo_contribution_coecos.at(ind));
-                  geoid_coesin.push_back(density_anomaly_contribution_coesin.at(ind)+surface_topo_contribution_coesin.at(ind)+CMB_topo_contribution_coesin.at(ind));
+                  geoid_coecos.push_back(density_anomaly_contribution_coecos.at(ind)
+                                         + surface_topo_contribution_coecos.at(ind)
+                                         + CMB_topo_contribution_coecos.at(ind)
+                                         + applied_potential_contribution_coecos.at(ind));
+                  geoid_coesin.push_back(density_anomaly_contribution_coesin.at(ind)
+                                         + surface_topo_contribution_coesin.at(ind)
+                                         + CMB_topo_contribution_coesin.at(ind)
+                                         + applied_potential_contribution_coesin.at(ind));
                 }
               else
                 {
-                  geoid_coecos.push_back(density_anomaly_contribution_coecos.at(ind));
-                  geoid_coesin.push_back(density_anomaly_contribution_coesin.at(ind));
+                  geoid_coecos.push_back(density_anomaly_contribution_coecos.at(ind)
+                                         + applied_potential_contribution_coecos.at(ind));
+                  geoid_coesin.push_back(density_anomaly_contribution_coesin.at(ind)
+                                         + applied_potential_contribution_coesin.at(ind));
                 }
 
               ind += 1;

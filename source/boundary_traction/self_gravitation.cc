@@ -440,6 +440,23 @@ namespace aspect
               cmb_potential_cos_coeffs[i] += cmb_at_cmb_cos[i];
               cmb_potential_sin_coeffs[i] += cmb_at_cmb_sin[i];
             }
+
+          applied_surface_potential_cos_coeffs.assign(n_coeff, 0.0);
+          applied_surface_potential_sin_coeffs.assign(n_coeff, 0.0);
+          applied_cmb_potential_cos_coeffs.assign(n_coeff, 0.0);
+          applied_cmb_potential_sin_coeffs.assign(n_coeff, 0.0);
+
+          applied_potential.add_to_coefficients(
+            *sh_transform,
+            radius_ratio,
+            surface_potential_cos_coeffs,
+            surface_potential_sin_coeffs,
+            cmb_potential_cos_coeffs,
+            cmb_potential_sin_coeffs,
+            applied_surface_potential_cos_coeffs,
+            applied_surface_potential_sin_coeffs,
+            applied_cmb_potential_cos_coeffs,
+            applied_cmb_potential_sin_coeffs);
         }
       else
         {
@@ -519,6 +536,11 @@ namespace aspect
               cmb_potential_cos_coeffs[i] += cmb_at_cmb_cos[i];
               cmb_potential_sin_coeffs[i] += cmb_at_cmb_sin[i];
             }
+
+          applied_surface_potential_cos_coeffs.assign(n_coeff, 0.0);
+          applied_surface_potential_sin_coeffs.assign(n_coeff, 0.0);
+          applied_cmb_potential_cos_coeffs.assign(n_coeff, 0.0);
+          applied_cmb_potential_sin_coeffs.assign(n_coeff, 0.0);
         }
 
       if (include_current_velocity_increment &&
@@ -626,6 +648,24 @@ namespace aspect
 
 
     template <int dim>
+    std::pair<double,double>
+    SelfGravitation<dim>::applied_surface_potential_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      AssertThrow(dim == 3,
+                  ExcMessage("Spherical-harmonic coefficient access is only "
+                             "available in 3D."));
+      if (applied_surface_potential_cos_coeffs.empty())
+        return {0.0, 0.0};
+
+      const unsigned int index = sh_transform->index(degree, order);
+      return {applied_surface_potential_cos_coeffs.at(index),
+              applied_surface_potential_sin_coeffs.at(index)};
+    }
+
+
+    template <int dim>
     double
     SelfGravitation<dim>::surface_density_jump() const
     {
@@ -682,24 +722,10 @@ namespace aspect
 
 
           if (is_cmb && include_cmb_contribution)
-            {
-              if (cmb_local_topography_mode == "committed")
-                cmb_topography = sh_transform->synthesize(
-                                   cmb_committed_topography_cos_coeffs,
-                                   cmb_committed_topography_sin_coeffs,
-                                   th_vec, ph_vec)[0];
-              else if (cmb_local_topography_mode == "current")
-                cmb_topography = sh_transform->synthesize(
-                                   cmb_topography_cos_coeffs,
-                                   cmb_topography_sin_coeffs,
-                                   th_vec, ph_vec)[0];
-              else if (cmb_local_topography_mode == "none" ||
-                       cmb_local_topography_mode == "matrix")
-                cmb_topography = 0.0;
-              else
-                AssertThrow(false,
-                            ExcMessage("Unknown CMB local topography mode."));
-            }
+            cmb_topography = sh_transform->synthesize(
+                               cmb_committed_topography_cos_coeffs,
+                               cmb_committed_topography_sin_coeffs,
+                               th_vec, ph_vec)[0];
         }
       else
         {
@@ -712,23 +738,10 @@ namespace aspect
 
 
           if (is_cmb && include_cmb_contribution)
-            {
-              if (cmb_local_topography_mode == "committed")
-                cmb_topography = fourier_transform->synthesize(
-                                   cmb_committed_topography_cos_coeffs,
-                                   cmb_committed_topography_sin_coeffs,
-                                   ph_vec)[0];
-              else if (cmb_local_topography_mode == "current")
-                cmb_topography = fourier_transform->synthesize(
-                                   cmb_topography_cos_coeffs,
-                                   cmb_topography_sin_coeffs,
-                                   ph_vec)[0];
-              else if (cmb_local_topography_mode == "none")
-                cmb_topography = 0.0;
-              else
-                AssertThrow(false,
-                            ExcMessage("Unknown CMB local topography mode."));
-            }
+            cmb_topography = fourier_transform->synthesize(
+                               cmb_committed_topography_cos_coeffs,
+                               cmb_committed_topography_sin_coeffs,
+                               ph_vec)[0];
         }
 
       const Tensor<1, dim> gravity =
@@ -739,21 +752,16 @@ namespace aspect
       if (is_surface)
         {
           double committed_surface_topography = 0.0;
-          if (enable_committed_surface_local_topography_traction &&
-              this->get_timestep_number() > 0)
+          if (this->get_timestep_number() > 0)
             committed_surface_topography =
               this->get_geometry_model().height_above_reference_surface(position);
-
-          if (!enable_surface_potential_traction &&
-              !enable_committed_surface_local_topography_traction)
-            return Tensor<1, dim>();
 
           // CitcomSVE keeps the current displacement increment in the local
           // restoring matrix and carries committed topography as an RHS load.
           return density_below_surface * g_magnitude
                  * (-committed_surface_topography
                     + (enable_surface_potential_traction
-                       ? surface_potential_traction_sign * potential_height
+                       ? potential_height
                        : 0.0))
                  * normal_vector;
         }
@@ -763,7 +771,7 @@ namespace aspect
       return delta_rho_cmb * g_magnitude
              * (cmb_topography
                 + (enable_cmb_potential_traction
-                   ? cmb_potential_traction_sign * potential_height
+                   ? -potential_height
                    : 0.0))
              * normal_vector;
     }
@@ -801,12 +809,12 @@ namespace aspect
                             "crustal density (e.g., 3500). For an ice cap "
                             "sitting on rock, use ice density (e.g., 917).");
 
-          prm.declare_entry("Density above cmb", "5500",
+          prm.declare_entry("Density above CMB", "5500",
                             Patterns::Double(0),
                             "Density immediately above the CMB (lower mantle side) "
                             "in kg/m^3. Earth: ~5500, Mars: ~3800.");
 
-          prm.declare_entry("Density below cmb", "9900",
+          prm.declare_entry("Density below CMB", "9900",
                             Patterns::Double(0),
                             "Density immediately below the CMB (outer core side) "
                             "in kg/m^3. Earth: ~9900, Mars: ~6200.");
@@ -816,7 +824,7 @@ namespace aspect
                             "Mean density of the planet in kg/m^3. "
                             "Earth: 5515, Mars: 3390.");
 
-          prm.declare_entry("Include cmb contribution", "true",
+          prm.declare_entry("Include CMB contribution", "true",
                             Patterns::Bool(),
                             "Whether to include the CMB topography contribution "
                             "to the self-gravitational potential perturbation. "
@@ -854,50 +862,16 @@ namespace aspect
                             "applied as a non-local traction at the outer "
                             "surface. Harmonic analysis and output remain "
                             "active when this switch is false.");
-          prm.declare_entry("Enable committed surface local topography traction", "false",
-                            Patterns::Bool(),
-                            "Diagnostic perturbation-formulation switch that "
-                            "adds the committed outer-surface local restoring "
-                            "load to the RHS from timestep one onward. The "
-                            "current displacement increment remains in the "
-                            "free-surface stabilization matrix.");
           prm.declare_entry("Enable CMB potential traction", "true",
                             Patterns::Bool(),
                             "Diagnostic switch controlling whether Phi/g is "
                             "applied as a non-local traction at the CMB. The "
                             "local CMB topography term is unaffected.");
-          prm.declare_entry("Surface potential traction sign", "1",
-                            Patterns::Double(-1, 1),
-                            "Diagnostic multiplier on Phi/g in the outer "
-                            "surface traction. The default +1 preserves the "
-                            "current implementation; -1 is for sign audits.");
-          prm.declare_entry("CMB potential traction sign", "1",
-                            Patterns::Double(-1, 1),
-                            "Diagnostic multiplier on Phi/g in the fluid-core "
-                            "CMB traction. The default +1 preserves the "
-                            "previous ASPECT benchmark implementation. Direct "
-                            "comparison with CitcomSVE's inward-normal CMB "
-                            "load maps to -1 when the matching local CMB "
-                            "restoring term is supplied by the Stokes matrix.");
-          prm.declare_entry("CMB local topography mode", "committed",
-                            Patterns::Selection("committed|current|none|matrix"),
-                            "Select which CMB topography state is used in the "
-                            "direct local density-jump traction term "
-                            "Delta rho * g * h_cmb. The 'committed' option "
-                            "uses only the mesh geometry already committed at "
-                            "the beginning of the traction evaluation and "
-                            "reproduces the previous behavior. The 'current' "
-                            "option uses the most recent self-gravity update, "
-                            "including the current Stokes velocity increment "
-                            "when Iterate with Stokes is enabled. The 'matrix' "
-                            "option omits the local CMB topography term from "
-                            "this RHS traction and assumes that the local "
-                            "CMB density-interface restoring is supplied by "
-                            "the Stokes matrix, analogous to CitcomSVE "
-                            "add_restoring. The 'none' option also omits "
-                            "the local CMB topography term, but is intended "
-                            "for diagnostics in which no CMB matrix restoring "
-                            "is active.");
+          prm.enter_subsection("Applied potential");
+          {
+            AppliedPotential::declare_parameters(prm);
+          }
+          prm.leave_subsection();
           prm.declare_entry("Time between text output", "0.",
                             Patterns::Double(0.),
                             "The time interval in years between text outputs (printing C20 to the terminal). "
@@ -925,10 +899,10 @@ namespace aspect
           min_degree = prm.get_integer("Minimum degree");
           density_above_surface = prm.get_double("Density above surface");
           density_below_surface = prm.get_double("Density below surface");
-          density_above_cmb = prm.get_double("Density above cmb");
-          density_below_cmb = prm.get_double("Density below cmb");
+          density_above_cmb = prm.get_double("Density above CMB");
+          density_below_cmb = prm.get_double("Density below CMB");
           planet_mean_density = prm.get_double("Planet mean density");
-          include_cmb_contribution = prm.get_bool("Include cmb contribution");
+          include_cmb_contribution = prm.get_bool("Include CMB contribution");
           iterate_with_stokes = prm.get_bool("Iterate with Stokes");
           freeze_potential_after_timestep_zero =
             prm.get_bool("Freeze potential after timestep zero");
@@ -938,16 +912,16 @@ namespace aspect
             prm.get_double("Potential convergence tolerance");
           enable_surface_potential_traction =
             prm.get_bool("Enable surface potential traction");
-          enable_committed_surface_local_topography_traction =
-            prm.get_bool("Enable committed surface local topography traction");
           enable_cmb_potential_traction =
             prm.get_bool("Enable CMB potential traction");
-          surface_potential_traction_sign =
-            prm.get_double("Surface potential traction sign");
-          cmb_potential_traction_sign =
-            prm.get_double("CMB potential traction sign");
-          cmb_local_topography_mode =
-            prm.get("CMB local topography mode");
+          prm.enter_subsection("Applied potential");
+          {
+            applied_potential.parse_parameters(prm,
+                                               min_degree,
+                                               max_degree,
+                                               dim);
+          }
+          prm.leave_subsection();
           time_between_text_output = prm.get_double("Time between text output");
           time_steps_between_text_output = prm.get_integer("Time steps between text output");
           potential_relative_change = std::numeric_limits<double>::infinity();

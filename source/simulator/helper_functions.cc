@@ -1697,11 +1697,6 @@ namespace aspect
 
     std::vector<SymmetricTensor<2, dim>> strain_rates (n_q_points);
 
-    double sum_tau0_sq = 0.0;
-    unsigned int count_tau0 = 0;
-    double sum_trace_tau0_sq = 0.0;
-    unsigned int count_tau0_points = 0;
-
     for (const auto &cell : dof_handler.active_cell_iterators())
       if (cell->is_locally_owned())
         {
@@ -1727,9 +1722,6 @@ namespace aspect
               const SymmetricTensor<2, dim> dev_strain_rate = Utilities::Tensors::consistent_deviator(strain_rates[q]);
               const SymmetricTensor<2, dim> tau0 = 2.0 * shear_modulus * dt_elastic * dev_strain_rate;
 
-              sum_trace_tau0_sq += trace(tau0) * trace(tau0);
-              ++count_tau0_points;
-
               for (unsigned int comp=0; comp<n_independent_components; ++comp)
                 {
                    double tau_comp = 0.0;
@@ -1747,9 +1739,6 @@ namespace aspect
                    }
 
                    cell_stress_update[q][stress_start_index + comp] = tau_comp;
-
-                   sum_tau0_sq += tau_comp * tau_comp;
-                   count_tau0++;
                 }
             }
 
@@ -1796,53 +1785,7 @@ namespace aspect
           }
       }
 
-    double global_sum_tau0_sq = Utilities::MPI::sum(sum_tau0_sq, mpi_communicator);
-    unsigned int global_count_tau0 = Utilities::MPI::sum(count_tau0, mpi_communicator);
-    const double global_sum_trace_tau0_sq =
-      Utilities::MPI::sum(sum_trace_tau0_sq, mpi_communicator);
-    const unsigned int global_count_tau0_points =
-      Utilities::MPI::sum(count_tau0_points, mpi_communicator);
-
-    const double rms_tau0 = global_count_tau0 > 0
-                            ? std::sqrt(global_sum_tau0_sq / global_count_tau0)
-                            : 0.0;
-    const double rms_trace_tau0 = global_count_tau0_points > 0
-                                  ? std::sqrt(global_sum_trace_tau0_sq /
-                                              global_count_tau0_points)
-                                  : 0.0;
-
-    const auto stress_field_rms = [&] (const LinearAlgebra::BlockVector &vector)
-    {
-      double local_norm_square = 0.0;
-      types::global_dof_index local_n_dofs = 0;
-      for (unsigned int i=0; i<n_independent_components; ++i)
-        {
-          const unsigned int composition = stress_start_index + i;
-          const unsigned int block =
-            introspection.block_indices.compositional_fields[composition];
-          for (const types::global_dof_index index :
-               vector.block(block).locally_owned_elements())
-            {
-              local_norm_square += vector.block(block)[index]
-                                   * vector.block(block)[index];
-              ++local_n_dofs;
-            }
-        }
-      const double norm_square =
-        Utilities::MPI::sum(local_norm_square, mpi_communicator);
-      const types::global_dof_index n_dofs =
-        Utilities::MPI::sum(local_n_dofs, mpi_communicator);
-      return n_dofs > 0 ? std::sqrt(norm_square / n_dofs) : 0.0;
-    };
-
-    pcout << "done. Initial tau0 component RMS = " << rms_tau0
-          << ", trace(tau0) RMS = " << rms_trace_tau0 << '\n'
-          << "      Initialized ve_stress RMS: solution="
-          << stress_field_rms(solution)
-          << ", old_solution=" << stress_field_rms(old_solution)
-          << ", current_linearization_point="
-          << stress_field_rms(current_linearization_point)
-          << std::endl;
+    pcout << "done." << std::endl;
   }
 
   template <int dim>
