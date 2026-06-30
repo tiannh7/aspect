@@ -31,6 +31,7 @@
 #include <aspect/heating_model/interface.h>
 #include <aspect/heating_model/adiabatic_heating.h>
 #include <aspect/material_model/interface.h>
+#include <aspect/material_model/rheology/elasticity.h>
 #include <aspect/mesh_deformation/interface.h>
 #include <aspect/particle/generator/interface.h>
 #include <aspect/particle/integrator/interface.h>
@@ -1724,21 +1725,24 @@ namespace aspect
 
               for (unsigned int comp=0; comp<n_independent_components; ++comp)
                 {
-                   double tau_comp = 0.0;
-                   if (dim == 2) {
-                     if (comp == 0) tau_comp = tau0[0][0]; // xx
-                     else if (comp == 1) tau_comp = tau0[1][1]; // yy
-                     else if (comp == 2) tau_comp = tau0[0][1]; // xy
-                   } else {
-                     if (comp == 0) tau_comp = tau0[0][0]; // xx
-                     else if (comp == 1) tau_comp = tau0[1][1]; // yy
-                     else if (comp == 2) tau_comp = tau0[2][2]; // zz
-                     else if (comp == 3) tau_comp = tau0[0][1]; // xy
-                     else if (comp == 4) tau_comp = tau0[0][2]; // xz
-                     else if (comp == 5) tau_comp = tau0[1][2]; // yz
-                   }
+                  double tau_comp = 0.0;
+                  if (dim == 2)
+                    {
+                      if (comp == 0) tau_comp = tau0[0][0]; // xx
+                      else if (comp == 1) tau_comp = tau0[1][1]; // yy
+                      else if (comp == 2) tau_comp = tau0[0][1]; // xy
+                    }
+                  else
+                    {
+                      if (comp == 0) tau_comp = tau0[0][0]; // xx
+                      else if (comp == 1) tau_comp = tau0[1][1]; // yy
+                      else if (comp == 2) tau_comp = tau0[2][2]; // zz
+                      else if (comp == 3) tau_comp = tau0[0][1]; // xy
+                      else if (comp == 4) tau_comp = tau0[0][2]; // xz
+                      else if (comp == 5) tau_comp = tau0[1][2]; // yz
+                    }
 
-                   cell_stress_update[q][stress_start_index + comp] = tau_comp;
+                  cell_stress_update[q][stress_start_index + comp] = tau_comp;
                 }
             }
 
@@ -1875,12 +1879,12 @@ namespace aspect
     using VectorType = Vector<double>;
 #if DEAL_II_VERSION_GTE(9,8,0)
     const SUNDIALS::ARKode<VectorType>::AdditionalData data(time,
-                                                           time + time_step,
-                                                           0.001 * time_step,
-                                                           time_step,
-                                                           1.e-6 * time_step,
-                                                           1e-10,
-                                                           1e-6);
+                                                            time + time_step,
+                                                            0.001 * time_step,
+                                                            time_step,
+                                                            1.e-6 * time_step,
+                                                            1e-10,
+                                                            1e-6);
 #else
     SUNDIALS::ARKode<VectorType>::AdditionalData data;
     data.initial_time = time;
@@ -3067,6 +3071,7 @@ namespace aspect
   template void Simulator<dim>::compute_reactions(); \
   template void Simulator<dim>::initialize_current_linearization_point (); \
   template void Simulator<dim>::interpolate_material_output_into_advection_field(const std::vector<AdvectionField> &adv_field); \
+  template void Simulator<dim>::initialize_elastic_stress_fields(); \
   template void Simulator<dim>::check_consistency_of_formulation(); \
   template void Simulator<dim>::replace_outflow_boundary_ids(const unsigned int boundary_id_offset, \
                                                              const bool is_composition, \

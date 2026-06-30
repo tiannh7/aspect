@@ -105,8 +105,8 @@ namespace aspect
       if (density_anomaly_mode == DensityAnomalyMode::never)
         {
           this->get_pcout()
-            << "      Skipping geoid density-anomaly volume integral "
-            << "(mode = never)." << std::endl;
+              << "      Skipping geoid density-anomaly volume integral "
+              << "(mode = never)." << std::endl;
           return std::make_pair(SH_density_coecos, SH_density_coesin);
         }
 
@@ -156,11 +156,11 @@ namespace aspect
           if (global_max_density_anomaly <= effective_tolerance)
             {
               this->get_pcout()
-                << "      Skipping geoid density-anomaly volume integral "
-                << "(auto: max |rho-rho_ref| = "
-                << std::scientific << global_max_density_anomaly
-                << " <= " << effective_tolerance << std::defaultfloat
-                << ")." << std::endl;
+                  << "      Skipping geoid density-anomaly volume integral "
+                  << "(auto: max |rho-rho_ref| = "
+                  << std::scientific << global_max_density_anomaly
+                  << " <= " << effective_tolerance << std::defaultfloat
+                  << ")." << std::endl;
               return std::make_pair(SH_density_coecos, SH_density_coesin);
             }
         }
@@ -541,11 +541,11 @@ namespace aspect
       const auto &traction_manager = this->get_boundary_traction_manager();
       const bool use_self_gravity_boundary_potential =
         traction_manager.template has_matching_active_plugin<
-          BoundaryTraction::SelfGravitation<dim>>();
+        BoundaryTraction::SelfGravitation<dim>>();
       const BoundaryTraction::SelfGravitation<dim> *self_gravity =
         (use_self_gravity_boundary_potential
          ? &traction_manager.template get_matching_active_plugin<
-             BoundaryTraction::SelfGravitation<dim>>()
+         BoundaryTraction::SelfGravitation<dim>>()
          : nullptr);
 
       // Initialize the surface and CMB density contrasts with NaNs because they may be unused in case of no topography contribution.
@@ -581,8 +581,8 @@ namespace aspect
       std::vector<double> surface_topo_contribution_coesin;
       std::vector<double> CMB_topo_contribution_coecos;
       std::vector<double> CMB_topo_contribution_coesin;
-      std::vector<double> applied_potential_contribution_coecos;
-      std::vector<double> applied_potential_contribution_coesin;
+      std::vector<double> tidal_potential_contribution_coecos;
+      std::vector<double> tidal_potential_contribution_coesin;
       geoid_coecos.clear();
       geoid_coesin.clear();
 
@@ -602,58 +602,58 @@ namespace aspect
                   const std::pair<double,double> self_gravity_surface =
                     (self_gravity != nullptr
                      ? self_gravity->surface_mass_potential_coefficient(ideg, iord)
-                     : std::pair<double,double>{0.0, 0.0});
+                     : std::pair<double,double> {0.0, 0.0});
                   const double coecos_surface_topo =
                     (self_gravity != nullptr
                      ? self_gravity_surface.first
                      : (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
-                       * surface_delta_rho*SH_surface_topo_coes.second.first.at(ind)*outer_radius);
+                     * surface_delta_rho*SH_surface_topo_coes.second.first.at(ind)*outer_radius);
                   const double coesin_surface_topo =
                     (self_gravity != nullptr
                      ? self_gravity_surface.second
                      : (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
-                       * surface_delta_rho*SH_surface_topo_coes.second.second.at(ind)*outer_radius);
+                     * surface_delta_rho*SH_surface_topo_coes.second.second.at(ind)*outer_radius);
                   surface_topo_contribution_coecos.push_back(coecos_surface_topo);
                   surface_topo_contribution_coesin.push_back(coesin_surface_topo);
 
                   const std::pair<double,double> self_gravity_cmb =
                     (self_gravity != nullptr
                      ? self_gravity->cmb_mass_potential_coefficient(ideg, iord)
-                     : std::pair<double,double>{0.0, 0.0});
+                     : std::pair<double,double> {0.0, 0.0});
 #if DEAL_II_VERSION_GTE(9,6,0)
                   const double coecos_CMB_topo =
                     (self_gravity != nullptr
                      ? self_gravity_cmb.first
                      : (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
-                       * CMB_delta_rho*SH_CMB_topo_coes.second.first.at(ind)*inner_radius*Utilities::pow(inner_radius/outer_radius,ideg+1));
+                     * CMB_delta_rho*SH_CMB_topo_coes.second.first.at(ind)*inner_radius*Utilities::pow(inner_radius/outer_radius,ideg+1));
                   const double coesin_CMB_topo =
                     (self_gravity != nullptr
                      ? self_gravity_cmb.second
                      : (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
-                       * CMB_delta_rho*SH_CMB_topo_coes.second.second.at(ind)*inner_radius*Utilities::pow(inner_radius/outer_radius,ideg+1));
+                     * CMB_delta_rho*SH_CMB_topo_coes.second.second.at(ind)*inner_radius*Utilities::pow(inner_radius/outer_radius,ideg+1));
 #else
                   const double coecos_CMB_topo =
                     (self_gravity != nullptr
                      ? self_gravity_cmb.first
                      : (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
-                       * CMB_delta_rho*SH_CMB_topo_coes.second.first.at(ind)*inner_radius*std::pow(inner_radius/outer_radius,ideg+1));
+                     * CMB_delta_rho*SH_CMB_topo_coes.second.first.at(ind)*inner_radius*std::pow(inner_radius/outer_radius,ideg+1));
                   const double coesin_CMB_topo =
                     (self_gravity != nullptr
                      ? self_gravity_cmb.second
                      : (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
-                       * CMB_delta_rho*SH_CMB_topo_coes.second.second.at(ind)*inner_radius*std::pow(inner_radius/outer_radius,ideg+1));
+                     * CMB_delta_rho*SH_CMB_topo_coes.second.second.at(ind)*inner_radius*std::pow(inner_radius/outer_radius,ideg+1));
 #endif
                   CMB_topo_contribution_coecos.push_back(coecos_CMB_topo);
                   CMB_topo_contribution_coesin.push_back(coesin_CMB_topo);
 
                 }
 
-              const std::pair<double,double> applied_potential =
+              const std::pair<double,double> tidal_potential =
                 (self_gravity != nullptr
-                 ? self_gravity->applied_surface_potential_coefficient(ideg, iord)
-                 : std::pair<double,double>{0.0, 0.0});
-              applied_potential_contribution_coecos.push_back(applied_potential.first);
-              applied_potential_contribution_coesin.push_back(applied_potential.second);
+                 ? self_gravity->tidal_surface_potential_coefficient(ideg, iord)
+                 : std::pair<double,double> {0.0, 0.0});
+              tidal_potential_contribution_coecos.push_back(tidal_potential.first);
+              tidal_potential_contribution_coesin.push_back(tidal_potential.second);
 
               ++ind;
             }
@@ -670,18 +670,18 @@ namespace aspect
                   geoid_coecos.push_back(density_anomaly_contribution_coecos.at(ind)
                                          + surface_topo_contribution_coecos.at(ind)
                                          + CMB_topo_contribution_coecos.at(ind)
-                                         + applied_potential_contribution_coecos.at(ind));
+                                         + tidal_potential_contribution_coecos.at(ind));
                   geoid_coesin.push_back(density_anomaly_contribution_coesin.at(ind)
                                          + surface_topo_contribution_coesin.at(ind)
                                          + CMB_topo_contribution_coesin.at(ind)
-                                         + applied_potential_contribution_coesin.at(ind));
+                                         + tidal_potential_contribution_coesin.at(ind));
                 }
               else
                 {
                   geoid_coecos.push_back(density_anomaly_contribution_coecos.at(ind)
-                                         + applied_potential_contribution_coecos.at(ind));
+                                         + tidal_potential_contribution_coecos.at(ind));
                   geoid_coesin.push_back(density_anomaly_contribution_coesin.at(ind)
-                                         + applied_potential_contribution_coesin.at(ind));
+                                         + tidal_potential_contribution_coesin.at(ind));
                 }
 
               ind += 1;

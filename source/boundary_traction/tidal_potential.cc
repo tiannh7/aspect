@@ -18,7 +18,7 @@
   <http://www.gnu.org/licenses/>.
 */
 
-#include <aspect/boundary_traction/applied_potential.h>
+#include <aspect/boundary_traction/tidal_potential.h>
 
 #include <cmath>
 
@@ -27,36 +27,35 @@ namespace aspect
   namespace BoundaryTraction
   {
     void
-    AppliedPotential::declare_parameters(ParameterHandler &prm)
+    TidalPotential::declare_parameters(ParameterHandler &prm)
     {
       prm.declare_entry("Enable", "false",
                         Patterns::Bool(),
-                        "Whether to add an externally applied tidal or "
-                        "rotational potential to the boundary-potential "
-                        "traction. The potential is prescribed as Phi/g at "
-                        "the outer surface and evaluated separately at the "
-                        "surface and CMB.");
+                        "Whether to add an externally prescribed tidal "
+                        "potential to the boundary-potential traction. The "
+                        "potential is prescribed as Phi/g at the outer surface "
+                        "and evaluated separately at the surface and CMB.");
       prm.declare_entry("Degree", "2",
                         Patterns::Integer(0),
-                        "Spherical harmonic degree of the applied potential.");
+                        "Spherical harmonic degree of the tidal potential.");
       prm.declare_entry("Order", "0",
                         Patterns::Integer(0),
-                        "Spherical harmonic order of the applied potential.");
+                        "Spherical harmonic order of the tidal potential.");
       prm.declare_entry("Coefficient type", "cosine",
                         Patterns::Selection("cosine|sine"),
                         "Select the real spherical harmonic coefficient type "
-                        "for the applied potential.");
+                        "for the tidal potential.");
       prm.declare_entry("Normalization",
                         "geodesy 4pi",
                         Patterns::Selection("geodesy 4pi|unnormalized legendre"),
-                        "Normalization of the applied potential. The "
+                        "Normalization of the tidal potential. The "
                         "'geodesy 4pi' option uses ASPECT's "
                         "Utilities::real_spherical_harmonic convention. The "
                         "'unnormalized legendre' option prescribes "
                         "P_l(cos theta) and is restricted to m=0.");
       prm.declare_entry("Height at surface", "0",
                         Patterns::Double(),
-                        "Amplitude of the applied potential at the outer "
+                        "Amplitude of the tidal potential at the outer "
                         "surface in height units, Phi/g, multiplying the "
                         "selected angular function. Units are meters.");
       prm.declare_entry("Radial exponent", "2",
@@ -65,17 +64,17 @@ namespace aspect
                         "et al. (2022) degree-2 tidal forcing uses p=2.");
       prm.declare_entry("Sign", "1",
                         Patterns::Double(),
-                        "Diagnostic multiplier on the applied potential "
+                        "Diagnostic multiplier on the tidal potential "
                         "amplitude.");
     }
 
 
 
     void
-    AppliedPotential::parse_parameters(ParameterHandler &prm,
-                                       const unsigned int min_degree,
-                                       const unsigned int max_degree,
-                                       const unsigned int dimension)
+    TidalPotential::parse_parameters(ParameterHandler &prm,
+                                     const unsigned int min_degree,
+                                     const unsigned int max_degree,
+                                     const unsigned int dimension)
     {
       enabled = prm.get_bool("Enable");
       degree = prm.get_integer("Degree");
@@ -87,15 +86,15 @@ namespace aspect
       sign = prm.get_double("Sign");
 
       AssertThrow(order <= degree,
-                  ExcMessage("Applied potential order must not exceed its "
+                  ExcMessage("Tidal potential order must not exceed its "
                              "degree."));
       if (enabled)
         {
           AssertThrow(dimension == 3,
-                      ExcMessage("Applied potential forcing is currently "
+                      ExcMessage("Tidal potential forcing is currently "
                                  "implemented only for 3D spherical shells."));
           AssertThrow(degree >= min_degree && degree <= max_degree,
-                      ExcMessage("Applied potential degree must lie between "
+                      ExcMessage("Tidal potential degree must lie between "
                                  "Minimum degree and Maximum degree."));
           if (order == 0)
             AssertThrow(coefficient_type == "cosine",
@@ -103,7 +102,7 @@ namespace aspect
                                    "Use 'Coefficient type = cosine'."));
           if (normalization == "unnormalized legendre")
             AssertThrow(order == 0,
-                        ExcMessage("The 'unnormalized legendre' applied "
+                        ExcMessage("The 'unnormalized legendre' tidal "
                                    "potential normalization is only "
                                    "implemented for m=0."));
         }
@@ -112,17 +111,17 @@ namespace aspect
 
 
     void
-    AppliedPotential::add_to_coefficients(
+    TidalPotential::add_to_coefficients(
       const Utilities::SphericalHarmonicTransform &sh_transform,
       const double radius_ratio,
       std::vector<double> &surface_potential_cos_coeffs,
       std::vector<double> &surface_potential_sin_coeffs,
       std::vector<double> &cmb_potential_cos_coeffs,
       std::vector<double> &cmb_potential_sin_coeffs,
-      std::vector<double> &applied_surface_potential_cos_coeffs,
-      std::vector<double> &applied_surface_potential_sin_coeffs,
-      std::vector<double> &applied_cmb_potential_cos_coeffs,
-      std::vector<double> &applied_cmb_potential_sin_coeffs) const
+      std::vector<double> &tidal_surface_potential_cos_coeffs,
+      std::vector<double> &tidal_surface_potential_sin_coeffs,
+      std::vector<double> &tidal_cmb_potential_cos_coeffs,
+      std::vector<double> &tidal_cmb_potential_sin_coeffs) const
     {
       if (!enabled)
         return;
@@ -136,7 +135,7 @@ namespace aspect
             Utilities::real_spherical_harmonic(degree, order, 0.0, 0.0);
           AssertThrow(std::abs(pole_value.first) > 0.0,
                       ExcMessage("Cannot convert the requested unnormalized "
-                                 "Legendre applied potential to the internal "
+                                 "Legendre tidal potential to the internal "
                                  "spherical-harmonic normalization."));
           coefficient /= pole_value.first;
         }
@@ -146,25 +145,25 @@ namespace aspect
 
       if (coefficient_type == "cosine")
         {
-          applied_surface_potential_cos_coeffs[i_applied] = coefficient;
-          applied_cmb_potential_cos_coeffs[i_applied] = cmb_coefficient;
+          tidal_surface_potential_cos_coeffs[i_applied] = coefficient;
+          tidal_cmb_potential_cos_coeffs[i_applied] = cmb_coefficient;
         }
       else
         {
-          applied_surface_potential_sin_coeffs[i_applied] = coefficient;
-          applied_cmb_potential_sin_coeffs[i_applied] = cmb_coefficient;
+          tidal_surface_potential_sin_coeffs[i_applied] = coefficient;
+          tidal_cmb_potential_sin_coeffs[i_applied] = cmb_coefficient;
         }
 
       for (unsigned int i = 0; i < surface_potential_cos_coeffs.size(); ++i)
         {
           surface_potential_cos_coeffs[i] +=
-            applied_surface_potential_cos_coeffs[i];
+            tidal_surface_potential_cos_coeffs[i];
           surface_potential_sin_coeffs[i] +=
-            applied_surface_potential_sin_coeffs[i];
+            tidal_surface_potential_sin_coeffs[i];
           cmb_potential_cos_coeffs[i] +=
-            applied_cmb_potential_cos_coeffs[i];
+            tidal_cmb_potential_cos_coeffs[i];
           cmb_potential_sin_coeffs[i] +=
-            applied_cmb_potential_sin_coeffs[i];
+            tidal_cmb_potential_sin_coeffs[i];
         }
     }
   }

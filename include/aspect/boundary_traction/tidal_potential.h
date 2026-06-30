@@ -18,8 +18,8 @@
   <http://www.gnu.org/licenses/>.
 */
 
-#ifndef _aspect_boundary_traction_applied_potential_h
-#define _aspect_boundary_traction_applied_potential_h
+#ifndef _aspect_boundary_traction_tidal_potential_h
+#define _aspect_boundary_traction_tidal_potential_h
 
 #include <aspect/utilities.h>
 
@@ -33,14 +33,13 @@ namespace aspect
   namespace BoundaryTraction
   {
     /**
-     * Helper for externally applied gravitational potentials, such as the
-     * degree-2 tidal potential used by Zhong et al. (2022). The helper stores
+     * Helper for externally prescribed tidal potentials. The helper stores
      * the prescribed Phi/g coefficient at the surface and maps it to the CMB
      * with a configurable radial power. SelfGravitation owns the actual
-     * boundary traction path, because the applied potential acts through the
+     * boundary traction path, because the tidal potential acts through the
      * same density-interface operator as the self-gravity potential.
      */
-    class AppliedPotential
+    class TidalPotential
     {
       public:
         static void declare_parameters(ParameterHandler &prm);
@@ -57,10 +56,10 @@ namespace aspect
           std::vector<double> &surface_potential_sin_coeffs,
           std::vector<double> &cmb_potential_cos_coeffs,
           std::vector<double> &cmb_potential_sin_coeffs,
-          std::vector<double> &applied_surface_potential_cos_coeffs,
-          std::vector<double> &applied_surface_potential_sin_coeffs,
-          std::vector<double> &applied_cmb_potential_cos_coeffs,
-          std::vector<double> &applied_cmb_potential_sin_coeffs) const;
+          std::vector<double> &tidal_surface_potential_cos_coeffs,
+          std::vector<double> &tidal_surface_potential_sin_coeffs,
+          std::vector<double> &tidal_cmb_potential_cos_coeffs,
+          std::vector<double> &tidal_cmb_potential_sin_coeffs) const;
 
       private:
         bool enabled = false;

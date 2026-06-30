@@ -63,9 +63,9 @@ namespace aspect
                  const unsigned int,
                  const SolverControl &,
                  const SolverControl &)
-      {
-        this->update_after_stokes_solve();
-      });
+        {
+          this->update_after_stokes_solve();
+        });
 
       this->get_signals().post_mesh_deformation.connect(
         [this](const SimulatorAccess<dim> &)
@@ -188,118 +188,118 @@ namespace aspect
                   if (!cell->at_boundary(f))
                     continue;
 
-                const types::boundary_id bid = cell->face(f)->boundary_id();
-                const bool is_top    = (bid == top_boundary_id);
-                const bool is_bottom = (bid == bottom_boundary_id) && include_cmb_contribution;
+                  const types::boundary_id bid = cell->face(f)->boundary_id();
+                  const bool is_top    = (bid == top_boundary_id);
+                  const bool is_bottom = (bid == bottom_boundary_id) && include_cmb_contribution;
 
-                if (!is_top && !is_bottom)
-                  continue;
+                  if (!is_top && !is_bottom)
+                    continue;
 
-                fe_face_values.reinit(cell, f);
+                  fe_face_values.reinit(cell, f);
 
-                if (include_current_velocity_increment)
-                  {
-                    mesh_face_values.reinit(current_mesh_cell, f);
-                    mesh_face_values[mesh_velocity_extractor]
-                    .get_function_values(*projected_mesh_velocity,
-                                         projected_mesh_velocity_values);
-                  }
+                  if (include_current_velocity_increment)
+                    {
+                      mesh_face_values.reinit(current_mesh_cell, f);
+                      mesh_face_values[mesh_velocity_extractor]
+                      .get_function_values(*projected_mesh_velocity,
+                                           projected_mesh_velocity_values);
+                    }
 
-                for (unsigned int q = 0;
-                     q < fe_face_values.n_quadrature_points;
-                     ++q)
-                  {
-                    const Point<dim> position =
-                      fe_face_values.quadrature_point(q);
+                  for (unsigned int q = 0;
+                       q < fe_face_values.n_quadrature_points;
+                       ++q)
+                    {
+                      const Point<dim> position =
+                        fe_face_values.quadrature_point(q);
 
-                    const std::array<double, dim> scoord =
-                      aspect::Utilities::Coordinates::
-                      cartesian_to_spherical_coordinates(position);
+                      const std::array<double, dim> scoord =
+                        aspect::Utilities::Coordinates::
+                        cartesian_to_spherical_coordinates(position);
 
-                    // scoord: 2D = {r, phi}, 3D = {r, phi, theta}
-                    const double ph = scoord[1]; // longitude / azimuthal angle
-                    const Tensor<1,dim> radial_unit = position / scoord[0];
-                    const double predicted_radial_displacement =
-                      (include_current_velocity_increment
-                       ? displacement_timestep
+                      // scoord: 2D = {r, phi}, 3D = {r, phi, theta}
+                      const double ph = scoord[1]; // longitude / azimuthal angle
+                      const Tensor<1,dim> radial_unit = position / scoord[0];
+                      const double predicted_radial_displacement =
+                        (include_current_velocity_increment
+                         ? displacement_timestep
                          * (projected_mesh_velocity_values[q] * radial_unit)
-                       : 0.0);
+                         : 0.0);
 
-                    if (is_top)
-                      {
-                        const double h_rock =
-                          this->get_geometry_model()
-                          .height_above_reference_surface(position)
-                          + predicted_radial_displacement;
+                      if (is_top)
+                        {
+                          const double h_rock =
+                            this->get_geometry_model()
+                            .height_above_reference_surface(position)
+                            + predicted_radial_displacement;
 
-                        // Compute the external load's equivalent height. A
-                        // stateful traction plugin is instantiated once for
-                        // every boundary entry in ASPECT's manager. Therefore
-                        // subtracting only `this` instance from the manager's
-                        // total traction is incorrect when self gravitation is
-                        // active on both surface and CMB. Sum only non-self-
-                        // gravity plugins assigned to the surface instead.
-                        const Tensor<1,dim> face_normal =
-                          fe_face_values.normal_vector(q);
-                        Tensor<1,dim> load_traction;
-                        const auto &traction_manager =
-                          this->get_boundary_traction_manager();
-                        const auto &plugins = traction_manager.get_active_plugins();
-                        const auto &plugin_boundaries =
-                          traction_manager.get_active_plugin_boundary_indicators();
-                        unsigned int plugin_index = 0;
-                        for (const auto &plugin : plugins)
-                          {
-                            if (plugin_boundaries[plugin_index] == top_boundary_id
-                                && dynamic_cast<const SelfGravitation<dim> *>(plugin.get()) == nullptr)
-                              load_traction += plugin->boundary_traction(
-                                top_boundary_id, position, face_normal);
-                            ++plugin_index;
-                          }
+                          // Compute the external load's equivalent height. A
+                          // stateful traction plugin is instantiated once for
+                          // every boundary entry in ASPECT's manager. Therefore
+                          // subtracting only `this` instance from the manager's
+                          // total traction is incorrect when self gravitation is
+                          // active on both surface and CMB. Sum only non-self-
+                          // gravity plugins assigned to the surface instead.
+                          const Tensor<1,dim> face_normal =
+                            fe_face_values.normal_vector(q);
+                          Tensor<1,dim> load_traction;
+                          const auto &traction_manager =
+                            this->get_boundary_traction_manager();
+                          const auto &plugins = traction_manager.get_active_plugins();
+                          const auto &plugin_boundaries =
+                            traction_manager.get_active_plugin_boundary_indicators();
+                          unsigned int plugin_index = 0;
+                          for (const auto &plugin : plugins)
+                            {
+                              if (plugin_boundaries[plugin_index] == top_boundary_id
+                                  && dynamic_cast<const SelfGravitation<dim> *>(plugin.get()) == nullptr)
+                                load_traction += plugin->boundary_traction(
+                                                   top_boundary_id, position, face_normal);
+                              ++plugin_index;
+                            }
 
-                        // Inward load traction (T·n < 0) → positive surface mass
-                        // σ_load = -T_load·n / g,  h_load = σ_load / Δρ
-                        const double g_magnitude =
-                          this->get_gravity_model().gravity_vector(position).norm();
+                          // Inward load traction (T·n < 0) → positive surface mass
+                          // σ_load = -T_load·n / g,  h_load = σ_load / Δρ
+                          const double g_magnitude =
+                            this->get_gravity_model().gravity_vector(position).norm();
 
-                        double h_load = 0.0;
-                        if (g_magnitude > 0 && delta_rho_surf > 0)
-                          h_load = -(load_traction * face_normal) /
-                                   (delta_rho_surf * g_magnitude);
+                          double h_load = 0.0;
+                          if (g_magnitude > 0 && delta_rho_surf > 0)
+                            h_load = -(load_traction * face_normal) /
+                                     (delta_rho_surf * g_magnitude);
 
-                        const double h_effective = h_rock + h_load;
+                          const double h_effective = h_rock + h_load;
 
-                        const double ref_radius = outer_radius;
-                        const double w =
-                          fe_face_values.JxW(q) /
-                          (dim == 3 ? ref_radius * ref_radius : ref_radius);
+                          const double ref_radius = outer_radius;
+                          const double w =
+                            fe_face_values.JxW(q) /
+                            (dim == 3 ? ref_radius *ref_radius : ref_radius);
 
-                        phi_pts.push_back(ph);
-                        if (dim == 3)
-                          theta_pts.push_back(scoord[2]);
-                        weight_pts.push_back(w);
-                        topo_pts.push_back(h_effective);
-                      }
-                    else // is_bottom
-                      {
-                        const double r = scoord[0];
-                        const double committed_cmb_topography = r - inner_radius;
-                        const double cmb_topography =
-                          committed_cmb_topography + predicted_radial_displacement;
-                        const double ref_radius = inner_radius;
-                        const double w =
-                          fe_face_values.JxW(q) /
-                          (dim == 3 ? ref_radius * ref_radius : ref_radius);
+                          phi_pts.push_back(ph);
+                          if (dim == 3)
+                            theta_pts.push_back(scoord[2]);
+                          weight_pts.push_back(w);
+                          topo_pts.push_back(h_effective);
+                        }
+                      else // is_bottom
+                        {
+                          const double r = scoord[0];
+                          const double committed_cmb_topography = r - inner_radius;
+                          const double cmb_topography =
+                            committed_cmb_topography + predicted_radial_displacement;
+                          const double ref_radius = inner_radius;
+                          const double w =
+                            fe_face_values.JxW(q) /
+                            (dim == 3 ? ref_radius *ref_radius : ref_radius);
 
-                        cmb_phi_pts.push_back(ph);
-                        if (dim == 3)
-                          cmb_theta_pts.push_back(scoord[2]);
-                        cmb_weight_pts.push_back(w);
-                        cmb_topo_pts.push_back(cmb_topography);
-                        cmb_committed_topo_pts.push_back(
-                          committed_cmb_topography);
-                      }
-                  }
+                          cmb_phi_pts.push_back(ph);
+                          if (dim == 3)
+                            cmb_theta_pts.push_back(scoord[2]);
+                          cmb_weight_pts.push_back(w);
+                          cmb_topo_pts.push_back(cmb_topography);
+                          cmb_committed_topo_pts.push_back(
+                            committed_cmb_topography);
+                        }
+                    }
                 }
             }
         }
@@ -337,9 +337,9 @@ namespace aspect
                                              this->get_mpi_communicator());
               std::tie(cmb_committed_topography_cos_coeffs,
                        cmb_committed_topography_sin_coeffs) =
-                sh_transform->analyze(
-                  cmb_theta_pts, cmb_phi_pts, cmb_weight_pts,
-                  cmb_committed_topo_pts, this->get_mpi_communicator());
+                         sh_transform->analyze(
+                           cmb_theta_pts, cmb_phi_pts, cmb_weight_pts,
+                           cmb_committed_topo_pts, this->get_mpi_communicator());
             }
 
           cmb_topography_cos_coeffs = cos_cmb;
@@ -349,16 +349,16 @@ namespace aspect
             {
               const unsigned int step = this->get_timestep_number();
               const double time = this->get_time();
-              
+
               if (current_tracked_step != step)
                 {
                   current_tracked_step = step;
                   printing_this_step = false;
-                  
+
                   // Use specific parameters if given
                   const double eff_time_interval = time_between_text_output;
                   const unsigned int eff_step_interval = time_steps_between_text_output;
-                  
+
                   if (step == 0 || time == 0.0)
                     printing_this_step = true;
                   else if (eff_step_interval > 0 && (step - last_text_output_step >= eff_step_interval))
@@ -367,7 +367,7 @@ namespace aspect
                     printing_this_step = true;
                   else if (eff_step_interval == 0 && eff_time_interval == 0.0)
                     printing_this_step = true; // print every step if both are 0
-                    
+
                   if (printing_this_step)
                     {
                       last_text_output_step = step;
@@ -379,10 +379,10 @@ namespace aspect
                 {
                   const unsigned int i20 = sh_transform->index(2, 0);
                   this->get_pcout()
-                    << "      Self-gravity effective boundary C20 [m]: surface="
-                    << std::scientific << std::setprecision(6) << cos_topo[i20]
-                    << ", CMB=" << cos_cmb[i20] << std::defaultfloat
-                    << std::endl;
+                      << "      Self-gravity effective boundary C20 [m]: surface="
+                      << std::scientific << std::setprecision(6) << cos_topo[i20]
+                      << ", CMB=" << cos_cmb[i20] << std::defaultfloat
+                      << std::endl;
                 }
             }
 
@@ -441,22 +441,22 @@ namespace aspect
               cmb_potential_sin_coeffs[i] += cmb_at_cmb_sin[i];
             }
 
-          applied_surface_potential_cos_coeffs.assign(n_coeff, 0.0);
-          applied_surface_potential_sin_coeffs.assign(n_coeff, 0.0);
-          applied_cmb_potential_cos_coeffs.assign(n_coeff, 0.0);
-          applied_cmb_potential_sin_coeffs.assign(n_coeff, 0.0);
+          tidal_surface_potential_cos_coeffs.assign(n_coeff, 0.0);
+          tidal_surface_potential_sin_coeffs.assign(n_coeff, 0.0);
+          tidal_cmb_potential_cos_coeffs.assign(n_coeff, 0.0);
+          tidal_cmb_potential_sin_coeffs.assign(n_coeff, 0.0);
 
-          applied_potential.add_to_coefficients(
+          tidal_potential.add_to_coefficients(
             *sh_transform,
             radius_ratio,
             surface_potential_cos_coeffs,
             surface_potential_sin_coeffs,
             cmb_potential_cos_coeffs,
             cmb_potential_sin_coeffs,
-            applied_surface_potential_cos_coeffs,
-            applied_surface_potential_sin_coeffs,
-            applied_cmb_potential_cos_coeffs,
-            applied_cmb_potential_sin_coeffs);
+            tidal_surface_potential_cos_coeffs,
+            tidal_surface_potential_sin_coeffs,
+            tidal_cmb_potential_cos_coeffs,
+            tidal_cmb_potential_sin_coeffs);
         }
       else
         {
@@ -477,9 +477,9 @@ namespace aspect
                                              this->get_mpi_communicator());
               std::tie(cmb_committed_topography_cos_coeffs,
                        cmb_committed_topography_sin_coeffs) =
-                fourier_transform->analyze(
-                  cmb_phi_pts, cmb_weight_pts, cmb_committed_topo_pts,
-                  this->get_mpi_communicator());
+                         fourier_transform->analyze(
+                           cmb_phi_pts, cmb_weight_pts, cmb_committed_topo_pts,
+                           this->get_mpi_communicator());
             }
 
           cmb_topography_cos_coeffs = cos_cmb;
@@ -537,10 +537,10 @@ namespace aspect
               cmb_potential_sin_coeffs[i] += cmb_at_cmb_sin[i];
             }
 
-          applied_surface_potential_cos_coeffs.assign(n_coeff, 0.0);
-          applied_surface_potential_sin_coeffs.assign(n_coeff, 0.0);
-          applied_cmb_potential_cos_coeffs.assign(n_coeff, 0.0);
-          applied_cmb_potential_sin_coeffs.assign(n_coeff, 0.0);
+          tidal_surface_potential_cos_coeffs.assign(n_coeff, 0.0);
+          tidal_surface_potential_sin_coeffs.assign(n_coeff, 0.0);
+          tidal_cmb_potential_cos_coeffs.assign(n_coeff, 0.0);
+          tidal_cmb_potential_sin_coeffs.assign(n_coeff, 0.0);
         }
 
       if (include_current_velocity_increment &&
@@ -593,10 +593,10 @@ namespace aspect
               ++plugin_index;
             }
           this->get_pcout()
-            << "      Self-gravity boundary-potential relative SH change ["
-            << assigned_boundary << "]: "
-            << std::scientific << std::setprecision(6)
-            << potential_relative_change << std::defaultfloat << std::endl;
+              << "      Self-gravity boundary-potential relative SH change ["
+              << assigned_boundary << "]: "
+              << std::scientific << std::setprecision(6)
+              << potential_relative_change << std::defaultfloat << std::endl;
         }
     }
 
@@ -628,7 +628,8 @@ namespace aspect
                              "available in 3D."));
       const unsigned int index = sh_transform->index(degree, order);
       return {surface_mass_potential_cos_coeffs.at(index),
-              surface_mass_potential_sin_coeffs.at(index)};
+              surface_mass_potential_sin_coeffs.at(index)
+             };
     }
 
 
@@ -643,25 +644,27 @@ namespace aspect
                              "available in 3D."));
       const unsigned int index = sh_transform->index(degree, order);
       return {cmb_mass_potential_cos_coeffs.at(index),
-              cmb_mass_potential_sin_coeffs.at(index)};
+              cmb_mass_potential_sin_coeffs.at(index)
+             };
     }
 
 
     template <int dim>
     std::pair<double,double>
-    SelfGravitation<dim>::applied_surface_potential_coefficient(
+    SelfGravitation<dim>::tidal_surface_potential_coefficient(
       const unsigned int degree,
       const unsigned int order) const
     {
       AssertThrow(dim == 3,
                   ExcMessage("Spherical-harmonic coefficient access is only "
                              "available in 3D."));
-      if (applied_surface_potential_cos_coeffs.empty())
+      if (tidal_surface_potential_cos_coeffs.empty())
         return {0.0, 0.0};
 
       const unsigned int index = sh_transform->index(degree, order);
-      return {applied_surface_potential_cos_coeffs.at(index),
-              applied_surface_potential_sin_coeffs.at(index)};
+      return {tidal_surface_potential_cos_coeffs.at(index),
+              tidal_surface_potential_sin_coeffs.at(index)
+             };
     }
 
 
@@ -867,9 +870,14 @@ namespace aspect
                             "Diagnostic switch controlling whether Phi/g is "
                             "applied as a non-local traction at the CMB. The "
                             "local CMB topography term is unaffected.");
+          prm.enter_subsection("Tidal potential");
+          {
+            TidalPotential::declare_parameters(prm);
+          }
+          prm.leave_subsection();
           prm.enter_subsection("Applied potential");
           {
-            AppliedPotential::declare_parameters(prm);
+            TidalPotential::declare_parameters(prm);
           }
           prm.leave_subsection();
           prm.declare_entry("Time between text output", "0.",
@@ -914,9 +922,18 @@ namespace aspect
             prm.get_bool("Enable surface potential traction");
           enable_cmb_potential_traction =
             prm.get_bool("Enable CMB potential traction");
+          prm.enter_subsection("Tidal potential");
+          {
+            tidal_potential.parse_parameters(prm,
+                                             min_degree,
+                                             max_degree,
+                                             dim);
+          }
+          prm.leave_subsection();
           prm.enter_subsection("Applied potential");
           {
-            applied_potential.parse_parameters(prm,
+            if (prm.get_bool("Enable"))
+              tidal_potential.parse_parameters(prm,
                                                min_degree,
                                                max_degree,
                                                dim);
