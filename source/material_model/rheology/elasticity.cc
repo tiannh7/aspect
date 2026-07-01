@@ -586,10 +586,14 @@ namespace aspect
 
             const double elastic_viscosity = calculate_elastic_viscosity(average_elastic_shear_moduli[i]);
 
-            
-            
             // Apply the stress update to get the total deviatoric stress of timestep t.
-            elastic_additional_out->deviatoric_stress[i] = 2. * eta * deviatoric_strain_rate + eta / elastic_viscosity * stress_0_advected + (1. - timestep_ratio) * (1. - eta / elastic_viscosity) * stress_old;
+            if (use_instantaneous_elastic_response_at_timestep_zero
+                && this->simulator_is_past_initialization()
+                && this->get_timestep_number() == 0
+                && scalar_product(stress_0_advected, stress_0_advected) > 0.0)
+              elastic_additional_out->deviatoric_stress[i] = stress_0_advected;
+            else
+              elastic_additional_out->deviatoric_stress[i] = 2. * eta * deviatoric_strain_rate + eta / elastic_viscosity * stress_0_advected + (1. - timestep_ratio) * (1. - eta / elastic_viscosity) * stress_old;
 
             elastic_additional_out->elastic_shear_moduli[i] = average_elastic_shear_moduli[i];
             elastic_additional_out->elastic_viscosity[i] = elastic_viscosity;
