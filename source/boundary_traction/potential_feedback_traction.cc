@@ -20,28 +20,82 @@
 
 #include <aspect/boundary_traction/potential_feedback_traction.h>
 
+#include <algorithm>
+
 namespace aspect
 {
   namespace BoundaryTraction
   {
     template <int dim>
+    bool
+    PotentialFeedbackTraction<dim>::mechanism_is_active(
+      const std::string &name) const
+    {
+      return std::find(settings.feedback_mechanisms.begin(),
+                       settings.feedback_mechanisms.end(),
+                       name) != settings.feedback_mechanisms.end();
+    }
+
+
+
+    template <int dim>
+    void
+    PotentialFeedbackTraction<dim>::initialize()
+    {
+      if (self_gravity_active)
+        self_gravity.initialize();
+
+      if (rotational_feedback_active)
+        rotational_feedback.initialize();
+    }
+
+
+
+    template <int dim>
+    void
+    PotentialFeedbackTraction<dim>::update()
+    {
+      if (self_gravity_active)
+        self_gravity.update();
+
+      if (rotational_feedback_active)
+        rotational_feedback.update();
+    }
+
+
+
+    template <int dim>
     Tensor<1,dim>
     PotentialFeedbackTraction<dim>::
-    boundary_traction(const types::boundary_id,
-                      const Point<dim> &,
-                      const Tensor<1,dim> &) const
+    boundary_traction(const types::boundary_id boundary_indicator,
+                      const Point<dim> &position,
+                      const Tensor<1,dim> &normal_vector) const
     {
-      AssertThrow(settings.has_active_mechanisms() == false,
-                  ExcMessage("The `potential feedback traction' boundary "
-                             "adapter is registered and parses the new "
-                             "`Potential feedback' parameter hierarchy, but "
-                             "provider-backed traction evaluation has not yet "
-                             "been connected. Keep using the legacy `self "
-                             "gravitation' and `rotational feedback' boundary "
-                             "traction plugins for production runs until the "
-                             "next migration step is implemented."));
+      Tensor<1,dim> traction;
 
-      return Tensor<1,dim>();
+      if (self_gravity_active)
+        traction += self_gravity.boundary_traction(boundary_indicator,
+                                                   position,
+                                                   normal_vector);
+
+      if (rotational_feedback_active)
+        traction += rotational_feedback.boundary_traction(boundary_indicator,
+                                                          position,
+                                                          normal_vector);
+
+      return traction;
+    }
+
+
+
+    template <int dim>
+    bool
+    PotentialFeedbackTraction<dim>::potential_is_converged() const
+    {
+      return (!self_gravity_active || self_gravity.potential_is_converged())
+             &&
+             (!rotational_feedback_active
+              || rotational_feedback.potential_is_converged());
     }
 
 
@@ -60,6 +114,28 @@ namespace aspect
     PotentialFeedbackTraction<dim>::parse_parameters(ParameterHandler &prm)
     {
       settings.parse_parameters(prm);
+      self_gravity_active = mechanism_is_active("self gravity");
+      rotational_feedback_active =
+        mechanism_is_active("rotational feedback");
+
+      AssertThrow(settings.has_active_mechanisms(),
+                  ExcMessage("The `potential feedback' boundary traction "
+                             "plugin requires at least one active mechanism "
+                             "in `Potential feedback/List of feedback "
+                             "mechanisms'."));
+
+      if (self_gravity_active)
+        {
+          self_gravity.initialize_simulator(this->get_simulator());
+          self_gravity.configure_from_potential_feedback_settings(settings);
+        }
+
+      if (rotational_feedback_active)
+        {
+          rotational_feedback.initialize_simulator(this->get_simulator());
+          rotational_feedback.configure_from_potential_feedback_settings(
+            settings);
+        }
     }
   }
 }
@@ -70,11 +146,11 @@ namespace aspect
   {
     ASPECT_REGISTER_BOUNDARY_TRACTION_MODEL(
       PotentialFeedbackTraction,
-      "potential feedback traction",
-      "Thin boundary traction adapter for potential-feedback-derived normal "
-      "traction. This migration-stage plugin declares and parses the shared "
-      "``Potential feedback'' and ``Planet model'' parameter hierarchy. The "
-      "actual self-gravity and rotational-feedback physics still live in the "
-      "legacy boundary traction plugins until the provider manager is wired.")
+      "potential feedback",
+      "Unified boundary traction model for potential-feedback-derived normal "
+      "traction. The model is configured through the shared ``Planet model'' "
+      "and ``Potential feedback'' parameter hierarchies and dispatches the "
+      "active self-gravity and rotational-feedback mechanisms without "
+      "requiring legacy per-plugin parameter blocks.")
   }
 }

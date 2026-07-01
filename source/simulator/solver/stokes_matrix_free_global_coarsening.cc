@@ -787,9 +787,9 @@ namespace aspect
                            boundary_indicator)
                          ? -(g_hat * n_hat) : 1.0);
                       const double pressure_perturbation = density_jump *
-                        this->get_mesh_deformation_handler()
-                        .get_free_surface_stabilization_timestep() *
-                        free_surface_theta * g_norm * orientation;
+                                                           this->get_mesh_deformation_handler()
+                                                           .get_free_surface_stabilization_timestep() *
+                                                           free_surface_theta * g_norm * orientation;
                       for (unsigned int d = 0; d < dim; ++d)
                         active_cell_data.free_surface_stabilization_term_table(face - n_faces_interior, q)[d][i]
                           = pressure_perturbation * g_hat[d];
@@ -830,9 +830,9 @@ namespace aspect
                         cell_face_pair.first;
 
                       typename DoFHandler<dim>::active_cell_iterator simulator_cell(&(this->get_triangulation()),
-                                                                                  matrix_free_cell->level(),
-                                                                                  matrix_free_cell->index(),
-                                                                                  &(this->get_dof_handler()));
+                                                                                    matrix_free_cell->level(),
+                                                                                    matrix_free_cell->index(),
+                                                                                    &(this->get_dof_handler()));
 
                       Assert(boundary_indicator == simulator_cell->face(cell_face_pair.second)->boundary_id(),
                              ExcInternalError());
@@ -868,11 +868,11 @@ namespace aspect
           level_cell_data_mem += level_cell_data[level].memory_consumption();
 
         this->get_pcout()
-          << "     [MF-MEM] after evaluate_material_model: "
-          << "active_cell_data=" << active_cell_data.memory_consumption()/mb << " MB, "
-          << "level_cell_data=" << level_cell_data_mem/mb << " MB, "
-          << "cell_data_total=" << get_cell_data_memory_consumption()/mb << " MB"
-          << std::endl;
+            << "     [MF-MEM] after evaluate_material_model: "
+            << "active_cell_data=" << active_cell_data.memory_consumption()/mb << " MB, "
+            << "level_cell_data=" << level_cell_data_mem/mb << " MB, "
+            << "cell_data_total=" << get_cell_data_memory_consumption()/mb << " MB"
+            << std::endl;
       }
   }
 
@@ -1959,13 +1959,13 @@ namespace aspect
       {
         const double mb = 1024.0 * 1024.0;
         this->get_pcout()
-          << "     [MF-MEM] after setup_dofs: "
-          << "dof_handler=" << get_dof_handler_memory_consumption()/mb << " MB, "
-          << "constraints=" << get_constraint_memory_consumption()/mb << " MB, "
-          << "mg_transfer=" << get_mg_transfer_memory_consumption()/mb << " MB, "
-          << "cell_data=" << get_cell_data_memory_consumption()/mb << " MB, "
-          << "matrix_free_objects=" << matrix_free_objects.size()
-          << std::endl;
+            << "     [MF-MEM] after setup_dofs: "
+            << "dof_handler=" << get_dof_handler_memory_consumption()/mb << " MB, "
+            << "constraints=" << get_constraint_memory_consumption()/mb << " MB, "
+            << "mg_transfer=" << get_mg_transfer_memory_consumption()/mb << " MB, "
+            << "cell_data=" << get_cell_data_memory_consumption()/mb << " MB, "
+            << "matrix_free_objects=" << matrix_free_objects.size()
+            << std::endl;
       }
   }
 

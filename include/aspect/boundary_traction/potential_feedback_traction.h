@@ -22,7 +22,10 @@
 #define _aspect_boundary_traction_potential_feedback_traction_h
 
 #include <aspect/boundary_traction/interface.h>
+#include <aspect/boundary_traction/rotational_feedback.h>
+#include <aspect/boundary_traction/self_gravitation.h>
 #include <aspect/potential_feedback/settings.h>
+#include <aspect/simulator_access.h>
 
 namespace aspect
 {
@@ -42,19 +45,34 @@ namespace aspect
      * @ingroup BoundaryTractions
      */
     template <int dim>
-    class PotentialFeedbackTraction : public Interface<dim>
+    class PotentialFeedbackTraction : public Interface<dim>,
+      public ::aspect::SimulatorAccess<dim>,
+      public PotentialFeedback::BoundaryTractionMarker
     {
       public:
+        void initialize() override;
+
+        void update() override;
+
         Tensor<1,dim>
         boundary_traction(const types::boundary_id boundary_indicator,
                           const Point<dim> &position,
                           const Tensor<1,dim> &normal_vector) const override;
 
+        bool potential_is_converged() const;
+
         static void declare_parameters(ParameterHandler &prm);
         void parse_parameters(ParameterHandler &prm) override;
 
       private:
+        bool mechanism_is_active(const std::string &name) const;
+
         PotentialFeedback::Settings settings;
+        bool self_gravity_active = false;
+        bool rotational_feedback_active = false;
+
+        SelfGravitation<dim> self_gravity;
+        RotationalFeedback<dim> rotational_feedback;
     };
   }
 }

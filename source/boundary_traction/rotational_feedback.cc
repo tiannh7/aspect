@@ -28,6 +28,7 @@
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/fe/fe_values.h>
 
+#include <algorithm>
 #include <cmath>
 #include <iomanip>
 #include <limits>
@@ -36,6 +37,34 @@ namespace aspect
 {
   namespace BoundaryTraction
   {
+    namespace
+    {
+      bool
+      rotational_feedback_list_contains(const std::vector<std::string> &values,
+                                        const std::string &name)
+      {
+        return std::find(values.begin(), values.end(), name) != values.end();
+      }
+
+      bool
+      rotational_feedback_boundary_list_contains_surface(
+        const std::vector<std::string> &values)
+      {
+        return rotational_feedback_list_contains(values, "outer")
+               || rotational_feedback_list_contains(values, "top");
+      }
+
+      bool
+      rotational_feedback_boundary_list_contains_cmb(
+        const std::vector<std::string> &values)
+      {
+        return rotational_feedback_list_contains(values, "inner")
+               || rotational_feedback_list_contains(values, "bottom");
+      }
+    }
+
+
+
     template <int dim>
     void
     RotationalFeedback<dim>::initialize()
@@ -120,6 +149,17 @@ namespace aspect
       double displacement_timestep = this->get_timestep();
       if (displacement_timestep == 0.0)
         displacement_timestep = initial_displacement_timestep;
+
+      if (include_current_velocity_increment)
+        {
+          const unsigned int step = this->get_timestep_number();
+          if (current_potential_iteration_step != step)
+            {
+              current_potential_iteration_step = step;
+              potential_iteration_number = 0;
+            }
+          ++potential_iteration_number;
+        }
 
       const unsigned int quadrature_degree =
         std::max(2u,
@@ -246,8 +286,8 @@ namespace aspect
                           {
                             const bool is_feedback_plugin =
                               (dynamic_cast<const SelfGravitation<dim> *>(plugin.get()) != nullptr
-                               ||
-                               dynamic_cast<const RotationalFeedback<dim> *>(plugin.get()) != nullptr);
+                               || dynamic_cast<const RotationalFeedback<dim> *>(plugin.get()) != nullptr
+                               || dynamic_cast<const PotentialFeedback::BoundaryTractionMarker *>(plugin.get()) != nullptr);
 
                             if (plugin_boundaries[plugin_index] == top_boundary_id
                                 && !is_feedback_plugin)
@@ -481,16 +521,25 @@ namespace aspect
           std::sqrt(difference_squared) / std::sqrt(new_norm_squared);
 
       this->get_pcout()
-          << "      Rotational feedback: dIxz=" << std::scientific
-          << std::setprecision(6) << delta_ixz
-          << " dIyz=" << delta_iyz
-          << " domega=(" << rotation_vector_perturbation[0]
-          << ", " << rotation_vector_perturbation[1] << ", 0)"
-          << " center_of_mass_shift=(" << center_of_mass_shift[0]
-          << ", " << center_of_mass_shift[1]
-          << ", " << center_of_mass_shift[2] << ")"
-          << " relative potential change=" << potential_relative_change
-          << std::defaultfloat << std::endl;
+          << "      Rotational feedback potential update:" << std::endl
+          << "        iteration=" << potential_iteration_number
+          << "/" << maximum_potential_iterations << std::endl
+          << "        products of inertia [kg m^2]: dIxz="
+          << std::scientific << std::setprecision(6) << delta_ixz
+          << ", dIyz=" << delta_iyz << std::endl
+          << "        angular-velocity perturbation [rad/s]: ("
+          << rotation_vector_perturbation[0] << ", "
+          << rotation_vector_perturbation[1] << ", 0)" << std::endl
+          << "        center-of-mass shift [m]: ("
+          << center_of_mass_shift[0] << ", " << center_of_mass_shift[1]
+          << ", " << center_of_mass_shift[2] << ")" << std::endl
+          << "        relative SH coefficient change="
+          << potential_relative_change << std::defaultfloat << std::endl;
+
+      if (potential_relative_change > potential_convergence_tolerance
+          && potential_iteration_number >= maximum_potential_iterations)
+        this->get_pcout()
+            << "        status=maximum iterations reached" << std::endl;
     }
 
 
@@ -544,7 +593,8 @@ namespace aspect
     RotationalFeedback<dim>::potential_is_converged() const
     {
       return !enabled
-             || potential_relative_change <= potential_convergence_tolerance;
+             || potential_relative_change <= potential_convergence_tolerance
+             || potential_iteration_number >= maximum_potential_iterations;
     }
 
 
@@ -554,6 +604,83 @@ namespace aspect
     RotationalFeedback<dim>::potential_relative_change_value() const
     {
       return potential_relative_change;
+    }
+
+
+
+    template <int dim>
+    void
+    RotationalFeedback<dim>::configure_from_potential_feedback_settings(
+      const PotentialFeedback::Settings &settings)
+    {
+      enabled = rotational_feedback_list_contains(settings.feedback_mechanisms,
+                                                  "rotational feedback");
+      max_degree = settings.rotational_max_degree;
+      min_degree = settings.rotational_min_degree;
+      density_above_surface =
+        settings.interface_properties.surface.density_above;
+      density_below_surface =
+        settings.interface_properties.surface.density_below;
+      density_above_cmb =
+        settings.interface_properties.cmb.density_above;
+      density_below_cmb =
+        settings.interface_properties.cmb.density_below;
+      planet_mass = settings.planet.planet_mass;
+      polar_moment_of_inertia =
+        settings.planet.polar_moment_of_inertia;
+      equatorial_moment_of_inertia =
+        settings.planet.equatorial_moment_of_inertia;
+      rotation_rate = settings.planet.rotation_rate;
+      include_cmb_contribution =
+        rotational_feedback_list_contains(
+          settings.rotational_inertia_source_interfaces, "CMB");
+      apply_center_of_mass_correction =
+        settings.center_of_mass_correction;
+      iterate_with_stokes = settings.iterate_with_stokes;
+      initial_displacement_timestep =
+        settings.initial_displacement_timestep;
+      potential_convergence_tolerance = settings.relative_tolerance;
+      maximum_potential_iterations = settings.maximum_iterations;
+      enable_surface_potential_traction =
+        rotational_feedback_boundary_list_contains_surface(
+          settings.rotational_apply_boundaries);
+      enable_cmb_potential_traction =
+        rotational_feedback_boundary_list_contains_cmb(
+          settings.rotational_apply_boundaries);
+
+      if (this->convert_output_to_years())
+        initial_displacement_timestep *= year_in_seconds;
+
+      potential_relative_change = std::numeric_limits<double>::infinity();
+      current_potential_iteration_step = (unsigned int)-1;
+      potential_iteration_number = 0;
+      delta_ixz = 0.0;
+      delta_iyz = 0.0;
+      center_of_mass_shift = Tensor<1,3>();
+      rotation_vector_perturbation = Tensor<1,3>();
+
+      if (enabled)
+        {
+          AssertThrow(dim == 3,
+                      ExcMessage("Rotational feedback is currently "
+                                 "implemented only for 3D."));
+          AssertThrow(max_degree >= 2,
+                      ExcMessage("Rotational feedback requires Maximum degree "
+                                 "to be at least 2."));
+          AssertThrow(min_degree <= 2,
+                      ExcMessage("Rotational feedback must retain degree 2."));
+          AssertThrow(!apply_center_of_mass_correction || min_degree == 0,
+                      ExcMessage("Center of mass correction requires Minimum "
+                                 "degree = 0 so degree-1 mass can be "
+                                 "identified and removed."));
+          AssertThrow(planet_mass > 0.0,
+                      ExcMessage("Planet mass must be positive."));
+          AssertThrow(polar_moment_of_inertia >
+                      equatorial_moment_of_inertia,
+                      ExcMessage("Polar moment of inertia must be larger than "
+                                 "the equatorial moment of inertia for the "
+                                 "linearized polar-wander relation."));
+        }
     }
 
 
@@ -634,6 +761,12 @@ namespace aspect
                             Patterns::Double(0),
                             "Relative L2 change tolerance for the rotational "
                             "potential coefficient vectors.");
+          prm.declare_entry("Maximum potential iterations", "10",
+                            Patterns::Integer(1),
+                            "Maximum number of self-consistent rotational "
+                            "potential updates per timestep. The iteration "
+                            "stops when the potential coefficient change "
+                            "reaches the tolerance or this limit is reached.");
           prm.declare_entry("Enable surface potential traction", "true",
                             Patterns::Bool(),
                             "Whether to apply the induced rotational "
@@ -680,6 +813,8 @@ namespace aspect
             prm.get_double("Initial displacement time step");
           potential_convergence_tolerance =
             prm.get_double("Potential convergence tolerance");
+          maximum_potential_iterations =
+            prm.get_integer("Maximum potential iterations");
           enable_surface_potential_traction =
             prm.get_bool("Enable surface potential traction");
           enable_cmb_potential_traction =
@@ -693,6 +828,8 @@ namespace aspect
       prm.leave_subsection();
 
       potential_relative_change = std::numeric_limits<double>::infinity();
+      current_potential_iteration_step = (unsigned int)-1;
+      potential_iteration_number = 0;
       delta_ixz = 0.0;
       delta_iyz = 0.0;
       center_of_mass_shift = Tensor<1,3>();
@@ -730,15 +867,7 @@ namespace aspect
 {
   namespace BoundaryTraction
   {
-    ASPECT_REGISTER_BOUNDARY_TRACTION_MODEL(
-      RotationalFeedback,
-      "rotational feedback",
-      "A boundary traction model for optional polar-wander rotational "
-      "feedback in 3D spherical-shell surface-loading benchmarks. The model "
-      "computes Delta Ixz and Delta Iyz from the effective boundary mass, "
-      "converts them to a small perturbation of the rotation vector, and "
-      "applies the induced centrifugal-potential perturbation as a normal "
-      "traction. It is disabled by default through its Enable parameter and "
-      "is distinct from ASPECT's velocity nullspace removal.")
+    template class RotationalFeedback<2>;
+    template class RotationalFeedback<3>;
   }
 }

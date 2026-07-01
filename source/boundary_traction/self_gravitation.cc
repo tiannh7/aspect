@@ -28,6 +28,7 @@
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/fe/fe_values.h>
 
+#include <algorithm>
 #include <tuple>
 #include <numeric>
 
@@ -35,6 +36,32 @@ namespace aspect
 {
   namespace BoundaryTraction
   {
+    namespace
+    {
+      bool
+      self_gravity_list_contains(const std::vector<std::string> &values,
+                                 const std::string &name)
+      {
+        return std::find(values.begin(), values.end(), name) != values.end();
+      }
+
+      bool
+      self_gravity_boundary_list_contains_surface(const std::vector<std::string> &values)
+      {
+        return self_gravity_list_contains(values, "outer")
+               || self_gravity_list_contains(values, "top");
+      }
+
+      bool
+      self_gravity_boundary_list_contains_cmb(const std::vector<std::string> &values)
+      {
+        return self_gravity_list_contains(values, "inner")
+               || self_gravity_list_contains(values, "bottom");
+      }
+    }
+
+
+
     template <int dim>
     void
     SelfGravitation<dim>::initialize()
@@ -122,6 +149,17 @@ namespace aspect
       double displacement_timestep = this->get_timestep();
       if (displacement_timestep == 0.0)
         displacement_timestep = initial_displacement_timestep;
+
+      if (include_current_velocity_increment)
+        {
+          const unsigned int step = this->get_timestep_number();
+          if (current_potential_iteration_step != step)
+            {
+              current_potential_iteration_step = step;
+              potential_iteration_number = 0;
+            }
+          ++potential_iteration_number;
+        }
 
       // Step 1: Collect surface and CMB topography at quadrature points
       // The projected field contains the Q2 Stokes velocity predictor. Using
@@ -251,7 +289,8 @@ namespace aspect
                           for (const auto &plugin : plugins)
                             {
                               if (plugin_boundaries[plugin_index] == top_boundary_id
-                                  && dynamic_cast<const SelfGravitation<dim> *>(plugin.get()) == nullptr)
+                                  && dynamic_cast<const SelfGravitation<dim> *>(plugin.get()) == nullptr
+                                  && dynamic_cast<const PotentialFeedback::BoundaryTractionMarker *>(plugin.get()) == nullptr)
                                 load_traction += plugin->boundary_traction(
                                                    top_boundary_id, position, face_normal);
                               ++plugin_index;
@@ -345,45 +384,53 @@ namespace aspect
           cmb_topography_cos_coeffs = cos_cmb;
           cmb_topography_sin_coeffs = sin_cmb;
 
-          if (min_degree <= 2 && max_degree >= 2)
+          const unsigned int step = this->get_timestep_number();
+          const double time = this->get_time();
+
+          if (current_tracked_step != step)
             {
-              const unsigned int step = this->get_timestep_number();
-              const double time = this->get_time();
+              current_tracked_step = step;
+              printing_this_step = false;
 
-              if (current_tracked_step != step)
-                {
-                  current_tracked_step = step;
-                  printing_this_step = false;
+              const double eff_time_interval = time_between_text_output;
+              const unsigned int eff_step_interval = time_steps_between_text_output;
 
-                  // Use specific parameters if given
-                  const double eff_time_interval = time_between_text_output;
-                  const unsigned int eff_step_interval = time_steps_between_text_output;
-
-                  if (step == 0 || time == 0.0)
-                    printing_this_step = true;
-                  else if (eff_step_interval > 0 && (step - last_text_output_step >= eff_step_interval))
-                    printing_this_step = true;
-                  else if (eff_time_interval > 0 && (time - last_text_output_time >= eff_time_interval))
-                    printing_this_step = true;
-                  else if (eff_step_interval == 0 && eff_time_interval == 0.0)
-                    printing_this_step = true; // print every step if both are 0
-
-                  if (printing_this_step)
-                    {
-                      last_text_output_step = step;
-                      last_text_output_time = time;
-                    }
-                }
+              if (step == 0 || time == 0.0)
+                printing_this_step = true;
+              else if (eff_step_interval > 0 && (step - last_text_output_step >= eff_step_interval))
+                printing_this_step = true;
+              else if (eff_time_interval > 0 && (time - last_text_output_time >= eff_time_interval))
+                printing_this_step = true;
+              else if (eff_step_interval == 0 && eff_time_interval == 0.0)
+                printing_this_step = true;
 
               if (printing_this_step)
                 {
-                  const unsigned int i20 = sh_transform->index(2, 0);
-                  this->get_pcout()
-                      << "      Self-gravity effective boundary C20 [m]: surface="
-                      << std::scientific << std::setprecision(6) << cos_topo[i20]
-                      << ", CMB=" << cos_cmb[i20] << std::defaultfloat
-                      << std::endl;
+                  last_text_output_step = step;
+                  last_text_output_time = time;
                 }
+            }
+
+          if (printing_this_step)
+            {
+              const auto coefficient_l2_norm =
+                [](const std::vector<double> &cos_coeffs,
+                   const std::vector<double> &sin_coeffs)
+              {
+                double norm_squared = 0.0;
+                for (const double value : cos_coeffs)
+                  norm_squared += value * value;
+                for (const double value : sin_coeffs)
+                  norm_squared += value * value;
+                return std::sqrt(norm_squared);
+              };
+
+              this->get_pcout()
+                  << "      Self-gravity effective boundary SH coefficient L2 norm [m]:"
+                  << std::scientific << std::setprecision(6)
+                  << " surface=" << coefficient_l2_norm(cos_topo, sin_topo)
+                  << ", CMB=" << coefficient_l2_norm(cos_cmb, sin_cmb)
+                  << std::defaultfloat << std::endl;
             }
 
           // Phi/g at the surface.
@@ -593,10 +640,18 @@ namespace aspect
               ++plugin_index;
             }
           this->get_pcout()
-              << "      Self-gravity boundary-potential relative SH change ["
-              << assigned_boundary << "]: "
+              << "      Self-gravity potential update ["
+              << assigned_boundary << "]:" << std::endl
+              << "        iteration=" << potential_iteration_number
+              << "/" << maximum_potential_iterations << std::endl
+              << "        relative SH coefficient change="
               << std::scientific << std::setprecision(6)
               << potential_relative_change << std::defaultfloat << std::endl;
+
+          if (potential_relative_change > potential_convergence_tolerance
+              && potential_iteration_number >= maximum_potential_iterations)
+            this->get_pcout()
+                << "        status=maximum iterations reached" << std::endl;
         }
     }
 
@@ -605,7 +660,8 @@ namespace aspect
     bool
     SelfGravitation<dim>::potential_is_converged() const
     {
-      return potential_relative_change <= potential_convergence_tolerance;
+      return potential_relative_change <= potential_convergence_tolerance
+             || potential_iteration_number >= maximum_potential_iterations;
     }
 
 
@@ -782,6 +838,60 @@ namespace aspect
 
     template <int dim>
     void
+    SelfGravitation<dim>::configure_from_potential_feedback_settings(
+      const PotentialFeedback::Settings &settings)
+    {
+      max_degree = settings.self_gravity_max_degree;
+      min_degree = settings.self_gravity_min_degree;
+      density_above_surface =
+        settings.interface_properties.surface.density_above;
+      density_below_surface =
+        settings.interface_properties.surface.density_below;
+      density_above_cmb =
+        settings.interface_properties.cmb.density_above;
+      density_below_cmb =
+        settings.interface_properties.cmb.density_below;
+      planet_mean_density = settings.planet.planet_mean_density;
+      include_cmb_contribution =
+        self_gravity_list_contains(settings.self_gravity_source_interfaces,
+                                   "CMB");
+      iterate_with_stokes = settings.iterate_with_stokes;
+      freeze_potential_after_timestep_zero =
+        settings.freeze_feedback_after_timestep_zero;
+      initial_displacement_timestep =
+        settings.initial_displacement_timestep;
+      potential_convergence_tolerance = settings.relative_tolerance;
+      maximum_potential_iterations = settings.maximum_iterations;
+      enable_surface_potential_traction =
+        self_gravity_boundary_list_contains_surface(
+          settings.self_gravity_apply_boundaries);
+      enable_cmb_potential_traction =
+        self_gravity_boundary_list_contains_cmb(
+          settings.self_gravity_apply_boundaries);
+      time_between_text_output = settings.time_between_text_output;
+      time_steps_between_text_output =
+        settings.time_steps_between_text_output;
+      potential_relative_change = std::numeric_limits<double>::infinity();
+      current_potential_iteration_step = (unsigned int)-1;
+      potential_iteration_number = 0;
+
+      if (this->convert_output_to_years())
+        {
+          initial_displacement_timestep *= year_in_seconds;
+          time_between_text_output *= year_in_seconds;
+        }
+
+      AssertThrow(min_degree <= max_degree,
+                  ExcMessage("Potential feedback/Self gravity/Minimum degree "
+                             "must not exceed Maximum degree."));
+      AssertThrow(planet_mean_density > 0.0,
+                  ExcMessage("Planet mean density must be positive."));
+    }
+
+
+
+    template <int dim>
+    void
     SelfGravitation<dim>::declare_parameters(ParameterHandler &prm)
     {
       prm.enter_subsection("Boundary traction model");
@@ -859,6 +969,12 @@ namespace aspect
                             "coefficient vectors. Zhong et al. (2022) author "
                             "inputfile10 uses 1e-3 for its self-gravity "
                             "iteration cutoff.");
+          prm.declare_entry("Maximum potential iterations", "10",
+                            Patterns::Integer(1),
+                            "Maximum number of self-consistent potential "
+                            "updates per timestep. The iteration stops when "
+                            "the potential coefficient change reaches the "
+                            "tolerance or this limit is reached.");
           prm.declare_entry("Enable surface potential traction", "true",
                             Patterns::Bool(),
                             "Diagnostic switch controlling whether Phi/g is "
@@ -882,11 +998,11 @@ namespace aspect
           prm.leave_subsection();
           prm.declare_entry("Time between text output", "0.",
                             Patterns::Double(0.),
-                            "The time interval in years between text outputs (printing C20 to the terminal). "
+                            "The time interval in years between text outputs for self-gravity diagnostics. "
                             "If zero, this parameter is ignored.");
           prm.declare_entry("Time steps between text output", "0",
                             Patterns::Integer(0),
-                            "The number of time steps between text outputs (printing C20 to the terminal). "
+                            "The number of time steps between self-gravity diagnostic text outputs. "
                             "If zero, this parameter is ignored. If both parameters are zero, output is printed every time step.");
         }
         prm.leave_subsection();
@@ -918,6 +1034,8 @@ namespace aspect
             prm.get_double("Initial displacement time step");
           potential_convergence_tolerance =
             prm.get_double("Potential convergence tolerance");
+          maximum_potential_iterations =
+            prm.get_integer("Maximum potential iterations");
           enable_surface_potential_traction =
             prm.get_bool("Enable surface potential traction");
           enable_cmb_potential_traction =
@@ -942,6 +1060,8 @@ namespace aspect
           time_between_text_output = prm.get_double("Time between text output");
           time_steps_between_text_output = prm.get_integer("Time steps between text output");
           potential_relative_change = std::numeric_limits<double>::infinity();
+          current_potential_iteration_step = (unsigned int)-1;
+          potential_iteration_number = 0;
 
           if (this->convert_output_to_years())
             {
@@ -967,24 +1087,7 @@ namespace aspect
 {
   namespace BoundaryTraction
   {
-    ASPECT_REGISTER_BOUNDARY_TRACTION_MODEL(
-      SelfGravitation,
-      "self gravitation",
-      "A boundary traction model that computes the self-gravitational "
-      "feedback from surface topography. When a surface load deforms the "
-      "planet, the resulting topography changes the gravitational potential, "
-      "which in turn modifies the effective surface load. "
-      "\n\n"
-      "The density contrast at the surface is "
-      "$\\Delta\\rho = \\rho_{below\\_surface} - \\rho_{above\\_surface}$. "
-      "For spherical harmonic degree $l$, the self-gravity ratio is: "
-      "$\\mathrm{self\\_gravity\\_ratio}(l) = 3 \\Delta\\rho / ((2l+1) \\bar{\\rho})$. "
-      "This reduces the effective load by a factor "
-      "$(1 - \\mathrm{self\\_gravity\\_ratio}(l))$. "
-      "\n\n"
-      "This plugin computes the topography from the mesh deformation "
-      "(free surface), expands it in spherical harmonics, applies the "
-      "degree-dependent self-gravity kernel, and applies the resulting "
-      "correction as an outward normal traction on the surface boundary.")
+    template class SelfGravitation<2>;
+    template class SelfGravitation<3>;
   }
 }

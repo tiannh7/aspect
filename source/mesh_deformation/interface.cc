@@ -160,9 +160,9 @@ namespace aspect
                        boundary_indicator)
                      ? -(g_hat * n_hat) : 1.0);
                   const double pressure_perturbation = density_jump *
-                    this->get_mesh_deformation_handler()
-                    .get_free_surface_stabilization_timestep() *
-                    free_surface_theta * g_norm * orientation;
+                                                       this->get_mesh_deformation_handler()
+                                                       .get_free_surface_stabilization_timestep() *
+                                                       free_surface_theta * g_norm * orientation;
 
                   const double JxW = scratch.face_finite_element_values.JxW(q);
 
@@ -615,7 +615,7 @@ namespace aspect
               AssertThrow(surface_stabilization_density_contrasts.emplace(
                             boundary_id, density_jump).second,
                           ExcMessage("A stabilization density contrast was listed "
-                            "more than once for boundary "+parts[0]+"."));
+                                     "more than once for boundary "+parts[0]+"."));
             }
 
           initial_surface_stabilization_density_contrasts.clear();

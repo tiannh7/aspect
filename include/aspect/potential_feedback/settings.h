@@ -33,6 +33,19 @@ namespace aspect
   namespace PotentialFeedback
   {
     /**
+     * Marker base class for boundary traction plugins that represent
+     * potential-feedback forcing. Legacy feedback implementations use this to
+     * avoid treating the unified feedback adapter as an externally applied
+     * load when reconstructing surface mass.
+     */
+    struct BoundaryTractionMarker
+    {
+      virtual ~BoundaryTractionMarker() = default;
+    };
+
+
+
+    /**
      * Densities immediately above and below a density interface.
      */
     struct InterfaceDensity
@@ -98,7 +111,10 @@ namespace aspect
       unsigned int rotational_max_degree = 0;
 
       double relative_tolerance = 0.0;
+      unsigned int maximum_iterations = 0;
       bool freeze_feedback_after_timestep_zero = false;
+      bool iterate_with_stokes = true;
+      double initial_displacement_timestep = 0.0;
 
       bool center_of_mass_correction = false;
       bool remove_pure_rotation_from_displacement = false;

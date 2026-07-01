@@ -199,7 +199,9 @@ namespace aspect
            */
           bool
           get_use_instantaneous_elastic_response_at_timestep_zero() const
-          { return use_instantaneous_elastic_response_at_timestep_zero; }
+          {
+            return use_instantaneous_elastic_response_at_timestep_zero;
+          }
 
           /**
            * Calculate the effective elastic viscosity (this is the equivalent viscosity of

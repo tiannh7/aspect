@@ -168,10 +168,28 @@ namespace aspect
                             Patterns::Double(0),
                             "Relative change tolerance for mechanism-specific "
                             "feedback-potential coefficient vectors.");
+          prm.declare_entry("Maximum iterations", "10",
+                            Patterns::Integer(1),
+                            "Maximum number of self-consistent potential "
+                            "updates per timestep. The iteration stops when "
+                            "all active feedback-potential coefficient vectors "
+                            "reach the relative tolerance or this limit is "
+                            "reached.");
           prm.declare_entry("Freeze feedback after timestep zero", "false",
                             Patterns::Bool(),
                             "If true, retain the converged timestep-zero "
                             "feedback potential at later timesteps.");
+          prm.declare_entry("Iterate with Stokes", "true",
+                            Patterns::Bool(),
+                            "Recompute feedback potentials from the current "
+                            "Stokes velocity after every Stokes solve.");
+          prm.declare_entry("Initial displacement time step", "0",
+                            Patterns::Double(0),
+                            "Displacement interval used to convert the "
+                            "timestep-zero Stokes velocity into an incremental "
+                            "boundary displacement. Units are years when "
+                            "`Use years instead of seconds' is enabled, "
+                            "otherwise seconds.");
         }
         prm.leave_subsection();
 
@@ -284,8 +302,12 @@ namespace aspect
         prm.enter_subsection("Self-consistent potential update");
         {
           relative_tolerance = prm.get_double("Relative tolerance");
+          maximum_iterations = prm.get_integer("Maximum iterations");
           freeze_feedback_after_timestep_zero =
             prm.get_bool("Freeze feedback after timestep zero");
+          iterate_with_stokes = prm.get_bool("Iterate with Stokes");
+          initial_displacement_timestep =
+            prm.get_double("Initial displacement time step");
         }
         prm.leave_subsection();
 

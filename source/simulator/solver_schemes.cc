@@ -25,6 +25,7 @@
 #include <aspect/volume_of_fluid/handler.h>
 #include <aspect/newton.h>
 #include <aspect/melt.h>
+#include <aspect/boundary_traction/potential_feedback_traction.h>
 #include <aspect/boundary_traction/self_gravitation.h>
 #include <aspect/boundary_traction/rotational_feedback.h>
 
@@ -1085,6 +1086,11 @@ namespace aspect
               boundary_potential_feedback_converged =
                 boundary_potential_feedback_converged
                 && rotational_feedback->potential_is_converged();
+            if (const auto *potential_feedback =
+                  dynamic_cast<const BoundaryTraction::PotentialFeedbackTraction<dim> *>(plugin.get()))
+              boundary_potential_feedback_converged =
+                boundary_potential_feedback_converged
+                && potential_feedback->potential_is_converged();
           }
 
         pcout << "      Relative nonlinear residual (Stokes system) after nonlinear iteration " << nonlinear_iteration+1
@@ -1368,6 +1374,11 @@ namespace aspect
               boundary_potential_feedback_converged =
                 boundary_potential_feedback_converged
                 && rotational_feedback->potential_is_converged();
+            if (const auto *potential_feedback =
+                  dynamic_cast<const BoundaryTraction::PotentialFeedbackTraction<dim> *>(plugin.get()))
+              boundary_potential_feedback_converged =
+                boundary_potential_feedback_converged
+                && potential_feedback->potential_is_converged();
           }
 
         // write the residual output in the same order as the solutions

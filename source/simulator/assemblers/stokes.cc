@@ -1068,7 +1068,7 @@ namespace aspect
           const double coefficient =
             scale * density_contrast * g_magnitude * effective_time_step;
 
-      const double JxW = scratch.face_finite_element_values.JxW(q);
+          const double JxW = scratch.face_finite_element_values.JxW(q);
 
           for (unsigned int i=0, i_stokes=0; i_stokes<stokes_dofs_per_cell; /* increment below */)
             {

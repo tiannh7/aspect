@@ -96,13 +96,13 @@ namespace aspect
 
       const unsigned int n_components = SymmetricTensor<2,dim>::n_independent_components;
       std::vector<std::vector<double>> local_surface_total_stress_sh_cos(n_components,
-                                                                         std::vector<double>(n_stress_sh_coefficients, 0.0));
+                                                                          std::vector<double>(n_stress_sh_coefficients, 0.0));
       std::vector<std::vector<double>> local_surface_total_stress_sh_sin(n_components,
-                                                                         std::vector<double>(n_stress_sh_coefficients, 0.0));
+                                                                          std::vector<double>(n_stress_sh_coefficients, 0.0));
       std::vector<std::vector<double>> local_surface_deviatoric_stress_sh_cos(n_components,
-                                                                              std::vector<double>(n_stress_sh_coefficients, 0.0));
+                                                                               std::vector<double>(n_stress_sh_coefficients, 0.0));
       std::vector<std::vector<double>> local_surface_deviatoric_stress_sh_sin(n_components,
-                                                                              std::vector<double>(n_stress_sh_coefficients, 0.0));
+                                                                               std::vector<double>(n_stress_sh_coefficients, 0.0));
       std::vector<double> local_surface_tangential_deviatoric_stress_sh_cos(n_stress_sh_coefficients, 0.0);
       std::vector<double> local_surface_tangential_deviatoric_stress_sh_sin(n_stress_sh_coefficients, 0.0);
 
@@ -299,9 +299,9 @@ namespace aspect
           std::vector<std::vector<double>> global_surface_total_stress_sh_sin(n_components,
                                                                                std::vector<double>(n_stress_sh_coefficients, 0.0));
           std::vector<std::vector<double>> global_surface_deviatoric_stress_sh_cos(n_components,
-                                                                                   std::vector<double>(n_stress_sh_coefficients, 0.0));
+                                                                                    std::vector<double>(n_stress_sh_coefficients, 0.0));
           std::vector<std::vector<double>> global_surface_deviatoric_stress_sh_sin(n_components,
-                                                                                   std::vector<double>(n_stress_sh_coefficients, 0.0));
+                                                                                    std::vector<double>(n_stress_sh_coefficients, 0.0));
 
           for (unsigned int i=0; i<n_components; ++i)
             {
@@ -342,26 +342,26 @@ namespace aspect
                  const std::string &field_description,
                  const std::vector<double> &cos_coefficients,
                  const std::vector<double> &sin_coefficients)
-                {
-                  Assert(cos_coefficients.size() == n_stress_sh_coefficients,
-                         ExcInternalError());
-                  Assert(sin_coefficients.size() == n_stress_sh_coefficients,
-                         ExcInternalError());
+              {
+                Assert(cos_coefficients.size() == n_stress_sh_coefficients,
+                       ExcInternalError());
+                Assert(sin_coefficients.size() == n_stress_sh_coefficients,
+                       ExcInternalError());
 
-                  std::ofstream output(this->get_output_directory() + "surface_stress/" + filename);
-                  output << "# degree order cosine_coefficient sine_coefficient\n";
-                  output << "# field: " << field_description << ", Pa\n";
-                  output << "# spherical harmonic normalization: ASPECT real_spherical_harmonic\n";
+                std::ofstream output(this->get_output_directory() + "surface_stress/" + filename);
+                output << "# degree order cosine_coefficient sine_coefficient\n";
+                output << "# field: " << field_description << ", Pa\n";
+                output << "# spherical harmonic normalization: ASPECT real_spherical_harmonic\n";
 
-                  for (unsigned int degree = 0, coefficient_index = 0;
-                       degree <= stress_sh_max_degree;
-                       ++degree)
-                    for (unsigned int order = 0; order <= degree; ++order, ++coefficient_index)
-                      output << degree << ' '
-                             << order << ' '
-                             << cos_coefficients[coefficient_index] << ' '
-                             << sin_coefficients[coefficient_index] << '\n';
-                };
+                for (unsigned int degree = 0, coefficient_index = 0;
+                     degree <= stress_sh_max_degree;
+                     ++degree)
+                  for (unsigned int order = 0; order <= degree; ++order, ++coefficient_index)
+                    output << degree << ' '
+                           << order << ' '
+                           << cos_coefficients[coefficient_index] << ' '
+                           << sin_coefficients[coefficient_index] << '\n';
+              };
 
               const std::string timestep_suffix =
                 "." + Utilities::int_to_string(this->get_timestep_number(), 5);
@@ -399,14 +399,16 @@ namespace aspect
               const std::string shear_base = "Surface shear stress " + component_names[i] + " on boundary " + boundary_name + " (Pa)";
 
               const std::array<std::tuple<std::string, double>, 6> table_entries =
-              {{
-                {"Minimal " + total_base, global_min_stress[bid][i]},
-                {"Average " + total_base, global_avg_stress[bid][i]},
-                {"Maximal " + total_base, global_max_stress[bid][i]},
-                {"Minimal " + shear_base, global_min_shear_stress[bid][i]},
-                {"Average " + shear_base, global_avg_shear_stress[bid][i]},
-                {"Maximal " + shear_base, global_max_shear_stress[bid][i]}
-              }};
+              {
+                {
+                  {"Minimal " + total_base, global_min_stress[bid][i]},
+                  {"Average " + total_base, global_avg_stress[bid][i]},
+                  {"Maximal " + total_base, global_max_stress[bid][i]},
+                  {"Minimal " + shear_base, global_min_shear_stress[bid][i]},
+                  {"Average " + shear_base, global_avg_shear_stress[bid][i]},
+                  {"Maximal " + shear_base, global_max_shear_stress[bid][i]}
+                }
+              };
 
               for (const auto &entry : table_entries)
                 {

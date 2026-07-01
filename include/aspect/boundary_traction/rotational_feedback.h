@@ -22,6 +22,7 @@
 #define _aspect_boundary_traction_rotational_feedback_h
 
 #include <aspect/boundary_traction/interface.h>
+#include <aspect/potential_feedback/settings.h>
 #include <aspect/simulator_access.h>
 #include <aspect/utilities.h>
 
@@ -67,6 +68,9 @@ namespace aspect
 
         double potential_relative_change_value() const;
 
+        void configure_from_potential_feedback_settings(
+          const PotentialFeedback::Settings &settings);
+
         static void declare_parameters(ParameterHandler &prm);
         void parse_parameters(ParameterHandler &prm) override;
 
@@ -96,6 +100,9 @@ namespace aspect
         double initial_displacement_timestep;
         double potential_convergence_tolerance;
         double potential_relative_change;
+        unsigned int maximum_potential_iterations;
+        unsigned int current_potential_iteration_step;
+        unsigned int potential_iteration_number;
 
         mutable double delta_ixz;
         mutable double delta_iyz;

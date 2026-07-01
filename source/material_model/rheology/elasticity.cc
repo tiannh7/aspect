@@ -975,53 +975,53 @@ namespace aspect
               return effective_to_elastic_viscosity;
 
             case ViscoelasticStressUpdateScheme::theta:
-              {
-                if (viscoelastic_stress_update_theta == 1.)
-                  return effective_to_elastic_viscosity;
+            {
+              if (viscoelastic_stress_update_theta == 1.)
+                return effective_to_elastic_viscosity;
 
-                // For a theta-method Maxwell update with a = dt/tau_M,
-                // eta_eff / (G dt) = 1 / (1 + theta a), and the old-stress
-                // retention coefficient is
-                // r = (1 - (1 - theta) a) / (1 + theta a).
-                return effective_to_elastic_viscosity
-                       - (1. - viscoelastic_stress_update_theta)
-                       * (1. - effective_to_elastic_viscosity)
-                       / viscoelastic_stress_update_theta;
-              }
+              // For a theta-method Maxwell update with a = dt/tau_M,
+              // eta_eff / (G dt) = 1 / (1 + theta a), and the old-stress
+              // retention coefficient is
+              // r = (1 - (1 - theta) a) / (1 + theta a).
+              return effective_to_elastic_viscosity
+                     - (1. - viscoelastic_stress_update_theta)
+                     * (1. - effective_to_elastic_viscosity)
+                     / viscoelastic_stress_update_theta;
+            }
 
             case ViscoelasticStressUpdateScheme::exponential:
+            {
+              // For the exponential update,
+              // eta_eff / (G dt) = (1 - exp(-a)) / a. Recover a by
+              // monotone bisection and return exp(-a). This keeps the
+              // stress RHS consistent with the effective viscosity path
+              // without storing an extra history coefficient.
+              if (effective_to_elastic_viscosity >= 1.)
+                return 1.;
+              if (effective_to_elastic_viscosity <= 0.)
+                return 0.;
+
+              double lower = 0.;
+              double upper = 1.;
+              auto effective_ratio = [](const double x)
               {
-                // For the exponential update,
-                // eta_eff / (G dt) = (1 - exp(-a)) / a. Recover a by
-                // monotone bisection and return exp(-a). This keeps the
-                // stress RHS consistent with the effective viscosity path
-                // without storing an extra history coefficient.
-                if (effective_to_elastic_viscosity >= 1.)
-                  return 1.;
-                if (effective_to_elastic_viscosity <= 0.)
-                  return 0.;
+                return (1. - std::exp(-x)) / x;
+              };
 
-                double lower = 0.;
-                double upper = 1.;
-                auto effective_ratio = [](const double x)
+              while (effective_ratio(upper) > effective_to_elastic_viscosity)
+                upper *= 2.;
+
+              for (unsigned int iteration = 0; iteration < 64; ++iteration)
                 {
-                  return (1. - std::exp(-x)) / x;
-                };
+                  const double middle = 0.5 * (lower + upper);
+                  if (effective_ratio(middle) > effective_to_elastic_viscosity)
+                    lower = middle;
+                  else
+                    upper = middle;
+                }
 
-                while (effective_ratio(upper) > effective_to_elastic_viscosity)
-                  upper *= 2.;
-
-                for (unsigned int iteration = 0; iteration < 64; ++iteration)
-                  {
-                    const double middle = 0.5 * (lower + upper);
-                    if (effective_ratio(middle) > effective_to_elastic_viscosity)
-                      lower = middle;
-                    else
-                      upper = middle;
-                  }
-
-                return std::exp(-0.5 * (lower + upper));
-              }
+              return std::exp(-0.5 * (lower + upper));
+            }
 
             default:
               AssertThrow(false, ExcNotImplemented());
