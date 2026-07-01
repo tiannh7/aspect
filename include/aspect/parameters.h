@@ -688,6 +688,20 @@ namespace aspect
     bool                           enable_prescribed_dilation;
 
     /**
+     * Whether the Stokes pressure formulation uses dynamic (perturbation)
+     * pressure. If true, the material density body-force is reduced by
+     * rho_ref * g through the additional Stokes RHS.
+     */
+    bool                           stokes_pressure_formulation_is_dynamic;
+
+    /**
+     * Reference density used in the dynamic-pressure Stokes formulation.
+     * Ignored when stokes_pressure_formulation_is_dynamic is false.
+     * Units: kg/m^3.
+     */
+    double                         stokes_pressure_reference_density;
+
+    /**
      * Diagnostic boundary matrix term for Zhong et al. (2022)-style
      * CMB radial density-interface restoring. This is not the generic
      * ASPECT free-surface stabilization term. It assembles

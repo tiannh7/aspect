@@ -105,6 +105,17 @@ namespace aspect
       unsigned int self_gravity_min_degree = 0;
       unsigned int self_gravity_max_degree = 0;
 
+      double self_gravity_density_above_surface = 0.0;
+      double self_gravity_density_below_surface = 0.0;
+      double self_gravity_density_above_cmb = 0.0;
+      double self_gravity_density_below_cmb = 0.0;
+      std::string include_internal_density_anomalies = "auto";
+      double reference_density_for_internal_anomalies = 0.0;
+      double internal_density_anomaly_tolerance = 0.0;
+
+      bool has_legacy_apply_boundaries = false;
+      std::vector<std::string> legacy_apply_boundaries;
+
       std::vector<std::string> rotational_inertia_source_interfaces;
       std::vector<std::string> rotational_apply_boundaries;
       unsigned int rotational_min_degree = 0;
@@ -115,12 +126,11 @@ namespace aspect
       bool freeze_feedback_after_timestep_zero = false;
       bool iterate_with_stokes = true;
       double initial_displacement_timestep = 0.0;
+      bool has_legacy_initial_displacement_timestep = false;
+      double legacy_initial_displacement_timestep = 0.0;
 
       bool center_of_mass_correction = false;
       bool remove_pure_rotation_from_displacement = false;
-
-      double time_between_text_output = 0.0;
-      unsigned int time_steps_between_text_output = 0;
 
       bool has_active_mechanisms() const;
 

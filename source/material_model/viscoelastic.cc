@@ -71,9 +71,10 @@ namespace aspect
             out.reaction_terms[i][c] = 0.0;
 
           if (additional_stokes_rhs != nullptr &&
-              reference_density_for_perturbation_stokes > 0.0)
+              this->get_parameters().stokes_pressure_formulation_is_dynamic &&
+              this->get_parameters().stokes_pressure_reference_density > 0.0)
             additional_stokes_rhs->rhs_u[i] =
-              -reference_density_for_perturbation_stokes
+              -this->get_parameters().stokes_pressure_reference_density
               * this->get_gravity_model().gravity_vector(in.position[i]);
 
           // Average the viscous viscosity and the shear modulus over the compositions
@@ -154,15 +155,18 @@ namespace aspect
                              "with different viscosities, we need to come up with an average "
                              "viscosity at that point.  Select a weighted harmonic, arithmetic, "
                              "geometric, or maximum composition.");
-          prm.declare_entry ("Reference density for perturbation Stokes", "0",
+          prm.declare_entry ("Reference density for Stokes perturbation", "0",
                              Patterns::Double (0.),
-                             "Constant reference density whose body force is "
-                             "subtracted through the additional Stokes RHS. "
-                             "A value of zero leaves the full-pressure "
-                             "formulation unchanged. This diagnostic permits "
-                             "an incompressible perturbation-pressure weak form "
-                             "while retaining physical material density for "
-                             "other model components. Units: kg/m^3.");
+                             "Constant reference density whose gravitational body force is "
+                             "subtracted through the additional Stokes RHS, so the Stokes "
+                             "equation sees (rho - rho_ref)*g rather than rho*g. "
+                             "A value of zero leaves the full-pressure formulation unchanged. "
+                             "This permits an incompressible perturbation-pressure weak form "
+                             "while retaining physical material density for other model components "
+                             "(e.g. geoid, self-gravity). Units: kg/m^3.");
+          prm.declare_entry ("Reference density for perturbation Stokes", "-1.e300",
+                             Patterns::Double (),
+                             "Deprecated. Use 'Reference density for Stokes perturbation' instead.");
         }
         prm.leave_subsection();
       }
@@ -200,8 +204,21 @@ namespace aspect
           viscosities = Utilities::MapParsing::parse_map_to_double_array (prm.get("Viscosities"), options);
           options.property_name = "Thermal conductivities";
           thermal_conductivities = Utilities::MapParsing::parse_map_to_double_array (prm.get("Thermal conductivities"), options);
-          reference_density_for_perturbation_stokes =
-            prm.get_double("Reference density for perturbation Stokes");
+          const double new_ref = prm.get_double("Reference density for Stokes perturbation");
+          const double old_ref = prm.get_double("Reference density for perturbation Stokes");
+          if (old_ref != -1e300 || new_ref != 0.0)
+            {
+              dealii::ConditionalOStream pcout(std::cout, dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0);
+              pcout << "WARNING: Parameter <Material model/Viscoelastic/Reference density for Stokes perturbation> "
+                    << "and its deprecated alias <Reference density for perturbation Stokes> are no longer used. "
+                    << "Please use <Formulation/Stokes pressure/Pressure formulation = dynamic pressure> "
+                    << "and <Formulation/Stokes pressure/Reference density> instead. "
+                    << "The material-model parameter is now ignored." << std::endl;
+            }
+          // Note: reference_density_for_stokes_perturbation is kept as a member to avoid
+          // removing it from the header in one step, but the body-force logic in evaluate()
+          // now reads from this->get_parameters().stokes_pressure_reference_density.
+          reference_density_for_stokes_perturbation = 0.0;
         }
         prm.leave_subsection();
       }
@@ -240,6 +257,15 @@ namespace aspect
     Viscoelastic<dim>::fixed_elastic_time_step() const
     {
       return elastic_rheology.get_fixed_elastic_time_step();
+    }
+
+
+
+    template <int dim>
+    double
+    Viscoelastic<dim>::initial_elastic_time_step() const
+    {
+      return elastic_rheology.initial_elastic_time_step();
     }
   }
 }

@@ -45,14 +45,35 @@ namespace aspect
 
       const double scalar = scalar_load(position);
 
-      if (component == "normal")
-        return scalar * normal_vector;
+      Tensor<1,dim> direction_vector;
+      if (positive_load_direction == "outward normal")
+        {
+          direction_vector = normal_vector;
+        }
+      else if (positive_load_direction == "inward normal")
+        {
+          direction_vector = -normal_vector;
+        }
+      else if (positive_load_direction == "outward radial")
+        {
+          Tensor<1,dim> radial_unit_vector;
+          radial_unit_vector[0] = 1.;
+          direction_vector = Utilities::Coordinates::spherical_to_cartesian_vector(radial_unit_vector,
+                                                                                   position);
+        }
+      else if (positive_load_direction == "inward radial")
+        {
+          Tensor<1,dim> radial_unit_vector;
+          radial_unit_vector[0] = -1.;
+          direction_vector = Utilities::Coordinates::spherical_to_cartesian_vector(radial_unit_vector,
+                                                                                   position);
+        }
+      else
+        {
+          AssertThrow(false, ExcInternalError());
+        }
 
-      AssertThrow(component == "radial", ExcInternalError());
-      Tensor<1,dim> radial_unit_vector;
-      radial_unit_vector[0] = 1.;
-      return scalar * Utilities::Coordinates::spherical_to_cartesian_vector(radial_unit_vector,
-                                                                            position);
+      return scalar * direction_vector;
     }
 
 
@@ -76,23 +97,23 @@ namespace aspect
       if (normalization == "geodesy 4pi")
         {
           const std::pair<double,double> values =
-            Utilities::real_spherical_harmonic(degree, order, theta, phi);
+            Utilities::real_spherical_harmonic(harmonic_degree, harmonic_order, theta, phi);
           harmonic_value = (coefficient_type == "cosine" ? values.first : values.second);
         }
       else
         {
           AssertThrow(normalization == "unnormalized legendre", ExcInternalError());
-          AssertThrow(order == 0,
+          AssertThrow(harmonic_order == 0,
                       ExcMessage("The 'unnormalized legendre' normalization is "
                                  "currently implemented only for order m=0. "
                                  "Use 'geodesy 4pi' for m>0 loads."));
           AssertThrow(coefficient_type == "cosine",
                       ExcMessage("The sine coefficient is zero for m=0. Use "
                                  "'Coefficient type = cosine'."));
-          harmonic_value = legendre_p(degree, std::cos(theta));
+          harmonic_value = legendre_p(harmonic_degree, std::cos(theta));
         }
 
-      return sign * amplitude * harmonic_value;
+      return load_magnitude * harmonic_value;
     }
 
 
@@ -132,10 +153,10 @@ namespace aspect
       {
         prm.enter_subsection("Spherical harmonic load");
         {
-          prm.declare_entry ("Degree", "2",
+          prm.declare_entry ("Harmonic degree", "2",
                              Patterns::Integer(0),
                              "Spherical harmonic degree l.");
-          prm.declare_entry ("Order", "0",
+          prm.declare_entry ("Harmonic order", "0",
                              Patterns::Integer(0),
                              "Spherical harmonic order m. Currently this "
                              "plugin accepts non-negative orders and provides "
@@ -153,19 +174,32 @@ namespace aspect
                              "The 'unnormalized legendre' option evaluates "
                              "P_l(cos theta) and is currently restricted to "
                              "m=0.");
-          prm.declare_entry ("Amplitude", "0",
+
+          prm.declare_alias ("Harmonic degree", "Degree");
+          prm.declare_alias ("Harmonic order", "Order");
+
+          prm.declare_entry ("Load magnitude", "-1.0",
                              Patterns::Double(),
-                             "Scalar traction amplitude in Pa multiplying the "
+                             "Positive scalar traction amplitude in Pa multiplying the "
                              "selected angular function.");
-          prm.declare_entry ("Sign", "1",
+          prm.declare_entry ("Positive load direction", "unspecified",
+                             Patterns::Selection("outward radial|inward radial|outward normal|inward normal|unspecified"),
+                             "The physical direction of positive harmonic load. "
+                             "For surface topographic load, if positive harmonic height "
+                             "represents a mountain/load high, recommended setting is: "
+                             "set Load magnitude = rho * g * h_amplitude and "
+                             "set Positive load direction = inward radial.");
+
+          // Legacy parameters for backward compatibility
+          prm.declare_entry ("Amplitude", "1e300",
                              Patterns::Double(),
-                             "Diagnostic multiplier on the scalar load.");
-          prm.declare_entry ("Component", "normal",
-                             Patterns::Selection("normal|radial"),
-                             "Direction of the traction vector. 'normal' "
-                             "multiplies the scalar load by the outward face "
-                             "normal supplied by ASPECT. 'radial' multiplies "
-                             "it by the spherical radial unit vector.");
+                             "Legacy parameter for scalar traction amplitude. Deprecated.");
+          prm.declare_entry ("Sign", "1e300",
+                             Patterns::Double(),
+                             "Legacy parameter for traction sign multiplier. Deprecated.");
+          prm.declare_entry ("Component", "unspecified",
+                             Patterns::Selection("normal|radial|unspecified"),
+                             "Legacy parameter for traction vector component. Deprecated.");
         }
         prm.leave_subsection();
       }
@@ -182,13 +216,74 @@ namespace aspect
       {
         prm.enter_subsection("Spherical harmonic load");
         {
-          degree = prm.get_integer("Degree");
-          order = prm.get_integer("Order");
+          harmonic_degree = prm.get_integer("Harmonic degree");
+          harmonic_order = prm.get_integer("Harmonic order");
           coefficient_type = prm.get("Coefficient type");
           normalization = prm.get("Normalization");
-          amplitude = prm.get_double("Amplitude");
-          sign = prm.get_double("Sign");
-          component = prm.get("Component");
+
+          const double parsed_load_magnitude = prm.get_double("Load magnitude");
+          const std::string parsed_direction = prm.get("Positive load direction");
+
+          const double parsed_amplitude = prm.get_double("Amplitude");
+          const double parsed_sign = prm.get_double("Sign");
+          const std::string parsed_component = prm.get("Component");
+
+          const bool has_new = (parsed_load_magnitude != -1.0 || parsed_direction != "unspecified");
+          const bool has_old = (parsed_amplitude != 1e300 || parsed_sign != 1e300 || parsed_component != "unspecified");
+
+          if (has_new && has_old)
+            {
+              double old_magnitude = std::abs((parsed_amplitude == 1e300 ? 0.0 : parsed_amplitude) * (parsed_sign == 1e300 ? 1.0 : parsed_sign));
+              std::string old_comp = (parsed_component == "unspecified" ? "normal" : parsed_component);
+              double product = (parsed_amplitude == 1e300 ? 0.0 : parsed_amplitude) * (parsed_sign == 1e300 ? 1.0 : parsed_sign);
+              std::string old_direction;
+              if (old_comp == "radial")
+                old_direction = (product >= 0.0 ? "outward radial" : "inward radial");
+              else
+                old_direction = (product >= 0.0 ? "outward normal" : "inward normal");
+
+              // Allow tiny tolerance for double comparisons
+              if (std::abs(parsed_load_magnitude - old_magnitude) > 1e-5 || parsed_direction != old_direction)
+                {
+                  AssertThrow(false,
+                              ExcMessage("You specified both the new parameter interface (Load magnitude, Positive load direction) "
+                                         "and the old parameter interface (Amplitude, Sign, Component) for the Spherical harmonic load, "
+                                         "and they are inconsistent. Please do not mix these interfaces."));
+                }
+              load_magnitude = parsed_load_magnitude;
+              positive_load_direction = parsed_direction;
+            }
+          else if (has_new)
+            {
+              load_magnitude = parsed_load_magnitude;
+              positive_load_direction = parsed_direction;
+              if (load_magnitude == -1.0)
+                load_magnitude = 0.0;
+              if (positive_load_direction == "unspecified")
+                positive_load_direction = "outward normal";
+            }
+          else if (has_old)
+            {
+              this->get_pcout() << "WARNING: You are using the deprecated parameters 'Amplitude', 'Sign', or 'Component' "
+                                << "for the Spherical harmonic load boundary traction model. Please use "
+                                << "'Load magnitude' and 'Positive load direction' instead." << std::endl;
+
+              double amplitude_val = (parsed_amplitude == 1e300 ? 0.0 : parsed_amplitude);
+              double sign_val = (parsed_sign == 1e300 ? 1.0 : parsed_sign);
+              std::string comp_val = (parsed_component == "unspecified" ? "normal" : parsed_component);
+
+              load_magnitude = std::abs(amplitude_val * sign_val);
+              double product = amplitude_val * sign_val;
+              if (comp_val == "radial")
+                positive_load_direction = (product >= 0.0 ? "outward radial" : "inward radial");
+              else
+                positive_load_direction = (product >= 0.0 ? "outward normal" : "inward normal");
+            }
+          else
+            {
+              load_magnitude = 0.0;
+              positive_load_direction = "outward normal";
+            }
         }
         prm.leave_subsection();
       }
@@ -198,18 +293,22 @@ namespace aspect
                   ExcMessage("The spherical harmonic load boundary traction "
                              "plugin is only implemented for 3D spherical "
                              "geometries."));
-      AssertThrow(order <= degree,
+      AssertThrow(harmonic_order <= harmonic_degree,
                   ExcMessage("Spherical harmonic order m must be smaller than "
                              "or equal to degree l."));
-      if (order == 0)
+      if (harmonic_order == 0)
         AssertThrow(coefficient_type == "cosine",
                     ExcMessage("The sine coefficient is zero for m=0. Use "
                                "'Coefficient type = cosine'."));
       if (normalization == "unnormalized legendre")
-        AssertThrow(order == 0,
+        AssertThrow(harmonic_order == 0,
                     ExcMessage("The 'unnormalized legendre' normalization is "
                                "currently implemented only for order m=0. "
                                "Use 'geodesy 4pi' for m>0 loads."));
+
+      AssertThrow(load_magnitude >= 0.0,
+                  ExcMessage("Load magnitude must be non-negative. If you need to change the direction "
+                             "of the load, please use the 'Positive load direction' parameter."));
     }
   }
 }
@@ -224,13 +323,13 @@ namespace aspect
                                             "Implementation of a boundary "
                                             "traction model that prescribes a "
                                             "single real spherical harmonic "
-                                            "load by degree, order, amplitude, "
-                                            "normalization, sign, and vector "
-                                            "component. This is useful for "
-                                            "benchmarks where the intended "
-                                            "forcing mode is naturally written "
-                                            "as an `(l,m)' spherical harmonic "
-                                            "rather than as Cartesian traction "
-                                            "components.")
+                                            "load by harmonic degree, harmonic order, "
+                                            "normalization, load magnitude, "
+                                            "and positive load direction. This is "
+                                            "useful for benchmarks where the "
+                                            "intended forcing mode is naturally "
+                                            "written as an `(l,m)' spherical "
+                                            "harmonic rather than as Cartesian "
+                                            "traction components.")
   }
 }

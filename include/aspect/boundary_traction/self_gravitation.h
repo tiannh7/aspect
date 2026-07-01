@@ -177,6 +177,10 @@ namespace aspect
         types::boundary_id top_boundary_id;
         types::boundary_id bottom_boundary_id;
 
+        bool has_legacy_apply_boundaries = false;
+        std::vector<std::string> legacy_apply_boundaries;
+        bool configured_from_potential_feedback = false;
+
         /**
          * The SH transform utility (3D) or Fourier transform (2D).
          */

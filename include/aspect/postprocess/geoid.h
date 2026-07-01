@@ -124,12 +124,6 @@ namespace aspect
          */
         bool output_gravity_anomaly;
 
-        /**
-         * Parameters to set the density value out of the surface and CMB boundary
-         */
-        double density_above;
-        double density_below;
-
         /** Spherically symmetric reference density removed from the volume
          * integral. It has no physical l>0 signal, but integrating it on a
          * discrete mesh otherwise creates spurious harmonic leakage. */

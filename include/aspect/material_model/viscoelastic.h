@@ -203,6 +203,9 @@ namespace aspect
         double
         fixed_elastic_time_step() const override;
 
+        double
+        initial_elastic_time_step() const override;
+
       private:
         /**
          * Enumeration for selecting which viscosity averaging scheme to use.
@@ -225,7 +228,7 @@ namespace aspect
          * Constant reference density whose gravitational body force is
          * removed through the optional additional Stokes right-hand side.
          */
-        double reference_density_for_perturbation_stokes;
+        double reference_density_for_stokes_perturbation;
 
         Rheology::Elasticity<dim> elastic_rheology;
     };

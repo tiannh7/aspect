@@ -80,13 +80,12 @@ namespace aspect
         legendre_p (const unsigned int degree,
                     const double x) const;
 
-        unsigned int degree;
-        unsigned int order;
-        double amplitude;
-        double sign;
+        unsigned int harmonic_degree;
+        unsigned int harmonic_order;
+        double load_magnitude;
+        std::string positive_load_direction;
         std::string coefficient_type;
         std::string normalization;
-        std::string component;
     };
   }
 }

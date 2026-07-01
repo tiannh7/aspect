@@ -204,12 +204,21 @@ namespace aspect
           }
 
           /**
+           * Return the initial elastic time step.
+           */
+          double
+          initial_elastic_time_step() const
+          {
+            return initial_elastic_time_step_value;
+          }
+
+          /**
            * Return the fixed elastic time step.
            */
           double
           get_fixed_elastic_time_step() const
           {
-            return fixed_elastic_time_step;
+            return initial_elastic_time_step_value;
           }
 
           /**
@@ -320,9 +329,9 @@ namespace aspect
           bool use_instantaneous_elastic_response_at_timestep_zero;
 
           /**
-           * Double for fixed elastic time step value, read from parameter file.
+           * Double for initial elastic time step value, read from parameter file.
            */
-          double fixed_elastic_time_step;
+          double initial_elastic_time_step_value;
 
           /**
            * A stabilization factor for the elastic stresses that influences how

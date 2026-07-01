@@ -79,6 +79,17 @@ namespace aspect
 
         bool potential_is_converged() const;
 
+        bool is_self_gravity_active() const
+        {
+          return self_gravity_active;
+        }
+
+        const PotentialFeedback::Settings &
+        get_settings() const
+        {
+          return settings;
+        }
+
         static void declare_parameters(ParameterHandler &prm);
         void parse_parameters(ParameterHandler &prm) override;
 

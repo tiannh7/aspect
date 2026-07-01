@@ -351,7 +351,7 @@ namespace aspect
                                 if (std::abs(normal_traction) > 1e-10)
                                   {
                                     const double gravity = this->get_gravity_model().gravity_vector(current_position).norm();
-                                    const double delta_rho = top_layer_average_density - this->density_above;
+                                    const double delta_rho = top_layer_average_density;
                                     if (std::abs(delta_rho) > 0.0)
                                       topography -= normal_traction / (gravity * delta_rho);
                                   }
@@ -540,11 +540,11 @@ namespace aspect
       // its converged Phi/g coefficients directly instead of inferring
       // topography from the total traction.
       const auto &traction_manager = this->get_boundary_traction_manager();
-      const bool use_self_gravity_boundary_potential =
+      const bool use_self_gravity =
         traction_manager.template has_matching_active_plugin<
         BoundaryTraction::SelfGravitation<dim>>();
       const BoundaryTraction::SelfGravitation<dim> *self_gravity =
-        (use_self_gravity_boundary_potential
+        (use_self_gravity
          ? &traction_manager.template get_matching_active_plugin<
          BoundaryTraction::SelfGravitation<dim>>()
          : nullptr);
@@ -579,15 +579,8 @@ namespace aspect
             }
           else
             {
-              // Get the spherical harmonic coefficients of the surface and CMB topography.
-              std::pair<std::pair<double, std::pair<std::vector<double>,std::vector<double>>>, std::pair<double, std::pair<std::vector<double>,std::vector<double>>>> SH_topo_coes;
-              SH_topo_coes = topography_contribution(outer_radius,inner_radius);
-              SH_surface_topo_coes = SH_topo_coes.first;
-              SH_CMB_topo_coes = SH_topo_coes.second;
-
-              // Get the density contrasts at the surface and CMB.
-              surface_delta_rho = SH_surface_topo_coes.first - density_above;
-              CMB_delta_rho = density_below - SH_CMB_topo_coes.first;
+              AssertThrow(false,
+                          ExcMessage("The geoid postprocessor treats interface densities as physical model parameters, not output parameters. If surface or CMB topography contributions are enabled, activate a `self gravitation` or `potential feedback` boundary traction plugin and define densities in `Potential feedback/Interface properties`."));
             }
         }
 
@@ -614,6 +607,9 @@ namespace aspect
               density_anomaly_contribution_coecos.push_back(coecos_density_anomaly);
               density_anomaly_contribution_coesin.push_back(coesin_density_anomaly);
 
+              const bool use_boundary_potential =
+                self_gravity != nullptr || potential_feedback != nullptr;
+
               if (include_surface_topo_contribution == true || include_CMB_topo_contribution == true)
                 {
                   const std::pair<double,double> self_gravity_surface =
@@ -622,8 +618,6 @@ namespace aspect
                      : (potential_feedback != nullptr
                         ? potential_feedback->surface_mass_potential_coefficient(ideg, iord)
                         : std::pair<double,double> {0.0, 0.0}));
-                  const bool use_boundary_potential =
-                    self_gravity != nullptr || potential_feedback != nullptr;
                   const double coecos_surface_topo =
                     (use_boundary_potential
                      ? self_gravity_surface.first
@@ -1194,33 +1188,15 @@ namespace aspect
                             Patterns::Bool(),
                             "Option to output the geoid anomaly in geographical coordinates (latitude and longitude). "
                             "The default is false, so the postprocessor will output the data in geocentric coordinates (x,y,z) as normally.");
-          prm.declare_entry("Density above","0.",
-                            Patterns::Double (0.),
-                            "The density value above the surface boundary.");
-          prm.declare_entry("Density below","9900.",
-                            Patterns::Double (0.),
-                            "The density value below the CMB boundary.");
-          prm.declare_entry("Reference density for anomaly","0.",
-                            Patterns::Double (0.),
-                            "A constant spherically symmetric reference density "
-                            "subtracted from the volume-density integral. This "
-                            "does not change exact coefficients of degree l>0, "
-                            "but prevents mesh quadrature of the background "
-                            "density from leaking into the computed geoid.");
-          prm.declare_entry("Density anomaly contribution mode", "auto",
-                            Patterns::Selection("auto|always|never"),
-                            "Controls the volume-density contribution to the "
-                            "geoid. 'always' evaluates the full volume integral. "
-                            "'never' skips it and returns zero density-anomaly "
-                            "coefficients. 'auto' first checks "
-                            "max(|rho-reference density|) and skips the integral "
-                            "when the anomaly is below the configured tolerance.");
-          prm.declare_entry("Density anomaly tolerance", "0.",
-                            Patterns::Double(0.),
-                            "Absolute tolerance for detecting a zero "
-                            "density-anomaly field in auto mode. A value of "
-                            "zero uses 1e-12*max(1,|reference density|). "
-                            "Units: kg/m^3.");
+          prm.declare_entry("Reference density for anomaly", "-1e300",
+                            Patterns::Double(),
+                            "Deprecated.");
+          prm.declare_entry("Density anomaly contribution mode", "unspecified",
+                            Patterns::Selection("auto|always|never|unspecified"),
+                            "Deprecated.");
+          prm.declare_entry("Density anomaly tolerance", "-1e300",
+                            Patterns::Double(),
+                            "Deprecated.");
           prm.declare_entry("Output geoid anomaly coefficients", "false",
                             Patterns::Bool(),
                             "Option to output the spherical harmonic coefficients of the geoid anomaly up to the maximum degree. "
@@ -1270,25 +1246,63 @@ namespace aspect
         prm.enter_subsection("Geoid");
         {
           include_surface_topo_contribution = prm.get_bool ("Include surface topography contribution");
-          include_CMB_topo_contribution = prm.get_bool ("Include CMB topography contribution");
+                  include_CMB_topo_contribution = prm.get_bool ("Include CMB topography contribution");
           max_degree = prm.get_integer ("Maximum degree");
           min_degree = prm.get_integer ("Minimum degree");
           output_in_lat_lon = prm.get_bool ("Output data in geographical coordinates");
-          density_above = prm.get_double ("Density above");
-          density_below = prm.get_double ("Density below");
-          reference_density = prm.get_double ("Reference density for anomaly");
-          const std::string density_anomaly_mode_string =
-            prm.get("Density anomaly contribution mode");
-          if (density_anomaly_mode_string == "auto")
-            density_anomaly_mode = DensityAnomalyMode::auto_detect;
-          else if (density_anomaly_mode_string == "always")
-            density_anomaly_mode = DensityAnomalyMode::always;
-          else if (density_anomaly_mode_string == "never")
-            density_anomaly_mode = DensityAnomalyMode::never;
+          const double legacy_geoid_ref_density = prm.get_double ("Reference density for anomaly");
+          std::string mode = "true";
+          double tolerance = 0.0;
+          double ref_dens = 0.0;
+
+          if (this->get_boundary_traction_manager().template has_matching_active_plugin<BoundaryTraction::PotentialFeedbackTraction<dim>>())
+            {
+              const auto &pf = this->get_boundary_traction_manager().template get_matching_active_plugin<BoundaryTraction::PotentialFeedbackTraction<dim>>();
+              mode = pf.get_settings().include_internal_density_anomalies;
+              tolerance = pf.get_settings().internal_density_anomaly_tolerance;
+              ref_dens = pf.get_settings().reference_density_for_internal_anomalies;
+
+              const std::string legacy_geoid_mode = prm.get("Density anomaly contribution mode");
+              const double legacy_geoid_tolerance = prm.get_double("Density anomaly tolerance");
+              if (legacy_geoid_mode != "unspecified" || legacy_geoid_tolerance != -1e300 || legacy_geoid_ref_density != -1e300)
+                {
+                  this->get_pcout() << "WARNING: Legacy parameters 'Postprocess / Geoid / Reference density for anomaly', "
+                                    << "'Density anomaly contribution mode', and 'Density anomaly tolerance' are set, "
+                                    << "but they are overridden by the active self-gravity settings under 'Potential feedback / Self gravity'." << std::endl;
+                }
+            }
           else
-            AssertThrow(false,
-                        ExcMessage("Unknown density anomaly contribution mode."));
-          density_anomaly_tolerance = prm.get_double("Density anomaly tolerance");
+            {
+              const std::string legacy_geoid_mode = prm.get("Density anomaly contribution mode");
+              const double legacy_geoid_tolerance = prm.get_double("Density anomaly tolerance");
+              if (legacy_geoid_mode != "unspecified")
+                {
+                  if (legacy_geoid_mode == "always") mode = "true";
+                  else if (legacy_geoid_mode == "never") mode = "false";
+                  else if (legacy_geoid_mode == "auto") mode = "auto";
+                }
+              if (legacy_geoid_tolerance != -1e300)
+                {
+                  tolerance = legacy_geoid_tolerance;
+                }
+              if (legacy_geoid_ref_density != -1e300)
+                {
+                  ref_dens = legacy_geoid_ref_density;
+                }
+            }
+
+          reference_density = ref_dens;
+
+          if (mode == "true")
+            density_anomaly_mode = DensityAnomalyMode::always;
+          else if (mode == "false")
+            density_anomaly_mode = DensityAnomalyMode::never;
+          else if (mode == "auto")
+            density_anomaly_mode = DensityAnomalyMode::auto_detect;
+          else
+            AssertThrow(false, ExcMessage("Unknown density anomaly contribution mode."));
+
+          density_anomaly_tolerance = tolerance;
           output_geoid_anomaly_SH_coes = prm.get_bool ("Output geoid anomaly coefficients");
           output_surface_topo_contribution_SH_coes = prm.get_bool ("Output surface topography contribution coefficients");
           output_CMB_topo_contribution_SH_coes = prm.get_bool ("Output CMB topography contribution coefficients");

@@ -337,7 +337,7 @@ namespace aspect
               const std::vector<std::string> component_names = stress_component_names_3d;
 
               const auto write_sh_coefficients =
-                [this, n_stress_sh_coefficients, stress_sh_max_degree]
+                [this, n_stress_sh_coefficients]
                 (const std::string &filename,
                  const std::string &field_description,
                  const std::vector<double> &cos_coefficients,

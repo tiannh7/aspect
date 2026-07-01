@@ -872,6 +872,24 @@ namespace aspect
                            "This parameter is only relevant when using viscoelastic material models.");
       }
       prm.leave_subsection();
+
+      prm.enter_subsection ("Stokes pressure");
+      {
+        prm.declare_entry ("Pressure formulation", "total pressure",
+                           Patterns::Selection("total pressure|dynamic pressure"),
+                           "Select whether the Stokes pressure/body-force formulation uses total pressure "
+                           "or dynamic pressure. In total-pressure mode, the full material density "
+                           "contributes to the body force rho*g. In dynamic-pressure mode, a constant "
+                           "reference density is subtracted so that the Stokes body force is "
+                           "(rho - rho_ref)*g. Dynamic pressure mode requires "
+                           "<Formulation/Enable additional Stokes RHS = true>.");
+        prm.declare_entry ("Reference density", "0",
+                           Patterns::Double (0.),
+                           "Reference density used only when Pressure formulation is dynamic pressure. "
+                           "This value is subtracted from the material density in the Stokes body force "
+                           "through the additional Stokes RHS. Units: kg/m^3.");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
 
@@ -1994,7 +2012,6 @@ namespace aspect
           formulation_temperature_equation = Formulation::TemperatureEquation::parse(prm.get("Temperature equation"));
         }
       else AssertThrow(false, ExcNotImplemented());
-
       enable_additional_stokes_rhs = prm.get_bool ("Enable additional Stokes RHS");
       enable_elasticity = prm.get_bool("Enable elasticity");
       enable_prescribed_dilation = prm.get_bool("Enable prescribed dilation");
@@ -2002,6 +2019,27 @@ namespace aspect
       prm.enter_subsection ("Elasticity");
       {
         elasticity.use_old_stress_fields = prm.get_bool("Use old stress fields");
+      }
+      prm.leave_subsection();
+
+      prm.enter_subsection ("Stokes pressure");
+      {
+        const std::string pf = prm.get("Pressure formulation");
+        stokes_pressure_formulation_is_dynamic = (pf == "dynamic pressure");
+        stokes_pressure_reference_density = prm.get_double("Reference density");
+
+        if (stokes_pressure_formulation_is_dynamic && !enable_additional_stokes_rhs)
+          AssertThrow(false, ExcMessage("Dynamic pressure formulation requires "
+                                        "<Formulation/Enable additional Stokes RHS = true>, because "
+                                        "the reference-density body force is applied through the "
+                                        "additional Stokes RHS."));
+
+        if (!stokes_pressure_formulation_is_dynamic && stokes_pressure_reference_density > 0.0)
+          {
+            dealii::ConditionalOStream pcout(std::cout, dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0);
+            pcout << "WARNING: <Formulation/Stokes pressure/Reference density> is set to a non-zero value "
+                  << "but Pressure formulation is 'total pressure'. The reference density will be ignored." << std::endl;
+          }
       }
       prm.leave_subsection();
     }

@@ -88,6 +88,53 @@ namespace aspect
       bottom_boundary_id =
         this->get_geometry_model().translate_symbolic_boundary_name_to_id("bottom");
 
+      if (configured_from_potential_feedback)
+        {
+          bool surface_active = false;
+          bool cmb_active = false;
+
+          const auto &traction_manager = this->get_boundary_traction_manager();
+          const auto &plugins = traction_manager.get_active_plugins();
+          const auto &plugin_boundaries = traction_manager.get_active_plugin_boundary_indicators();
+
+          unsigned int idx = 0;
+          for (const auto &plugin : plugins)
+            {
+              const auto boundary_id = plugin_boundaries[idx];
+
+              const bool is_self_grav =
+                (dynamic_cast<const SelfGravitation<dim> *>(plugin.get()) != nullptr) ||
+                (dynamic_cast<const PotentialFeedbackTraction<dim> *>(plugin.get()) != nullptr);
+
+              if (is_self_grav)
+                {
+                  if (boundary_id == top_boundary_id)
+                    surface_active = true;
+                  else if (boundary_id == bottom_boundary_id)
+                    cmb_active = true;
+                }
+              ++idx;
+            }
+
+          // Check legacy setting for warning
+          if (has_legacy_apply_boundaries)
+            {
+              const bool legacy_has_surface = self_gravity_boundary_list_contains_surface(legacy_apply_boundaries);
+              const bool legacy_has_cmb = self_gravity_boundary_list_contains_cmb(legacy_apply_boundaries);
+              if (legacy_has_surface != surface_active || legacy_has_cmb != cmb_active)
+                {
+                  dealii::ConditionalOStream pcout(std::cout, dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0);
+                  pcout << "WARNING: Parameter <Potential feedback/Self gravity/Apply to boundary indicators> is deprecated. "
+                        << "Self-gravity traction boundaries are now inferred from the active boundary traction plugin assignment. "
+                        << "Please remove this parameter from the prm file. "
+                        << "The legacy parameter value is ignored in favor of the active boundary traction plugin assignment." << std::endl;
+                }
+            }
+
+          enable_surface_potential_traction = surface_active;
+          enable_cmb_potential_traction = cmb_active;
+        }
+
       last_text_output_time = -1.0;
       last_text_output_step = 0;
       current_tracked_step = (unsigned int)-1;
@@ -412,14 +459,15 @@ namespace aspect
               const double eff_time_interval = time_between_text_output;
               const unsigned int eff_step_interval = time_steps_between_text_output;
 
-              if (step == 0 || time == 0.0)
-                printing_this_step = true;
-              else if (eff_step_interval > 0 && (step - last_text_output_step >= eff_step_interval))
-                printing_this_step = true;
-              else if (eff_time_interval > 0 && (time - last_text_output_time >= eff_time_interval))
-                printing_this_step = true;
-              else if (eff_step_interval == 0 && eff_time_interval == 0.0)
-                printing_this_step = true;
+              if (eff_step_interval > 0 || eff_time_interval > 0.0)
+                {
+                  if (step == 0 || time == 0.0)
+                    printing_this_step = true;
+                  else if (eff_step_interval > 0 && (step - last_text_output_step >= eff_step_interval))
+                    printing_this_step = true;
+                  else if (eff_time_interval > 0 && (time - last_text_output_time >= eff_time_interval))
+                    printing_this_step = true;
+                }
 
               if (printing_this_step)
                 {
@@ -871,15 +919,11 @@ namespace aspect
         settings.initial_displacement_timestep;
       potential_convergence_tolerance = settings.relative_tolerance;
       maximum_potential_iterations = settings.maximum_iterations;
-      enable_surface_potential_traction =
-        self_gravity_boundary_list_contains_surface(
-          settings.self_gravity_apply_boundaries);
-      enable_cmb_potential_traction =
-        self_gravity_boundary_list_contains_cmb(
-          settings.self_gravity_apply_boundaries);
-      time_between_text_output = settings.time_between_text_output;
-      time_steps_between_text_output =
-        settings.time_steps_between_text_output;
+      has_legacy_apply_boundaries = settings.has_legacy_apply_boundaries;
+      legacy_apply_boundaries = settings.legacy_apply_boundaries;
+      configured_from_potential_feedback = true;
+      time_between_text_output = 0.0;
+      time_steps_between_text_output = 0;
       potential_relative_change = std::numeric_limits<double>::infinity();
       current_potential_iteration_step = (unsigned int)-1;
       potential_iteration_number = 0;
@@ -887,7 +931,6 @@ namespace aspect
       if (this->convert_output_to_years())
         {
           initial_displacement_timestep *= year_in_seconds;
-          time_between_text_output *= year_in_seconds;
         }
 
       AssertThrow(min_degree <= max_degree,
@@ -1012,7 +1055,7 @@ namespace aspect
           prm.declare_entry("Time steps between text output", "0",
                             Patterns::Integer(0),
                             "The number of time steps between self-gravity diagnostic text outputs. "
-                            "If zero, this parameter is ignored. If both parameters are zero, output is printed every time step.");
+                            "If zero, this parameter is ignored. If both output interval parameters are zero, no self-gravity diagnostic text is printed.");
         }
         prm.leave_subsection();
       }

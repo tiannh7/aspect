@@ -111,21 +111,32 @@ namespace aspect
                            "is equal to the elastic time step. The default value of this parameter is "
                            "'unspecified', which throws an exception during runtime. In order for "
                            "the model to run the user must select 'true' or 'false'.");
-        prm.declare_entry ("Fixed elastic time step", "1.e3",
+        prm.declare_entry ("Initial elastic time step", "1.e3",
                            Patterns::Double (0.),
-                           "The fixed elastic time step $dte$. It is always used during the first "
-                           "timestep; afterwards on if 'Used fixed elastic time step' is true. "
+                           "The timestep used for the timestep-zero initial elastic response in the viscoelastic material model. "
+                           "This value is also used by timestep-zero free-surface stabilization and self-gravity/potential-feedback "
+                           "displacement prediction when the simulator timestep is zero. It is distinct from Maximum time step, "
+                           "which controls normal time stepping. "
                            "Units: years if the 'Use years instead of seconds' parameter is set; "
                            "seconds otherwise.");
-        prm.declare_entry ("Use instantaneous elastic response at timestep zero", "false",
-                           Patterns::Bool(),
-                           "Use the pure elastic viscosity G*dt during the "
-                           "initial loaded solve, without placing the Maxwell "
-                           "dashpot in series. The fixed elastic time step still "
-                           "defines the velocity-to-displacement interval. This "
-                           "matches benchmarks whose t=0 solution is the "
-                           "instantaneous elastic limit before finite viscoelastic "
-                           "time steps begin.");
+        prm.declare_entry ("Fixed elastic time step", "-1.e300",
+                           Patterns::Double (),
+                           "Deprecated.");
+        prm.declare_entry ("Initial response mode", "viscoelastic",
+                           Patterns::Selection("viscoelastic|instantaneous elastic"),
+                           "Controls the constitutive response used only during the "
+                           "timestep-zero initial loaded solve. "
+                           "'viscoelastic': the full Maxwell viscoelastic response is used at "
+                           "timestep zero, identical to subsequent time steps. "
+                           "'instantaneous elastic': the pure instantaneous elastic viscosity "
+                           "G*dt_initial is used at timestep zero, without placing the Maxwell "
+                           "dashpot in series. This matches benchmarks whose t=0 solution is the "
+                           "instantaneous elastic limit before finite viscoelastic time steps begin. "
+                           "This parameter only controls the initial loaded solve; subsequent "
+                           "time stepping always uses the full viscoelastic update.");
+        prm.declare_entry ("Use instantaneous elastic response at timestep zero", "unspecified",
+                           Patterns::Selection("true|false|unspecified"),
+                           "Deprecated. Use 'Initial response mode' instead.");
         prm.declare_entry ("Viscoelastic stress update scheme", "backward euler",
                            Patterns::Selection("backward euler|theta|exponential"),
                            "Select the time discretization used for the linear "
@@ -204,9 +215,47 @@ namespace aspect
 
         stabilization_time_scale_factor = prm.get_double ("Stabilization time scale factor");
 
-        fixed_elastic_time_step = prm.get_double ("Fixed elastic time step");
-        use_instantaneous_elastic_response_at_timestep_zero =
-          prm.get_bool("Use instantaneous elastic response at timestep zero");
+        const double new_val = prm.get_double("Initial elastic time step");
+        const double old_val = prm.get_double("Fixed elastic time step");
+
+        if (old_val != -1e300)
+          {
+            dealii::ConditionalOStream pcout(std::cout, dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0);
+            pcout << "WARNING: Parameter <Material model/Viscoelastic/Fixed elastic time step> is deprecated. "
+                  << "Please use <Material model/Viscoelastic/Initial elastic time step> instead." << std::endl;
+
+            if (new_val != 1e3 && new_val != old_val)
+              AssertThrow(false, ExcMessage("Do not mix legacy 'Fixed elastic time step' and new 'Initial elastic time step' parameters when they differ."));
+
+            initial_elastic_time_step_value = old_val;
+          }
+        else
+          {
+            initial_elastic_time_step_value = new_val;
+          }
+
+        // Parse Initial response mode, with backward compat for legacy bool parameter.
+        const std::string legacy_mode_str = prm.get("Use instantaneous elastic response at timestep zero");
+        const std::string new_mode_str    = prm.get("Initial response mode");
+
+        if (legacy_mode_str != "unspecified")
+          {
+            dealii::ConditionalOStream pcout(std::cout, dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0);
+            pcout << "WARNING: Parameter <Material model/Viscoelastic/Use instantaneous elastic response at timestep zero> is deprecated. "
+                  << "Please use <Material model/Viscoelastic/Initial response mode> with values "
+                  << "<viscoelastic> or <instantaneous elastic>." << std::endl;
+
+            const bool legacy_val = (legacy_mode_str == "true");
+            const bool new_is_default = (new_mode_str == "viscoelastic");
+            if (!new_is_default && (legacy_val != (new_mode_str == "instantaneous elastic")))
+              AssertThrow(false, ExcMessage("Conflict between deprecated 'Use instantaneous elastic response at timestep zero' and new 'Initial response mode': do not set both."));
+
+            use_instantaneous_elastic_response_at_timestep_zero = legacy_val;
+          }
+        else
+          {
+            use_instantaneous_elastic_response_at_timestep_zero = (new_mode_str == "instantaneous elastic");
+          }
         const std::string viscoelastic_stress_update_scheme_string =
           prm.get("Viscoelastic stress update scheme");
         if (viscoelastic_stress_update_scheme_string == "backward euler")
@@ -219,11 +268,11 @@ namespace aspect
           AssertThrow(false, ExcMessage("Unknown viscoelastic stress update scheme."));
         viscoelastic_stress_update_theta =
           prm.get_double("Viscoelastic stress update theta");
-        AssertThrow(fixed_elastic_time_step > 0,
-                    ExcMessage("The fixed elastic time step must be greater than zero"));
+        AssertThrow(initial_elastic_time_step_value > 0,
+                    ExcMessage("The initial elastic time step must be greater than zero"));
 
         if (this->convert_output_to_years())
-          fixed_elastic_time_step *= year_in_seconds;
+          initial_elastic_time_step_value *= year_in_seconds;
 
         // When using the visco_plastic or viscoelastic material model,
         // make sure that no damping is applied. Damping could potentially
@@ -860,7 +909,7 @@ namespace aspect
         // We also use this parameter when we are still *before* the first time step,
         // i.e., if the time step number is numbers::invalid_unsigned_int.
         if (use_fixed_elastic_time_step && this->get_timestep_number() > 0 && this->simulator_is_past_initialization())
-          AssertThrow(fixed_elastic_time_step >= this->get_timestep(), ExcMessage("The elastic timestep has to be equal to or bigger than the numerical timestep"));
+          AssertThrow(initial_elastic_time_step_value >= this->get_timestep(), ExcMessage("The elastic timestep has to be equal to or bigger than the numerical timestep"));
 
         const double dte = ( ( this->get_timestep_number() > 0 &&
                                this->simulator_is_past_initialization() &&
@@ -868,7 +917,7 @@ namespace aspect
                              ?
                              this->get_timestep() * stabilization_time_scale_factor
                              :
-                             fixed_elastic_time_step);
+                             initial_elastic_time_step_value);
         return dte;
       }
 

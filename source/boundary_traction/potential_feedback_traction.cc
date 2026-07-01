@@ -82,6 +82,39 @@ namespace aspect
       if (&primary_provider() != this)
         return;
 
+      const double mm_initial_elastic_dt = this->get_material_model().initial_elastic_time_step();
+
+      if (mm_initial_elastic_dt > 0.0)
+        {
+          if (settings.has_legacy_initial_displacement_timestep)
+            {
+              if (settings.legacy_initial_displacement_timestep != mm_initial_elastic_dt)
+                {
+                  AssertThrow(false, ExcMessage("Conflict: legacy 'Initial displacement time step' and new 'Initial elastic time step' parameters are both set but inconsistent."));
+                }
+              else
+                {
+                  dealii::ConditionalOStream pcout(std::cout, dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0);
+                  pcout << "WARNING: Parameter <Potential feedback/Self-consistent potential update/Initial displacement time step> is deprecated. "
+                        << "The timestep-zero displacement timestep is now inferred from <Material model/Viscoelastic/Initial elastic time step>. "
+                        << "Please remove this parameter from the prm file." << std::endl;
+                }
+            }
+          settings.initial_displacement_timestep = mm_initial_elastic_dt;
+        }
+      else
+        {
+          if (settings.has_legacy_initial_displacement_timestep)
+            settings.initial_displacement_timestep = settings.legacy_initial_displacement_timestep;
+          else
+            settings.initial_displacement_timestep = 0.0;
+        }
+
+      if (self_gravity_active)
+        self_gravity.configure_from_potential_feedback_settings(settings);
+      if (rotational_feedback_active)
+        rotational_feedback.configure_from_potential_feedback_settings(settings);
+
       if (self_gravity_active)
         self_gravity.initialize();
 

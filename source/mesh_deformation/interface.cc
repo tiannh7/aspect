@@ -279,6 +279,32 @@ namespace aspect
     void
     MeshDeformationHandler<dim>::initialize ()
     {
+      const bool has_legacy_initial_dt = (initial_surface_stabilization_timestep != -1e300);
+      const double mm_initial_elastic_dt = this->get_material_model().initial_elastic_time_step();
+
+      if (mm_initial_elastic_dt > 0.0)
+        {
+          if (has_legacy_initial_dt)
+            {
+              if (initial_surface_stabilization_timestep != mm_initial_elastic_dt)
+                {
+                  AssertThrow(false, ExcMessage("Conflict: legacy 'Initial stabilization time step' and new 'Initial elastic time step' parameters are both set but inconsistent."));
+                }
+              else
+                {
+                  dealii::ConditionalOStream pcout(std::cout, dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0);
+                  pcout << "WARNING: Parameter <Mesh deformation/Free surface/Initial stabilization time step> is deprecated. "
+                        << "The timestep-zero stabilization timestep is now inferred from <Material model/Viscoelastic/Initial elastic time step>. "
+                        << "Please remove this parameter from the prm file." << std::endl;
+                }
+            }
+          initial_surface_stabilization_timestep = mm_initial_elastic_dt;
+        }
+      else
+        {
+          if (!has_legacy_initial_dt)
+            initial_surface_stabilization_timestep = 0.0;
+        }
       // In case we prescribed initial topography, we should take this into
       // account. However, it is not included in the mesh displacements,
       // so we need to fetch it separately.
@@ -415,13 +441,9 @@ namespace aspect
                             "the free surface is stabilized with this term, "
                             "where zero is no stabilization, and one is fully "
                             "implicit.");
-          prm.declare_entry("Initial stabilization time step", "0",
-                            Patterns::Double(0),
-                            "Time interval used by the implicit restoring "
-                            "operator during timestep zero. This is needed for "
-                            "an instantaneous elastic solve, for which the "
-                            "global simulator timestep is zero. Units are years "
-                            "when 'Use years instead of seconds' is enabled.");
+          prm.declare_entry("Initial stabilization time step", "-1.e300",
+                            Patterns::Double(),
+                            "Deprecated.");
           prm.declare_entry("Stabilization density contrasts", "",
                             Patterns::Anything(),
                             "Optional comma-separated boundary:density-jump "
@@ -592,7 +614,7 @@ namespace aspect
           surface_theta = prm.get_double("Free surface stabilization theta");
           initial_surface_stabilization_timestep =
             prm.get_double("Initial stabilization time step");
-          if (this->convert_output_to_years())
+          if (initial_surface_stabilization_timestep != -1e300 && this->convert_output_to_years())
             initial_surface_stabilization_timestep *= year_in_seconds;
 
           surface_stabilization_density_contrasts.clear();
