@@ -25,6 +25,7 @@
 #include <aspect/postprocess/geoid.h>
 #include <aspect/postprocess/dynamic_topography.h>
 #include <aspect/boundary_traction/self_gravitation.h>
+#include <aspect/boundary_traction/potential_feedback_traction.h>
 #include <aspect/postprocess/boundary_densities.h>
 #include <aspect/boundary_traction/interface.h>
 #include <aspect/geometry_model/spherical_shell.h>
@@ -547,6 +548,17 @@ namespace aspect
          ? &traction_manager.template get_matching_active_plugin<
          BoundaryTraction::SelfGravitation<dim>>()
          : nullptr);
+      const bool use_potential_feedback_boundary_potential =
+        traction_manager.template has_matching_active_plugin<
+        BoundaryTraction::PotentialFeedbackTraction<dim>>();
+      const BoundaryTraction::PotentialFeedbackTraction<dim> *potential_feedback =
+        (use_potential_feedback_boundary_potential
+         ? &traction_manager.template get_matching_active_plugin<
+         BoundaryTraction::PotentialFeedbackTraction<dim>>()
+         : nullptr);
+      if (potential_feedback != nullptr
+          && !potential_feedback->has_self_gravity_feedback())
+        potential_feedback = nullptr;
 
       // Initialize the surface and CMB density contrasts with NaNs because they may be unused in case of no topography contribution.
       double surface_delta_rho = numbers::signaling_nan<double>();
@@ -559,6 +571,11 @@ namespace aspect
             {
               surface_delta_rho = self_gravity->surface_density_jump();
               CMB_delta_rho = self_gravity->cmb_density_jump();
+            }
+          else if (potential_feedback != nullptr)
+            {
+              surface_delta_rho = potential_feedback->surface_density_jump();
+              CMB_delta_rho = potential_feedback->cmb_density_jump();
             }
           else
             {
@@ -602,14 +619,18 @@ namespace aspect
                   const std::pair<double,double> self_gravity_surface =
                     (self_gravity != nullptr
                      ? self_gravity->surface_mass_potential_coefficient(ideg, iord)
-                     : std::pair<double,double> {0.0, 0.0});
+                     : (potential_feedback != nullptr
+                        ? potential_feedback->surface_mass_potential_coefficient(ideg, iord)
+                        : std::pair<double,double> {0.0, 0.0}));
+                  const bool use_boundary_potential =
+                    self_gravity != nullptr || potential_feedback != nullptr;
                   const double coecos_surface_topo =
-                    (self_gravity != nullptr
+                    (use_boundary_potential
                      ? self_gravity_surface.first
                      : (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
                      * surface_delta_rho*SH_surface_topo_coes.second.first.at(ind)*outer_radius);
                   const double coesin_surface_topo =
-                    (self_gravity != nullptr
+                    (use_boundary_potential
                      ? self_gravity_surface.second
                      : (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
                      * surface_delta_rho*SH_surface_topo_coes.second.second.at(ind)*outer_radius);
@@ -619,26 +640,28 @@ namespace aspect
                   const std::pair<double,double> self_gravity_cmb =
                     (self_gravity != nullptr
                      ? self_gravity->cmb_mass_potential_coefficient(ideg, iord)
-                     : std::pair<double,double> {0.0, 0.0});
+                     : (potential_feedback != nullptr
+                        ? potential_feedback->cmb_mass_potential_coefficient(ideg, iord)
+                        : std::pair<double,double> {0.0, 0.0}));
 #if DEAL_II_VERSION_GTE(9,6,0)
                   const double coecos_CMB_topo =
-                    (self_gravity != nullptr
+                    (use_boundary_potential
                      ? self_gravity_cmb.first
                      : (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
                      * CMB_delta_rho*SH_CMB_topo_coes.second.first.at(ind)*inner_radius*Utilities::pow(inner_radius/outer_radius,ideg+1));
                   const double coesin_CMB_topo =
-                    (self_gravity != nullptr
+                    (use_boundary_potential
                      ? self_gravity_cmb.second
                      : (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
                      * CMB_delta_rho*SH_CMB_topo_coes.second.second.at(ind)*inner_radius*Utilities::pow(inner_radius/outer_radius,ideg+1));
 #else
                   const double coecos_CMB_topo =
-                    (self_gravity != nullptr
+                    (use_boundary_potential
                      ? self_gravity_cmb.first
                      : (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
                      * CMB_delta_rho*SH_CMB_topo_coes.second.first.at(ind)*inner_radius*std::pow(inner_radius/outer_radius,ideg+1));
                   const double coesin_CMB_topo =
-                    (self_gravity != nullptr
+                    (use_boundary_potential
                      ? self_gravity_cmb.second
                      : (4 * numbers::PI * G / (surface_gravity * (2 * ideg + 1)))
                      * CMB_delta_rho*SH_CMB_topo_coes.second.second.at(ind)*inner_radius*std::pow(inner_radius/outer_radius,ideg+1));
@@ -651,7 +674,9 @@ namespace aspect
               const std::pair<double,double> tidal_potential =
                 (self_gravity != nullptr
                  ? self_gravity->tidal_surface_potential_coefficient(ideg, iord)
-                 : std::pair<double,double> {0.0, 0.0});
+                 : (potential_feedback != nullptr
+                    ? potential_feedback->tidal_surface_potential_coefficient(ideg, iord)
+                    : std::pair<double,double> {0.0, 0.0}));
               tidal_potential_contribution_coecos.push_back(tidal_potential.first);
               tidal_potential_contribution_coesin.push_back(tidal_potential.second);
 

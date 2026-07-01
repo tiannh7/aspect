@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <tuple>
 #include <numeric>
+#include <set>
 
 namespace aspect
 {
@@ -57,6 +58,22 @@ namespace aspect
       {
         return self_gravity_list_contains(values, "inner")
                || self_gravity_list_contains(values, "bottom");
+      }
+
+      bool
+      print_self_gravity_diagnostic_once(
+        const std::string &name,
+        const unsigned int timestep_number,
+        const unsigned int iteration_number)
+      {
+        static std::set<std::tuple<std::string, unsigned int, unsigned int>>
+        printed_diagnostics;
+
+        return printed_diagnostics
+               .insert(std::make_tuple(name,
+                                       timestep_number,
+                                       iteration_number))
+               .second;
       }
     }
 
@@ -411,7 +428,11 @@ namespace aspect
                 }
             }
 
-          if (printing_this_step)
+          if (printing_this_step
+              &&
+              print_self_gravity_diagnostic_once("coefficient norms",
+                                                 step,
+                                                 potential_iteration_number))
             {
               const auto coefficient_l2_norm =
                 [](const std::vector<double> &cos_coeffs,
@@ -624,34 +645,21 @@ namespace aspect
             std::max(std::sqrt(new_norm_squared),
                      std::numeric_limits<double>::min());
 
-          std::string assigned_boundary = "unassigned";
-          const auto &plugins =
-            this->get_boundary_traction_manager().get_active_plugins();
-          const auto &plugin_boundaries =
-            this->get_boundary_traction_manager()
-            .get_active_plugin_boundary_indicators();
-          unsigned int plugin_index = 0;
-          for (const auto &plugin : plugins)
+          if (print_self_gravity_diagnostic_once("relative change",
+                                                 this->get_timestep_number(),
+                                                 potential_iteration_number))
             {
-              if (plugin.get() == this)
-                assigned_boundary = this->get_geometry_model()
-                                    .translate_id_to_symbol_name(
-                                      plugin_boundaries[plugin_index]);
-              ++plugin_index;
-            }
-          this->get_pcout()
-              << "      Self-gravity potential update ["
-              << assigned_boundary << "]:" << std::endl
-              << "        iteration=" << potential_iteration_number
-              << "/" << maximum_potential_iterations << std::endl
-              << "        relative SH coefficient change="
-              << std::scientific << std::setprecision(6)
-              << potential_relative_change << std::defaultfloat << std::endl;
+              this->get_pcout()
+                  << "      Self-gravity potential update: "
+                  << "relative SH coefficient change="
+                  << std::scientific << std::setprecision(6)
+                  << potential_relative_change << std::defaultfloat << std::endl;
 
-          if (potential_relative_change > potential_convergence_tolerance
-              && potential_iteration_number >= maximum_potential_iterations)
-            this->get_pcout()
-                << "        status=maximum iterations reached" << std::endl;
+              if (potential_relative_change > potential_convergence_tolerance
+                  && potential_iteration_number >= maximum_potential_iterations)
+                this->get_pcout()
+                    << "        status=maximum iterations reached" << std::endl;
+            }
         }
     }
 
@@ -832,8 +840,9 @@ namespace aspect
                 + (enable_cmb_potential_traction
                    ? -potential_height
                    : 0.0))
-             * normal_vector;
+	             * normal_vector;
     }
+
 
 
     template <int dim>

@@ -1159,7 +1159,14 @@ namespace aspect
           distributed_mesh_displacements = mesh_displacements;
           double dt = this->get_timestep();
           if (dt == 0.0 && this->get_timestep_number() == 0)
-            dt = sim.parameters.initial_elastic_response_time_step;
+            {
+              dt = sim.parameters.initial_elastic_response_time_step;
+
+              if (this->get_material_model()
+                  .use_instantaneous_elastic_response_at_timestep_zero()
+                  && this->get_material_model().fixed_elastic_time_step() > 0.0)
+                dt = this->get_material_model().fixed_elastic_time_step();
+            }
           distributed_mesh_displacements.add(dt, solution);
           mesh_displacements = distributed_mesh_displacements;
         }
@@ -1490,7 +1497,14 @@ namespace aspect
           distributed_mesh_displacements = mesh_displacements;
           double dt = this->get_timestep();
           if (dt == 0.0 && this->get_timestep_number() == 0)
-            dt = sim.parameters.initial_elastic_response_time_step;
+            {
+              dt = sim.parameters.initial_elastic_response_time_step;
+
+              if (this->get_material_model()
+                  .use_instantaneous_elastic_response_at_timestep_zero()
+                  && this->get_material_model().fixed_elastic_time_step() > 0.0)
+                dt = this->get_material_model().fixed_elastic_time_step();
+            }
           distributed_mesh_displacements.add(dt, solution_tmp);
           mesh_displacements = distributed_mesh_displacements;
         }

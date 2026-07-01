@@ -232,6 +232,15 @@ namespace aspect
     {
       return elastic_rheology.get_use_instantaneous_elastic_response_at_timestep_zero();
     }
+
+
+
+    template <int dim>
+    double
+    Viscoelastic<dim>::fixed_elastic_time_step() const
+    {
+      return elastic_rheology.get_fixed_elastic_time_step();
+    }
   }
 }
 

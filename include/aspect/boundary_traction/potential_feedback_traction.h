@@ -59,6 +59,24 @@ namespace aspect
                           const Point<dim> &position,
                           const Tensor<1,dim> &normal_vector) const override;
 
+        bool has_self_gravity_feedback() const;
+
+        std::pair<double,double>
+        surface_mass_potential_coefficient(const unsigned int degree,
+                                           const unsigned int order) const;
+
+        std::pair<double,double>
+        cmb_mass_potential_coefficient(const unsigned int degree,
+                                       const unsigned int order) const;
+
+        std::pair<double,double>
+        tidal_surface_potential_coefficient(const unsigned int degree,
+                                            const unsigned int order) const;
+
+        double surface_density_jump() const;
+
+        double cmb_density_jump() const;
+
         bool potential_is_converged() const;
 
         static void declare_parameters(ParameterHandler &prm);
@@ -66,6 +84,12 @@ namespace aspect
 
       private:
         bool mechanism_is_active(const std::string &name) const;
+
+        PotentialFeedbackTraction<dim> &
+        primary_provider();
+
+        const PotentialFeedbackTraction<dim> &
+        primary_provider() const;
 
         PotentialFeedback::Settings settings;
         bool self_gravity_active = false;

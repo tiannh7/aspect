@@ -1422,6 +1422,12 @@ namespace aspect
           return false;
         }
 
+        virtual double
+        fixed_elastic_time_step() const
+        {
+          return 0.0;
+        }
+
         /**
          * Fill the additional material model inputs that have been attached
          * by the individual heating or material models in the

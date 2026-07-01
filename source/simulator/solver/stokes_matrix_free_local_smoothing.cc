@@ -806,9 +806,17 @@ namespace aspect
               double effective_time_step = this->get_timestep();
 
               if (this->get_timestep_number() == 0
-                  && effective_time_step == 0.0
-                  && this->get_parameters().initial_elastic_response_time_step > 0.0)
-                effective_time_step = this->get_parameters().initial_elastic_response_time_step;
+                  && effective_time_step == 0.0)
+                {
+                  effective_time_step =
+                    this->get_parameters().initial_elastic_response_time_step;
+
+                  if (this->get_material_model()
+                      .use_instantaneous_elastic_response_at_timestep_zero()
+                      && this->get_material_model().fixed_elastic_time_step() > 0.0)
+                    effective_time_step =
+                      this->get_material_model().fixed_elastic_time_step();
+                }
 
               for (unsigned int face=n_faces_interior; face<n_faces_boundary + n_faces_interior; ++face)
                 {

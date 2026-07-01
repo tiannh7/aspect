@@ -200,6 +200,9 @@ namespace aspect
         bool
         use_instantaneous_elastic_response_at_timestep_zero() const override;
 
+        double
+        fixed_elastic_time_step() const override;
+
       private:
         /**
          * Enumeration for selecting which viscosity averaging scheme to use.

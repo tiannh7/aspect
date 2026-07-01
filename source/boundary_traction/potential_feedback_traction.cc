@@ -39,9 +39,49 @@ namespace aspect
 
 
     template <int dim>
+    PotentialFeedbackTraction<dim> &
+    PotentialFeedbackTraction<dim>::primary_provider()
+    {
+      for (const auto &plugin :
+           this->get_boundary_traction_manager().get_active_plugins())
+        if (auto *provider =
+              dynamic_cast<PotentialFeedbackTraction<dim> *>(plugin.get()))
+          return *provider;
+
+      AssertThrow(false,
+                  ExcMessage("Could not find a primary `potential feedback' "
+                             "boundary traction provider."));
+      return *this;
+    }
+
+
+
+    template <int dim>
+    const PotentialFeedbackTraction<dim> &
+    PotentialFeedbackTraction<dim>::primary_provider() const
+    {
+      for (const auto &plugin :
+           this->get_boundary_traction_manager().get_active_plugins())
+        if (const auto *provider =
+              dynamic_cast<const PotentialFeedbackTraction<dim> *>(
+                plugin.get()))
+          return *provider;
+
+      AssertThrow(false,
+                  ExcMessage("Could not find a primary `potential feedback' "
+                             "boundary traction provider."));
+      return *this;
+    }
+
+
+
+    template <int dim>
     void
     PotentialFeedbackTraction<dim>::initialize()
     {
+      if (&primary_provider() != this)
+        return;
+
       if (self_gravity_active)
         self_gravity.initialize();
 
@@ -55,6 +95,9 @@ namespace aspect
     void
     PotentialFeedbackTraction<dim>::update()
     {
+      if (&primary_provider() != this)
+        return;
+
       if (self_gravity_active)
         self_gravity.update();
 
@@ -71,6 +114,11 @@ namespace aspect
                       const Point<dim> &position,
                       const Tensor<1,dim> &normal_vector) const
     {
+      if (&primary_provider() != this)
+        return primary_provider().boundary_traction(boundary_indicator,
+                                                    position,
+                                                    normal_vector);
+
       Tensor<1,dim> traction;
 
       if (self_gravity_active)
@@ -90,8 +138,107 @@ namespace aspect
 
     template <int dim>
     bool
+    PotentialFeedbackTraction<dim>::has_self_gravity_feedback() const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().has_self_gravity_feedback();
+
+      return self_gravity_active;
+    }
+
+
+
+    template <int dim>
+    std::pair<double,double>
+    PotentialFeedbackTraction<dim>::surface_mass_potential_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().surface_mass_potential_coefficient(degree,
+                                                                     order);
+
+      AssertThrow(self_gravity_active,
+                  ExcMessage("The `potential feedback' boundary traction "
+                             "does not have active self-gravity feedback."));
+      return self_gravity.surface_mass_potential_coefficient(degree, order);
+    }
+
+
+
+    template <int dim>
+    std::pair<double,double>
+    PotentialFeedbackTraction<dim>::cmb_mass_potential_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().cmb_mass_potential_coefficient(degree,
+                                                                 order);
+
+      AssertThrow(self_gravity_active,
+                  ExcMessage("The `potential feedback' boundary traction "
+                             "does not have active self-gravity feedback."));
+      return self_gravity.cmb_mass_potential_coefficient(degree, order);
+    }
+
+
+
+    template <int dim>
+    std::pair<double,double>
+    PotentialFeedbackTraction<dim>::tidal_surface_potential_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().tidal_surface_potential_coefficient(degree,
+                                                                      order);
+
+      AssertThrow(self_gravity_active,
+                  ExcMessage("The `potential feedback' boundary traction "
+                             "does not have active self-gravity feedback."));
+      return self_gravity.tidal_surface_potential_coefficient(degree, order);
+    }
+
+
+
+    template <int dim>
+    double
+    PotentialFeedbackTraction<dim>::surface_density_jump() const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().surface_density_jump();
+
+      AssertThrow(self_gravity_active,
+                  ExcMessage("The `potential feedback' boundary traction "
+                             "does not have active self-gravity feedback."));
+      return self_gravity.surface_density_jump();
+    }
+
+
+
+    template <int dim>
+    double
+    PotentialFeedbackTraction<dim>::cmb_density_jump() const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().cmb_density_jump();
+
+      AssertThrow(self_gravity_active,
+                  ExcMessage("The `potential feedback' boundary traction "
+                             "does not have active self-gravity feedback."));
+      return self_gravity.cmb_density_jump();
+    }
+
+
+
+    template <int dim>
+    bool
     PotentialFeedbackTraction<dim>::potential_is_converged() const
     {
+      if (&primary_provider() != this)
+        return primary_provider().potential_is_converged();
+
       return (!self_gravity_active || self_gravity.potential_is_converged())
              &&
              (!rotational_feedback_active

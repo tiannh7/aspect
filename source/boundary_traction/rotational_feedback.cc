@@ -251,7 +251,9 @@ namespace aspect
                         position);
                     const double radius = scoord[0];
                     const double phi = scoord[1];
-                    const double theta = scoord[2];
+                    double theta = numbers::PI / 2.0;
+                    if constexpr (dim == 3)
+                      theta = scoord[2];
                     const Tensor<1,dim> radial_unit = position / radius;
 
                     const double predicted_radial_displacement =
@@ -521,20 +523,16 @@ namespace aspect
           std::sqrt(difference_squared) / std::sqrt(new_norm_squared);
 
       this->get_pcout()
-          << "      Rotational feedback potential update:" << std::endl
-          << "        iteration=" << potential_iteration_number
-          << "/" << maximum_potential_iterations << std::endl
-          << "        products of inertia [kg m^2]: dIxz="
-          << std::scientific << std::setprecision(6) << delta_ixz
-          << ", dIyz=" << delta_iyz << std::endl
-          << "        angular-velocity perturbation [rad/s]: ("
+          << "      Rotational feedback potential update: "
+          << "relative SH coefficient change="
+          << std::scientific << std::setprecision(6)
+          << potential_relative_change
+          << ", dIxz=" << delta_ixz
+          << ", dIyz=" << delta_iyz
+          << ", domega=("
           << rotation_vector_perturbation[0] << ", "
-          << rotation_vector_perturbation[1] << ", 0)" << std::endl
-          << "        center-of-mass shift [m]: ("
-          << center_of_mass_shift[0] << ", " << center_of_mass_shift[1]
-          << ", " << center_of_mass_shift[2] << ")" << std::endl
-          << "        relative SH coefficient change="
-          << potential_relative_change << std::defaultfloat << std::endl;
+          << rotation_vector_perturbation[1] << ", 0)"
+          << std::defaultfloat << std::endl;
 
       if (potential_relative_change > potential_convergence_tolerance
           && potential_iteration_number >= maximum_potential_iterations)
@@ -561,7 +559,11 @@ namespace aspect
 
       const std::array<double, dim> scoord =
         Utilities::Coordinates::cartesian_to_spherical_coordinates(position);
-      const std::vector<double> theta = {scoord[2]};
+      double polar_angle = numbers::PI / 2.0;
+      if constexpr (dim == 3)
+        polar_angle = scoord[2];
+
+      const std::vector<double> theta = {polar_angle};
       const std::vector<double> phi = {scoord[1]};
 
       const std::vector<double> &cos_coeffs =

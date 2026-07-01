@@ -204,6 +204,15 @@ namespace aspect
           }
 
           /**
+           * Return the fixed elastic time step.
+           */
+          double
+          get_fixed_elastic_time_step() const
+          {
+            return fixed_elastic_time_step;
+          }
+
+          /**
            * Calculate the effective elastic viscosity (this is the equivalent viscosity of
            * a material which was unstressed at the end of the previous timestep).
            */

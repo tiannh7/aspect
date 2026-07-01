@@ -1663,8 +1663,6 @@ namespace aspect
     if (stress_start_index == numbers::invalid_unsigned_int)
       return;
 
-    pcout << "   Initializing instantaneous elastic stress... " << std::flush;
-
     std::vector<Point<dim>> unique_support_points;
     std::vector<std::vector<unsigned int>> support_point_index_by_field;
     std::vector<AdvectionField> advection_fields;
@@ -1694,7 +1692,10 @@ namespace aspect
     const unsigned int n_independent_components = (dim == 2 ? 3 : 6);
     const unsigned int component_idx_T = introspection.component_indices.temperature;
 
-    const double dt_elastic = parameters.initial_elastic_response_time_step;
+    double dt_elastic = parameters.initial_elastic_response_time_step;
+    if (material_model->use_instantaneous_elastic_response_at_timestep_zero()
+        && material_model->fixed_elastic_time_step() > 0.0)
+      dt_elastic = material_model->fixed_elastic_time_step();
 
     std::vector<SymmetricTensor<2, dim>> strain_rates (n_q_points);
 
@@ -1789,7 +1790,6 @@ namespace aspect
           }
       }
 
-    pcout << "done." << std::endl;
   }
 
   template <int dim>

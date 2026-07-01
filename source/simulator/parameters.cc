@@ -240,10 +240,12 @@ namespace aspect
     prm.declare_entry ("Initial elastic response time step",
                        "0.",
                        Patterns::Double (0.),
-                       "The physical time step size representing the interval over which the "
-                       "instantaneous elastic response is accumulated at timestep zero. "
-                       "This should be matched with the timestep used in gravity "
-                       "and boundary operators for timestep zero. "
+                       "Legacy fallback for the physical time step size representing "
+                       "the interval over which the instantaneous elastic response is "
+                       "accumulated at timestep zero. If the material model uses "
+                       "instantaneous elastic response at timestep zero and provides "
+                       "a fixed elastic time step, that material-model value is used "
+                       "instead. "
                        "Units: Years or seconds, depending on the ``Use years instead of seconds'' parameter.");
 
     prm.declare_entry ("Use Citcom-style CMB radial restoring", "false",

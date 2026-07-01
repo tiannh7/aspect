@@ -330,7 +330,7 @@ namespace aspect
 
           Utilities::create_directory(this->get_output_directory() + "surface_stress/",
                                       this->get_mpi_communicator(),
-                                      false);
+                                      true);
 
           if (Utilities::MPI::this_mpi_process(this->get_mpi_communicator()) == 0)
             {
