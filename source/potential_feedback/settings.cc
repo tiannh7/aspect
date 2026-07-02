@@ -312,7 +312,7 @@ namespace aspect
             legacy_density_below_cmb != -1e300)
           {
             pcout << "WARNING: Subsection 'Potential feedback / Interface properties' is deprecated. "
-                              << "Please define interface densities directly in 'Potential feedback / Self gravity' instead." << std::endl;
+                  << "Please define interface densities directly in 'Potential feedback / Self gravity' instead." << std::endl;
 
             // Fill missing legacy values with defaults if some were not specified
             if (legacy_density_above_surface == -1e300) legacy_density_above_surface = 0.0;
@@ -347,7 +347,7 @@ namespace aspect
         if (legacy_source_interfaces != "unspecified" && legacy_source_interfaces != "surface, CMB")
           {
             pcout << "WARNING: Parameter 'Potential feedback / Self gravity / Source interfaces' is deprecated. "
-                              << "Source interfaces are now inferred from explicit surface/CMB density parameters." << std::endl;
+                  << "Source interfaces are now inferred from explicit surface/CMB density parameters." << std::endl;
             self_gravity_source_interfaces = Utilities::split_string_list(legacy_source_interfaces);
           }
         else

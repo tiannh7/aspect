@@ -1246,7 +1246,7 @@ namespace aspect
         prm.enter_subsection("Geoid");
         {
           include_surface_topo_contribution = prm.get_bool ("Include surface topography contribution");
-                  include_CMB_topo_contribution = prm.get_bool ("Include CMB topography contribution");
+          include_CMB_topo_contribution = prm.get_bool ("Include CMB topography contribution");
           max_degree = prm.get_integer ("Maximum degree");
           min_degree = prm.get_integer ("Minimum degree");
           output_in_lat_lon = prm.get_bool ("Output data in geographical coordinates");

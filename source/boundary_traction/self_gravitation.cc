@@ -47,20 +47,6 @@ namespace aspect
       }
 
       bool
-      self_gravity_boundary_list_contains_surface(const std::vector<std::string> &values)
-      {
-        return self_gravity_list_contains(values, "outer")
-               || self_gravity_list_contains(values, "top");
-      }
-
-      bool
-      self_gravity_boundary_list_contains_cmb(const std::vector<std::string> &values)
-      {
-        return self_gravity_list_contains(values, "inner")
-               || self_gravity_list_contains(values, "bottom");
-      }
-
-      bool
       print_self_gravity_diagnostic_once(
         const std::string &name,
         const unsigned int timestep_number,
@@ -90,49 +76,28 @@ namespace aspect
 
       if (configured_from_potential_feedback)
         {
-          bool surface_active = false;
-          bool cmb_active = false;
+          enable_surface_potential_traction = true;
+          enable_cmb_potential_traction = true;
 
-          const auto &traction_manager = this->get_boundary_traction_manager();
-          const auto &plugins = traction_manager.get_active_plugins();
-          const auto &plugin_boundaries = traction_manager.get_active_plugin_boundary_indicators();
-
-          unsigned int idx = 0;
-          for (const auto &plugin : plugins)
-            {
-              const auto boundary_id = plugin_boundaries[idx];
-
-              const bool is_self_grav =
-                (dynamic_cast<const SelfGravitation<dim> *>(plugin.get()) != nullptr) ||
-                (dynamic_cast<const PotentialFeedbackTraction<dim> *>(plugin.get()) != nullptr);
-
-              if (is_self_grav)
-                {
-                  if (boundary_id == top_boundary_id)
-                    surface_active = true;
-                  else if (boundary_id == bottom_boundary_id)
-                    cmb_active = true;
-                }
-              ++idx;
-            }
-
-          // Check legacy setting for warning
           if (has_legacy_apply_boundaries)
             {
-              const bool legacy_has_surface = self_gravity_boundary_list_contains_surface(legacy_apply_boundaries);
-              const bool legacy_has_cmb = self_gravity_boundary_list_contains_cmb(legacy_apply_boundaries);
-              if (legacy_has_surface != surface_active || legacy_has_cmb != cmb_active)
-                {
-                  dealii::ConditionalOStream pcout(std::cout, dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0);
-                  pcout << "WARNING: Parameter <Potential feedback/Self gravity/Apply to boundary indicators> is deprecated. "
-                        << "Self-gravity traction boundaries are now inferred from the active boundary traction plugin assignment. "
-                        << "Please remove this parameter from the prm file. "
-                        << "The legacy parameter value is ignored in favor of the active boundary traction plugin assignment." << std::endl;
-                }
+              dealii::ConditionalOStream pcout(
+                std::cout,
+                dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0);
+              pcout << "WARNING: Parameter <Potential feedback/Self gravity/"
+                    << "Apply to boundary indicators> is deprecated. "
+                    << "Self-gravity traction boundaries are now inferred from "
+                    << "the active `potential feedback' boundary traction "
+                    << "assignments." << std::endl;
             }
-
-          enable_surface_potential_traction = surface_active;
-          enable_cmb_potential_traction = cmb_active;
+        }
+      else
+        {
+          const double mm_initial_elastic_dt = this->get_material_model().initial_elastic_time_step();
+          if (mm_initial_elastic_dt > 0.0 && initial_displacement_timestep == 0.0)
+            {
+              initial_displacement_timestep = mm_initial_elastic_dt;
+            }
         }
 
       last_text_output_time = -1.0;
@@ -888,7 +853,7 @@ namespace aspect
                 + (enable_cmb_potential_traction
                    ? -potential_height
                    : 0.0))
-	             * normal_vector;
+             * normal_vector;
     }
 
 
@@ -927,11 +892,6 @@ namespace aspect
       potential_relative_change = std::numeric_limits<double>::infinity();
       current_potential_iteration_step = (unsigned int)-1;
       potential_iteration_number = 0;
-
-      if (this->convert_output_to_years())
-        {
-          initial_displacement_timestep *= year_in_seconds;
-        }
 
       AssertThrow(min_degree <= max_degree,
                   ExcMessage("Potential feedback/Self gravity/Minimum degree "

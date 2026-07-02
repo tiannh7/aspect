@@ -216,6 +216,21 @@ namespace aspect
       this->get_material_model().evaluate(in, out);
       const double density0 = out.densities[0];
 
+      // Double subtraction check:
+      if (this->get_parameters().stokes_pressure_formulation_is_dynamic)
+        {
+          if (density0 < this->get_parameters().stokes_pressure_reference_density * 0.5)
+            {
+              AssertThrow(false, ExcMessage("Double subtraction detected: Stokes formulation is dynamic pressure, "
+                                            "but the material model density at representative point is already a perturbation density "
+                                            "(density < reference_density / 2)."));
+            }
+        }
+
+      const double effective_density0 = this->get_parameters().stokes_pressure_formulation_is_dynamic
+                                        ? (density0 - this->get_parameters().stokes_pressure_reference_density)
+                                        : density0;
+
       // Get the magnitude of gravity. We assume
       // that gravity always points along the depth direction. This
       // may not strictly be true always but is likely a good enough
@@ -224,7 +239,7 @@ namespace aspect
 
       // Now integrate pressure downward using trapezoidal integration
       // p'(z) = rho(p,c,T) * |g| * delta_z
-      double sum = delta_z * 0.5 * density0 * gravity0;
+      double sum = delta_z * 0.5 * effective_density0 * gravity0;
 
       for (unsigned int i=1; i<n_points; ++i)
         {
@@ -265,13 +280,16 @@ namespace aspect
           // Evaluate the material model to get the density at the current point.
           this->get_material_model().evaluate(in, out);
           const double density = out.densities[0];
+          const double effective_density = this->get_parameters().stokes_pressure_formulation_is_dynamic
+                                           ? (density - this->get_parameters().stokes_pressure_reference_density)
+                                           : density;
 
           // Get the magnitude of gravity.
           const double gravity = this->get_gravity_model().gravity_vector(in.position[0]).norm();
 
           // Trapezoid integration
-          pressure[i] = sum + delta_z * 0.5 * density * gravity;
-          sum += delta_z * density * gravity;
+          pressure[i] = sum + delta_z * 0.5 * effective_density * gravity;
+          sum += delta_z * effective_density * gravity;
         }
 
       Assert (*std::min_element (pressure.begin(), pressure.end()) >=

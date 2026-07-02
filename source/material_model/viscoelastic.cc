@@ -73,9 +73,16 @@ namespace aspect
           if (additional_stokes_rhs != nullptr &&
               this->get_parameters().stokes_pressure_formulation_is_dynamic &&
               this->get_parameters().stokes_pressure_reference_density > 0.0)
-            additional_stokes_rhs->rhs_u[i] =
-              -this->get_parameters().stokes_pressure_reference_density
-              * this->get_gravity_model().gravity_vector(in.position[i]);
+            {
+              if (out.densities[i] < this->get_parameters().stokes_pressure_reference_density * 0.5)
+                {
+                  AssertThrow(false, ExcMessage("Double subtraction detected: Stokes RHS includes reference density subtraction, "
+                                                "but the material model density is already perturbation density."));
+                }
+              additional_stokes_rhs->rhs_u[i] =
+                -this->get_parameters().stokes_pressure_reference_density
+                * this->get_gravity_model().gravity_vector(in.position[i]);
+            }
 
           // Average the viscous viscosity and the shear modulus over the compositions
           average_elastic_shear_moduli[i] = MaterialUtilities::average_value(volume_fractions, elastic_shear_moduli, viscosity_averaging);

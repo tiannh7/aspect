@@ -650,9 +650,6 @@ namespace aspect
         rotational_feedback_boundary_list_contains_cmb(
           settings.rotational_apply_boundaries);
 
-      if (this->convert_output_to_years())
-        initial_displacement_timestep *= year_in_seconds;
-
       potential_relative_change = std::numeric_limits<double>::infinity();
       current_potential_iteration_step = (unsigned int)-1;
       potential_iteration_number = 0;

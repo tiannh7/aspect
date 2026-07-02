@@ -125,6 +125,7 @@ namespace aspect
       unsigned int maximum_iterations = 0;
       bool freeze_feedback_after_timestep_zero = false;
       bool iterate_with_stokes = true;
+      // Stored in seconds after parsing, matching ASPECT's internal time units.
       double initial_displacement_timestep = 0.0;
       bool has_legacy_initial_displacement_timestep = false;
       double legacy_initial_displacement_timestep = 0.0;
