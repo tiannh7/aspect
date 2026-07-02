@@ -428,6 +428,26 @@ endif()
 # Generate compile_commands.json for tooling (VS Code, etc.)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+option(ASPECT_SETUP_CLANGD
+       "Configure a clangd-friendly compilation database for editors."
+       OFF)
+
+if(ASPECT_SETUP_CLANGD)
+  message(STATUS "Setting up clangd-friendly compile_commands.json")
+  execute_process(COMMAND ${CMAKE_COMMAND} -E remove -f
+                          "${CMAKE_SOURCE_DIR}/compile_commands.json")
+  execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
+                          "${CMAKE_BINARY_DIR}/compile_commands.json"
+                          "${CMAKE_SOURCE_DIR}/compile_commands.json"
+                  RESULT_VARIABLE _aspect_clangd_symlink_result)
+  if(NOT _aspect_clangd_symlink_result EQUAL 0)
+    message(WARNING
+      "Could not create ${CMAKE_SOURCE_DIR}/compile_commands.json as a symlink "
+      "to ${CMAKE_BINARY_DIR}/compile_commands.json. clangd can still use "
+      "the compilation database directly from the build directory.")
+  endif()
+endif()
+
 
 # Also set a flag that we query when deciding whether to drive
 # compilers and linkers in such a way that error and warning messages
@@ -553,6 +573,14 @@ if(ASPECT_PRECOMPILE_HEADERS AND CMAKE_CXX_COMPILER_ID MATCHES "Intel")
   # Intel 19.1 produces internal compiler errors inside bundled boost with
   # precompiled headers, so we deactivate it:
   set(ASPECT_PRECOMPILE_HEADERS OFF CACHE BOOL "" FORCE)
+endif()
+
+if(ASPECT_SETUP_CLANGD)
+  set(ASPECT_PRECOMPILE_HEADERS OFF CACHE BOOL
+      "Precompile external header files to speedup compile time. Currently only supported for CMake 3.16 and newer versions." FORCE)
+  set(ASPECT_UNITY_BUILD OFF CACHE BOOL
+      "Combine source files into less compile targets to speedup compile time. Currently only supported for CMake 3.16 and newer versions." FORCE)
+  message(STATUS "Disabling precompiled headers and unity builds for clangd.")
 endif()
 
 

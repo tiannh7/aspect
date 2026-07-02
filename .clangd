@@ -1,0 +1,11 @@
+CompileFlags:
+  Add: [-std=gnu++17]
+
+Index:
+  Background: Build
+
+---
+If:
+  PathMatch: .*/build[^/]*/.*
+Index:
+  Background: Skip

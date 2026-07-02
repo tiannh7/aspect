@@ -4,6 +4,7 @@
 
 	// List of extensions which should be recommended for users of this workspace.
 	"recommendations": [
+		"llvm-vs-code-extensions.vscode-clangd",
 		"ms-vscode.cpptools",
 		"eamodio.gitlens",
 		"ms-vscode.cmake-tools",

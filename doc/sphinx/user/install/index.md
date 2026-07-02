@@ -84,4 +84,5 @@ The available options can be best presented in form of typical use cases:
 docker-container/index.md
 virtual-machine/index.md
 local-installation/index.md
+vscode-clangd.md
 :::
