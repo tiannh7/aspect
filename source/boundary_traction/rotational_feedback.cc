@@ -32,6 +32,8 @@
 #include <cmath>
 #include <iomanip>
 #include <limits>
+#include <set>
+#include <tuple>
 
 namespace aspect
 {
@@ -60,6 +62,22 @@ namespace aspect
       {
         return rotational_feedback_list_contains(values, "inner")
                || rotational_feedback_list_contains(values, "bottom");
+      }
+
+      bool
+      print_rotational_feedback_diagnostic_once(
+        const std::string &name,
+        const unsigned int timestep_number,
+        const unsigned int iteration_number)
+      {
+        static std::set<std::tuple<std::string, unsigned int, unsigned int>>
+        printed_diagnostics;
+
+        return printed_diagnostics
+               .insert(std::make_tuple(name,
+                                       timestep_number,
+                                       iteration_number))
+               .second;
       }
     }
 
@@ -522,22 +540,28 @@ namespace aspect
         potential_relative_change =
           std::sqrt(difference_squared) / std::sqrt(new_norm_squared);
 
-      this->get_pcout()
-          << "      Rotational feedback potential update: "
-          << "relative SH coefficient change="
-          << std::scientific << std::setprecision(6)
-          << potential_relative_change
-          << ", dIxz=" << delta_ixz
-          << ", dIyz=" << delta_iyz
-          << ", domega=("
-          << rotation_vector_perturbation[0] << ", "
-          << rotation_vector_perturbation[1] << ", 0)"
-          << std::defaultfloat << std::endl;
+      if (print_rotational_feedback_diagnostic_once(
+            "relative change",
+            this->get_timestep_number(),
+            potential_iteration_number))
+        {
+          this->get_pcout()
+              << "      Rotational feedback potential update: "
+              << "relative SH coefficient change="
+              << std::scientific << std::setprecision(6)
+              << potential_relative_change
+              << ", dIxz=" << delta_ixz
+              << ", dIyz=" << delta_iyz
+              << ", domega=("
+              << rotation_vector_perturbation[0] << ", "
+              << rotation_vector_perturbation[1] << ", 0)"
+              << std::defaultfloat << std::endl;
 
-      if (potential_relative_change > potential_convergence_tolerance
-          && potential_iteration_number >= maximum_potential_iterations)
-        this->get_pcout()
-            << "        status=maximum iterations reached" << std::endl;
+          if (potential_relative_change > potential_convergence_tolerance
+              && potential_iteration_number >= maximum_potential_iterations)
+            this->get_pcout()
+                << "        status=maximum iterations reached" << std::endl;
+        }
     }
 
 

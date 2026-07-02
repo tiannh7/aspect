@@ -1110,9 +1110,14 @@ namespace aspect
                || !boundary_potential_feedback_converged));
 
     AssertThrow(nonlinear_solver_control.last_check() != SolverControl::failure, ExcNonlinearSolverNoConvergence());
-    AssertThrow(boundary_potential_feedback_converged,
-                ExcMessage("The non-local boundary potential feedback did "
-                           "not converge within the maximum nonlinear iterations."));
+    if (!boundary_potential_feedback_converged)
+      {
+        pcout << "      WARNING: The non-local boundary potential feedback did "
+              << "not converge within the maximum nonlinear iterations."
+              << std::endl
+              << std::endl;
+        throw ExcNonlinearSolverNoConvergence();
+      }
     signals.post_nonlinear_solver(nonlinear_solver_control);
   }
 
@@ -1424,9 +1429,14 @@ namespace aspect
                || !boundary_potential_feedback_converged));
 
     AssertThrow(nonlinear_solver_control.last_check() != SolverControl::failure, ExcNonlinearSolverNoConvergence());
-    AssertThrow(boundary_potential_feedback_converged,
-                ExcMessage("The non-local boundary potential feedback did "
-                           "not converge within the maximum nonlinear iterations."));
+    if (!boundary_potential_feedback_converged)
+      {
+        pcout << "      WARNING: The non-local boundary potential feedback did "
+              << "not converge within the maximum nonlinear iterations."
+              << std::endl
+              << std::endl;
+        throw ExcNonlinearSolverNoConvergence();
+      }
     signals.post_nonlinear_solver(nonlinear_solver_control);
   }
 
