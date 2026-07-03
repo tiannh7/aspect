@@ -24,6 +24,7 @@
 
 #include <aspect/postprocess/interface.h>
 #include <aspect/simulator_access.h>
+#include <aspect/potential_feedback/self_gravitation.h>
 
 
 namespace aspect
@@ -69,6 +70,8 @@ namespace aspect
          * Find if the top or bottom boundaries are free surfaces.
          */
         void initialize() override;
+
+        void initialize_simulator(const Simulator<dim> &simulator) override;
 
         /**
          * Evaluate the geoid solution at a point. The evaluation point
@@ -188,35 +191,7 @@ namespace aspect
         unsigned int time_steps_between_text_output = 1;
         double       last_text_output_time = -1e20;
 
-        /**
-         * Function to compute the real spherical harmonic coefficients (cos and sin part) from min degree to max degree
-         * The input spherical_function is a vector of vectors.
-         * The inner vector stores theta, phi, spherical infinitesimal, and function value on a spherical surface.
-         * The outer vector stores the inner vector associated with each quadrature point on a spherical surface.
-         */
-        std::pair<std::vector<double>,std::vector<double>>
-        to_spherical_harmonic_coefficients(const std::vector<std::vector<double>> &spherical_function) const;
-
-        /**
-         * Function to compute the density contribution in spherical harmonic expansion throughout the mantle
-         * The input outer radius is needed to evaluate the density integral contribution of whole model domain at the surface
-         * This function returns a pair containing real spherical harmonics of density integral (cos and sin part) from min degree to max degree.
-         */
-        std::pair<std::vector<double>,std::vector<double>>
-        density_contribution (const double &outer_radius) const;
-
-        /**
-         * Function to compute the surface and CMB topography contribution in spherical harmonic expansion
-         * The input inner and outer radius are used to calculate spherical infinitesimal area, i.e., sin(theta)*d_theta*d_phi
-         * associated with each quadrature point on surface and bottom respectively.
-         * This function returns a pair containing surface and CMB topography's real spherical harmonic coefficients (cos and sin part)
-         * from min degree to max degree. The surface and CMB average density are also included as the first single element of each subpair respectively.
-         * The topography is based on the dynamic topography postprocessor in case of no free surface,
-         * and based on the real surface from the geometry model in case of a free surface.
-         */
-        std::pair<std::pair<double, std::pair<std::vector<double>,std::vector<double>>>, std::pair<double, std::pair<std::vector<double>,std::vector<double>>>>
-        topography_contribution(const double &outer_radius,
-                                const double &inner_radius) const;
+        PotentialFeedback::SelfGravitation<dim> self_gravity_helper;
 
         /**
          * A vector to store the cosine terms of the geoid anomaly spherical harmonic coefficients.

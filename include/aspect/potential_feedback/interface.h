@@ -18,8 +18,8 @@
   <http://www.gnu.org/licenses/>.
 */
 
-#ifndef _aspect_potential_feedback_settings_h
-#define _aspect_potential_feedback_settings_h
+#ifndef _aspect_potential_feedback_interface_h
+#define _aspect_potential_feedback_interface_h
 
 #include <aspect/global.h>
 
@@ -113,9 +113,6 @@ namespace aspect
       double reference_density_for_internal_anomalies = 0.0;
       double internal_density_anomaly_tolerance = 0.0;
 
-      bool has_legacy_apply_boundaries = false;
-      std::vector<std::string> legacy_apply_boundaries;
-
       std::vector<std::string> rotational_inertia_source_interfaces;
       std::vector<std::string> rotational_apply_boundaries;
       unsigned int rotational_min_degree = 0;
@@ -127,8 +124,6 @@ namespace aspect
       bool iterate_with_stokes = true;
       // Stored in seconds after parsing, matching ASPECT's internal time units.
       double initial_displacement_timestep = 0.0;
-      bool has_legacy_initial_displacement_timestep = false;
-      double legacy_initial_displacement_timestep = 0.0;
 
       bool center_of_mass_correction = false;
       bool remove_pure_rotation_from_displacement = false;

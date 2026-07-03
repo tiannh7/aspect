@@ -18,12 +18,13 @@
   <http://www.gnu.org/licenses/>.
 */
 
-#include <aspect/boundary_traction/self_gravitation.h>
+#include <aspect/potential_feedback/self_gravitation.h>
 #include <aspect/geometry_model/spherical_shell.h>
 #include <aspect/geometry_model/interface.h>
 #include <aspect/gravity_model/interface.h>
 #include <aspect/mesh_deformation/free_surface.h>
 #include <aspect/simulator.h>
+#include <aspect/postprocess/boundary_densities.h>
 
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/fe/fe_values.h>
@@ -35,7 +36,7 @@
 
 namespace aspect
 {
-  namespace BoundaryTraction
+  namespace PotentialFeedback
   {
     namespace
     {
@@ -78,18 +79,6 @@ namespace aspect
         {
           enable_surface_potential_traction = true;
           enable_cmb_potential_traction = true;
-
-          if (has_legacy_apply_boundaries)
-            {
-              dealii::ConditionalOStream pcout(
-                std::cout,
-                dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0);
-              pcout << "WARNING: Parameter <Potential feedback/Self gravity/"
-                    << "Apply to boundary indicators> is deprecated. "
-                    << "Self-gravity traction boundaries are now inferred from "
-                    << "the active `potential feedback' boundary traction "
-                    << "assignments." << std::endl;
-            }
         }
       else
         {
@@ -884,8 +873,9 @@ namespace aspect
         settings.initial_displacement_timestep;
       potential_convergence_tolerance = settings.relative_tolerance;
       maximum_potential_iterations = settings.maximum_iterations;
-      has_legacy_apply_boundaries = settings.has_legacy_apply_boundaries;
-      legacy_apply_boundaries = settings.legacy_apply_boundaries;
+      include_internal_density_anomalies = settings.include_internal_density_anomalies;
+      reference_density_for_internal_anomalies = settings.reference_density_for_internal_anomalies;
+      internal_density_anomaly_tolerance = settings.internal_density_anomaly_tolerance;
       configured_from_potential_feedback = true;
       time_between_text_output = 0.0;
       time_steps_between_text_output = 0;
@@ -998,6 +988,16 @@ namespace aspect
                             "Diagnostic switch controlling whether Phi/g is "
                             "applied as a non-local traction at the CMB. The "
                             "local CMB topography term is unaffected.");
+          prm.declare_entry("Include internal density anomalies", "auto",
+                            Patterns::Selection("true|false|auto"),
+                            "Whether to include the internal mantle density anomalies "
+                            "contribution to the gravitational potential. Default is auto.");
+          prm.declare_entry("Reference density for internal anomalies", "0",
+                            Patterns::Double(),
+                            "Reference density used to define mantle density anomalies (kg/m^3).");
+          prm.declare_entry("Internal density anomaly tolerance", "0",
+                            Patterns::Double(0),
+                            "Density anomaly threshold below which the volume integral is skipped.");
           prm.enter_subsection("Tidal potential");
           {
             TidalPotential::declare_parameters(prm);
@@ -1052,6 +1052,12 @@ namespace aspect
             prm.get_bool("Enable surface potential traction");
           enable_cmb_potential_traction =
             prm.get_bool("Enable CMB potential traction");
+          include_internal_density_anomalies =
+            prm.get("Include internal density anomalies");
+          reference_density_for_internal_anomalies =
+            prm.get_double("Reference density for internal anomalies");
+          internal_density_anomaly_tolerance =
+            prm.get_double("Internal density anomaly tolerance");
           prm.enter_subsection("Tidal potential");
           {
             tidal_potential.parse_parameters(prm,
@@ -1090,6 +1096,375 @@ namespace aspect
       AssertThrow(planet_mean_density > 0.0,
                   ExcMessage("Planet mean density must be positive."));
     }
+
+
+    template <int dim>
+    std::string
+    SelfGravitation<dim>::get_include_internal_density_anomalies() const
+    {
+      return include_internal_density_anomalies;
+    }
+
+    template <int dim>
+    double
+    SelfGravitation<dim>::get_reference_density_for_internal_anomalies() const
+    {
+      return reference_density_for_internal_anomalies;
+    }
+
+    template <int dim>
+    double
+    SelfGravitation<dim>::get_internal_density_anomaly_tolerance() const
+    {
+      return internal_density_anomaly_tolerance;
+    }
+
+    template <int dim>
+    std::pair<std::vector<double>, std::vector<double>>
+    SelfGravitation<dim>::to_spherical_harmonic_coefficients(
+      const std::vector<std::vector<double>> &spherical_function) const
+    {
+      std::vector<double> cosi(spherical_function.size(), 0.0);
+      std::vector<double> sini(spherical_function.size(), 0.0);
+      std::vector<double> coecos;
+      std::vector<double> coesin;
+
+      for (unsigned int ideg = min_degree; ideg < max_degree + 1; ++ideg)
+        {
+          for (unsigned int iord = 0; iord < ideg + 1; ++iord)
+            {
+              // Do the spherical harmonic expansion.
+              for (unsigned int ds_num = 0; ds_num < spherical_function.size(); ++ds_num)
+                {
+                  // Normalization after Dahlen and Tromp (1986) Appendix B.6.
+                  const std::pair<double, double> sph_harm_vals =
+                    aspect::Utilities::real_spherical_harmonic(ideg, iord, spherical_function.at(ds_num).at(0), spherical_function.at(ds_num).at(1));
+                  const double cos_component = sph_harm_vals.first;
+                  const double sin_component = sph_harm_vals.second;
+
+                  cosi.at(ds_num) = (spherical_function.at(ds_num).at(3) * cos_component);
+                  sini.at(ds_num) = (spherical_function.at(ds_num).at(3) * sin_component);
+                }
+              // Integrate the contribution of each spherical infinitesimal.
+              double cosii = 0;
+              double sinii = 0;
+              for (unsigned int ds_num = 0; ds_num < spherical_function.size(); ++ds_num)
+                {
+                  cosii += cosi.at(ds_num) * spherical_function.at(ds_num).at(2);
+                  sinii += sini.at(ds_num) * spherical_function.at(ds_num).at(2);
+                }
+              coecos.push_back(cosii);
+              coesin.push_back(sinii);
+            }
+        }
+      // Sum over each processor.
+      dealii::Utilities::MPI::sum (coecos, this->get_mpi_communicator(), coecos);
+      dealii::Utilities::MPI::sum (coesin, this->get_mpi_communicator(), coesin);
+
+      return std::make_pair(coecos, coesin);
+    }
+
+    template <int dim>
+    std::pair<std::vector<double>, std::vector<double>>
+    SelfGravitation<dim>::compute_internal_density_potential(const double /*outer_radius*/) const
+    {
+      AssertThrow(false, ExcNotImplemented());
+      return std::make_pair(std::vector<double>(), std::vector<double>());
+    }
+
+    template <>
+    std::pair<std::vector<double>, std::vector<double>>
+    SelfGravitation<3>::compute_internal_density_potential(const double outer_radius) const
+    {
+      unsigned int n_coefficients = 0;
+      for (unsigned int degree = min_degree; degree <= max_degree; ++degree)
+        n_coefficients += degree + 1;
+
+      std::vector<double> SH_density_coecos(n_coefficients, 0.0);
+      std::vector<double> SH_density_coesin(n_coefficients, 0.0);
+
+      // Map "auto" to either true or false depending on whether there are temperature or compositional fields
+      bool actual_include_internal = false;
+      if (include_internal_density_anomalies == "true")
+        actual_include_internal = true;
+      else if (include_internal_density_anomalies == "false")
+        actual_include_internal = false;
+      else if (include_internal_density_anomalies == "auto")
+        {
+          actual_include_internal = (this->introspection().n_compositional_fields > 0 ||
+                                     this->introspection().variable_exists("temperature"));
+        }
+
+      if (!actual_include_internal)
+        {
+          return std::make_pair(SH_density_coecos, SH_density_coesin);
+        }
+
+      const unsigned int quadrature_degree = this->introspection().polynomial_degree.temperature;
+
+      // Need to evaluate density contribution of each volume quadrature point.
+      const QGauss<3> quadrature_formula(quadrature_degree);
+
+      FEValues<3> fe_values(this->get_mapping(),
+                            this->get_fe(),
+                            quadrature_formula,
+                            update_values |
+                            update_quadrature_points |
+                            update_JxW_values |
+                            update_gradients);
+
+      MaterialModel::MaterialModelInputs<3> in(fe_values.n_quadrature_points, this->n_compositional_fields());
+      MaterialModel::MaterialModelOutputs<3> out(fe_values.n_quadrature_points, this->n_compositional_fields());
+      in.requested_properties = MaterialModel::MaterialProperties::density;
+
+      const double effective_tolerance =
+        (internal_density_anomaly_tolerance > 0.0
+         ? internal_density_anomaly_tolerance
+         : 1e-12 * std::max(1.0, std::abs(reference_density_for_internal_anomalies)));
+
+      if (include_internal_density_anomalies == "auto")
+        {
+          double local_max_density_anomaly = 0.0;
+
+          for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+            if (cell->is_locally_owned())
+              {
+                fe_values.reinit(cell);
+                in.reinit(fe_values, cell, this->introspection(), this->get_solution());
+                this->get_material_model().evaluate(in, out);
+
+                for (unsigned int q = 0; q < quadrature_formula.size(); ++q)
+                  local_max_density_anomaly =
+                    std::max(local_max_density_anomaly,
+                             std::abs(out.densities[q] - reference_density_for_internal_anomalies));
+              }
+
+          const double global_max_density_anomaly =
+            Utilities::MPI::max(local_max_density_anomaly,
+                                this->get_mpi_communicator());
+
+          if (global_max_density_anomaly <= effective_tolerance)
+            {
+              return std::make_pair(SH_density_coecos, SH_density_coesin);
+            }
+        }
+
+      for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
+            fe_values.reinit(cell);
+            in.reinit(fe_values, cell, this->introspection(), this->get_solution());
+
+            this->get_material_model().evaluate(in, out);
+
+            for (unsigned int q = 0; q < quadrature_formula.size(); ++q)
+              {
+                const double density_anomaly = out.densities[q] - reference_density_for_internal_anomalies;
+
+                if (density_anomaly == 0.0)
+                  continue;
+
+                const std::array<double, 3> scoord =
+                  aspect::Utilities::Coordinates::cartesian_to_spherical_coordinates(in.position[q]);
+                const double r_q = in.position[q].norm();
+                const double JxW = fe_values.JxW(q);
+
+                unsigned int coefficient_index = 0;
+                for (unsigned int degree = min_degree; degree <= max_degree; ++degree)
+                  {
+#if DEAL_II_VERSION_GTE(9,6,0)
+                    const double radial_kernel =
+                      (1.0 / r_q) * Utilities::pow(r_q / outer_radius, degree + 1);
+#else
+                    const double radial_kernel =
+                      (1.0 / r_q) * std::pow(r_q / outer_radius, degree + 1);
+#endif
+
+                    for (unsigned int order = 0; order <= degree; ++order, ++coefficient_index)
+                      {
+                        const std::pair<double, double> sph_harm_vals =
+                          aspect::Utilities::real_spherical_harmonic(
+                            degree, order, scoord[2], scoord[1]);
+
+                        const double weighted_density =
+                          density_anomaly * radial_kernel * JxW;
+                        SH_density_coecos[coefficient_index] +=
+                          weighted_density * sph_harm_vals.first;
+                        SH_density_coesin[coefficient_index] +=
+                          weighted_density * sph_harm_vals.second;
+                      }
+                  }
+              }
+          }
+
+      dealii::Utilities::MPI::sum(SH_density_coecos, this->get_mpi_communicator(), SH_density_coecos);
+      dealii::Utilities::MPI::sum(SH_density_coesin, this->get_mpi_communicator(), SH_density_coesin);
+
+      return std::make_pair(SH_density_coecos, SH_density_coesin);
+    }
+
+    template <int dim>
+    std::pair<std::pair<double, std::pair<std::vector<double>, std::vector<double>>>, std::pair<double, std::pair<std::vector<double>, std::vector<double>>>>
+    SelfGravitation<dim>::compute_topography_potential(const double /*outer_radius*/, const double /*inner_radius*/) const
+    {
+      AssertThrow(false, ExcNotImplemented());
+      std::pair<double, std::pair<std::vector<double>, std::vector<double>>> temp;
+      return std::make_pair(temp, temp);
+    }
+
+    template <>
+    std::pair<std::pair<double, std::pair<std::vector<double>, std::vector<double>>>, std::pair<double, std::pair<std::vector<double>, std::vector<double>>>>
+    SelfGravitation<3>::compute_topography_potential(const double outer_radius, const double inner_radius) const
+    {
+      const Postprocess::BoundaryDensities<3> &boundary_densities =
+        this->get_postprocess_manager().template get_matching_active_plugin<Postprocess::BoundaryDensities<3>>();
+
+      const double top_layer_average_density = boundary_densities.density_at_top();
+      const double bottom_layer_average_density = boundary_densities.density_at_bottom();
+
+      const types::boundary_id top_boundary_id = this->get_geometry_model().translate_symbolic_boundary_name_to_id("top");
+      const types::boundary_id bottom_boundary_id = this->get_geometry_model().translate_symbolic_boundary_name_to_id("bottom");
+
+      const unsigned int quadrature_degree = this->introspection().polynomial_degree.temperature;
+      const QGauss<2> quadrature_formula_face(quadrature_degree);
+
+      FEFaceValues<3> fe_face_values(this->get_mapping(),
+                                     this->get_fe(),
+                                     quadrature_formula_face,
+                                     update_values |
+                                     update_normal_vectors |
+                                     update_quadrature_points |
+                                     update_JxW_values);
+
+      std::vector<std::pair<Point<3>, std::pair<double, double>>> surface_stored_values;
+      std::vector<std::pair<Point<3>, std::pair<double, double>>> CMB_stored_values;
+
+      const bool use_free_surface_topography = true;
+      const bool use_free_CMB_topography = include_cmb_contribution;
+
+      for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+        if (cell->is_locally_owned() && cell->at_boundary())
+          {
+            unsigned int face_idx = numbers::invalid_unsigned_int;
+            bool at_upper_surface = false;
+            {
+              for (const unsigned int f : cell->face_indices())
+                {
+                  if (cell->at_boundary(f) && cell->face(f)->boundary_id() == top_boundary_id)
+                    {
+                      face_idx = f;
+                      at_upper_surface = true;
+                      break;
+                    }
+                  else if (cell->at_boundary(f) && cell->face(f)->boundary_id() == bottom_boundary_id)
+                    {
+                      face_idx = f;
+                      at_upper_surface = false;
+                      break;
+                    }
+                }
+              if (face_idx == numbers::invalid_unsigned_int)
+                continue;
+            }
+
+            fe_face_values.reinit(cell, face_idx);
+
+            if (at_upper_surface)
+              {
+                if (use_free_surface_topography)
+                  {
+                    const auto &boundary_traction_manager = this->get_boundary_traction_manager();
+                    const std::set<types::boundary_id> &prescribed_traction_boundary_indicators =
+                      boundary_traction_manager.get_prescribed_boundary_traction_indicators();
+                    const bool has_active_boundary_traction = (boundary_traction_manager.get_active_plugins().empty() == false);
+
+                    for (unsigned int q = 0; q < fe_face_values.n_quadrature_points; ++q)
+                      {
+                        const Point<3> current_position = fe_face_values.quadrature_point(q);
+                        double topography = this->get_geometry_model().height_above_reference_surface(current_position);
+
+                        if (has_active_boundary_traction &&
+                            prescribed_traction_boundary_indicators.find(cell->face(face_idx)->boundary_id()) !=
+                            prescribed_traction_boundary_indicators.end())
+                          {
+                            const Tensor<1, 3> traction = boundary_traction_manager.boundary_traction(
+                                                            cell->face(face_idx)->boundary_id(), fe_face_values.quadrature_point(q), fe_face_values.normal_vector(q));
+                            const double normal_traction = traction * fe_face_values.normal_vector(q);
+
+                            if (std::abs(normal_traction) > 1e-10)
+                              {
+                                const double gravity = this->get_gravity_model().gravity_vector(current_position).norm();
+                                const double delta_rho = top_layer_average_density;
+                                if (std::abs(delta_rho) > 0.0)
+                                  topography -= normal_traction / (gravity * delta_rho);
+                              }
+                          }
+
+                        surface_stored_values.emplace_back(current_position, std::make_pair(fe_face_values.JxW(q), topography));
+                      }
+                  }
+                else
+                  {
+                    for (unsigned int q = 0; q < fe_face_values.n_quadrature_points; ++q)
+                      {
+                        surface_stored_values.emplace_back(fe_face_values.quadrature_point(q), std::make_pair(fe_face_values.JxW(q), 0.0));
+                      }
+                  }
+              }
+
+            if (at_upper_surface == false)
+              {
+                if (use_free_CMB_topography)
+                  {
+                    for (unsigned int q = 0; q < fe_face_values.n_quadrature_points; ++q)
+                      {
+                        const Point<3> current_position = fe_face_values.quadrature_point(q);
+                        const double topography = this->get_geometry_model().height_above_reference_surface(current_position) + (outer_radius - inner_radius);
+                        CMB_stored_values.emplace_back(current_position, std::make_pair(fe_face_values.JxW(q), topography));
+                      }
+                  }
+                else
+                  {
+                    for (unsigned int q = 0; q < fe_face_values.n_quadrature_points; ++q)
+                      {
+                        CMB_stored_values.emplace_back(fe_face_values.quadrature_point(q), std::make_pair(fe_face_values.JxW(q), 0.0));
+                      }
+                  }
+              }
+          }
+
+      std::vector<std::vector<double>> surface_topo_spherical_function;
+      std::vector<std::vector<double>> CMB_topo_spherical_function;
+
+      for (const auto &surface_stored_value : surface_stored_values)
+        {
+          const std::array<double, 3> scoord = aspect::Utilities::Coordinates::cartesian_to_spherical_coordinates(surface_stored_value.first);
+          const double infinitesimal = surface_stored_value.second.first / (outer_radius * outer_radius);
+          surface_topo_spherical_function.emplace_back(std::vector<double> {scoord[2],
+                                                                            scoord[1],
+                                                                            infinitesimal,
+                                                                            surface_stored_value.second.second
+                                                                           });
+        }
+
+      for (const auto &CMB_stored_value : CMB_stored_values)
+        {
+          const std::array<double, 3> scoord = aspect::Utilities::Coordinates::cartesian_to_spherical_coordinates(CMB_stored_value.first);
+          const double infinitesimal = CMB_stored_value.second.first / (inner_radius * inner_radius);
+          CMB_topo_spherical_function.emplace_back(std::vector<double> {scoord[2],
+                                                                        scoord[1],
+                                                                        infinitesimal,
+                                                                        CMB_stored_value.second.second
+                                                                       });
+        }
+
+      std::pair<double, std::pair<std::vector<double>, std::vector<double>>> SH_surface_topo_coes
+        = std::make_pair(top_layer_average_density, to_spherical_harmonic_coefficients(surface_topo_spherical_function));
+      std::pair<double, std::pair<std::vector<double>, std::vector<double>>> SH_CMB_topo_coes
+        = std::make_pair(bottom_layer_average_density, to_spherical_harmonic_coefficients(CMB_topo_spherical_function));
+
+      return std::make_pair(SH_surface_topo_coes, SH_CMB_topo_coes);
+    }
   }
 }
 
@@ -1097,7 +1472,7 @@ namespace aspect
 // Explicit instantiations
 namespace aspect
 {
-  namespace BoundaryTraction
+  namespace PotentialFeedback
   {
     template class SelfGravitation<2>;
     template class SelfGravitation<3>;

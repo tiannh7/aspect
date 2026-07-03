@@ -18,11 +18,11 @@
   <http://www.gnu.org/licenses/>.
 */
 
-#ifndef _aspect_boundary_traction_rotational_feedback_h
-#define _aspect_boundary_traction_rotational_feedback_h
+#ifndef _aspect_potential_feedback_rotational_feedback_h
+#define _aspect_potential_feedback_rotational_feedback_h
 
 #include <aspect/boundary_traction/interface.h>
-#include <aspect/potential_feedback/settings.h>
+#include <aspect/potential_feedback/interface.h>
 #include <aspect/simulator_access.h>
 #include <aspect/utilities.h>
 
@@ -31,7 +31,7 @@
 
 namespace aspect
 {
-  namespace BoundaryTraction
+  namespace PotentialFeedback
   {
     /**
      * Boundary traction plugin for the rotational-potential feedback associated
@@ -47,7 +47,7 @@ namespace aspect
      * @ingroup BoundaryTractions
      */
     template <int dim>
-    class RotationalFeedback : public Interface<dim>,
+    class RotationalFeedback : public BoundaryTraction::Interface<dim>,
       public ::aspect::SimulatorAccess<dim>
     {
       public:

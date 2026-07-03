@@ -18,8 +18,8 @@
   <http://www.gnu.org/licenses/>.
 */
 
-#include <aspect/boundary_traction/rotational_feedback.h>
-#include <aspect/boundary_traction/self_gravitation.h>
+#include <aspect/potential_feedback/rotational_feedback.h>
+#include <aspect/potential_feedback/self_gravitation.h>
 #include <aspect/geometry_model/spherical_shell.h>
 #include <aspect/gravity_model/interface.h>
 #include <aspect/mesh_deformation/interface.h>
@@ -37,7 +37,7 @@
 
 namespace aspect
 {
-  namespace BoundaryTraction
+  namespace PotentialFeedback
   {
     namespace
     {
@@ -888,7 +888,7 @@ namespace aspect
 // Explicit instantiations
 namespace aspect
 {
-  namespace BoundaryTraction
+  namespace PotentialFeedback
   {
     template class RotationalFeedback<2>;
     template class RotationalFeedback<3>;

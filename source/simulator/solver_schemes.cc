@@ -26,8 +26,8 @@
 #include <aspect/newton.h>
 #include <aspect/melt.h>
 #include <aspect/boundary_traction/potential_feedback_traction.h>
-#include <aspect/boundary_traction/self_gravitation.h>
-#include <aspect/boundary_traction/rotational_feedback.h>
+#include <aspect/potential_feedback/self_gravitation.h>
+#include <aspect/potential_feedback/rotational_feedback.h>
 
 #include <deal.II/numerics/vector_tools.h>
 
@@ -1077,12 +1077,12 @@ namespace aspect
         for (const auto &plugin : boundary_traction_manager.get_active_plugins())
           {
             if (const auto *self_gravity =
-                  dynamic_cast<const BoundaryTraction::SelfGravitation<dim> *>(plugin.get()))
+                  dynamic_cast<const PotentialFeedback::SelfGravitation<dim> *>(plugin.get()))
               boundary_potential_feedback_converged =
                 boundary_potential_feedback_converged
                 && self_gravity->potential_is_converged();
             if (const auto *rotational_feedback =
-                  dynamic_cast<const BoundaryTraction::RotationalFeedback<dim> *>(plugin.get()))
+                  dynamic_cast<const PotentialFeedback::RotationalFeedback<dim> *>(plugin.get()))
               boundary_potential_feedback_converged =
                 boundary_potential_feedback_converged
                 && rotational_feedback->potential_is_converged();
@@ -1370,12 +1370,12 @@ namespace aspect
         for (const auto &plugin : boundary_traction_manager.get_active_plugins())
           {
             if (const auto *self_gravity =
-                  dynamic_cast<const BoundaryTraction::SelfGravitation<dim> *>(plugin.get()))
+                  dynamic_cast<const PotentialFeedback::SelfGravitation<dim> *>(plugin.get()))
               boundary_potential_feedback_converged =
                 boundary_potential_feedback_converged
                 && self_gravity->potential_is_converged();
             if (const auto *rotational_feedback =
-                  dynamic_cast<const BoundaryTraction::RotationalFeedback<dim> *>(plugin.get()))
+                  dynamic_cast<const PotentialFeedback::RotationalFeedback<dim> *>(plugin.get()))
               boundary_potential_feedback_converged =
                 boundary_potential_feedback_converged
                 && rotational_feedback->potential_is_converged();

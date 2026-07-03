@@ -18,13 +18,13 @@
   <http://www.gnu.org/licenses/>.
 */
 
-#include <aspect/boundary_traction/tidal_potential.h>
+#include <aspect/potential_feedback/tidal_potential.h>
 
 #include <cmath>
 
 namespace aspect
 {
-  namespace BoundaryTraction
+  namespace PotentialFeedback
   {
     void
     TidalPotential::declare_parameters(ParameterHandler &prm)

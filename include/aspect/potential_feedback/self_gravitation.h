@@ -18,12 +18,12 @@
   <http://www.gnu.org/licenses/>.
 */
 
-#ifndef _aspect_boundary_traction_self_gravitation_h
-#define _aspect_boundary_traction_self_gravitation_h
+#ifndef _aspect_potential_feedback_self_gravitation_h
+#define _aspect_potential_feedback_self_gravitation_h
 
-#include <aspect/boundary_traction/tidal_potential.h>
+#include <aspect/potential_feedback/tidal_potential.h>
 #include <aspect/boundary_traction/interface.h>
-#include <aspect/potential_feedback/settings.h>
+#include <aspect/potential_feedback/interface.h>
 #include <aspect/simulator_access.h>
 #include <aspect/utilities.h>
 
@@ -32,7 +32,7 @@
 
 namespace aspect
 {
-  namespace BoundaryTraction
+  namespace PotentialFeedback
   {
     /**
      * A boundary traction plugin that computes the self-gravitational
@@ -80,7 +80,7 @@ namespace aspect
      * @endcode
      */
     template <int dim>
-    class SelfGravitation : public Interface<dim>,
+    class SelfGravitation : public BoundaryTraction::Interface<dim>,
       public ::aspect::SimulatorAccess<dim>
     {
       public:
@@ -131,6 +131,16 @@ namespace aspect
         static void declare_parameters(ParameterHandler &prm);
         void parse_parameters(ParameterHandler &prm) override;
 
+        std::pair<std::vector<double>, std::vector<double>>
+        compute_internal_density_potential(const double outer_radius) const;
+
+        std::pair<std::pair<double, std::pair<std::vector<double>, std::vector<double>>>, std::pair<double, std::pair<std::vector<double>, std::vector<double>>>>
+        compute_topography_potential(const double outer_radius, const double inner_radius) const;
+
+        std::string get_include_internal_density_anomalies() const;
+        double get_reference_density_for_internal_anomalies() const;
+        double get_internal_density_anomaly_tolerance() const;
+
       private:
         /**
          * Compute the self-gravity correction for the current topography.
@@ -144,6 +154,9 @@ namespace aspect
          * that the next nonlinear iteration uses the current displacement
          * estimate, rather than lagging the feedback by a full time step. */
         void update_after_stokes_solve();
+
+        std::pair<std::vector<double>, std::vector<double>>
+        to_spherical_harmonic_coefficients(const std::vector<std::vector<double>> &spherical_function) const;
 
         unsigned int max_degree;
         unsigned int min_degree;
@@ -166,6 +179,10 @@ namespace aspect
         bool   enable_cmb_potential_traction;
         TidalPotential tidal_potential;
 
+        std::string include_internal_density_anomalies;
+        double reference_density_for_internal_anomalies;
+        double internal_density_anomaly_tolerance;
+
         double time_between_text_output;
         unsigned int time_steps_between_text_output;
 
@@ -177,8 +194,6 @@ namespace aspect
         types::boundary_id top_boundary_id;
         types::boundary_id bottom_boundary_id;
 
-        bool has_legacy_apply_boundaries = false;
-        std::vector<std::string> legacy_apply_boundaries;
         bool configured_from_potential_feedback = false;
 
         /**

@@ -18,8 +18,8 @@
   <http://www.gnu.org/licenses/>.
 */
 
-#ifndef _aspect_boundary_traction_tidal_potential_h
-#define _aspect_boundary_traction_tidal_potential_h
+#ifndef _aspect_potential_feedback_tidal_potential_h
+#define _aspect_potential_feedback_tidal_potential_h
 
 #include <aspect/utilities.h>
 
@@ -30,7 +30,7 @@
 
 namespace aspect
 {
-  namespace BoundaryTraction
+  namespace PotentialFeedback
   {
     /**
      * Helper for externally prescribed tidal potentials. The helper stores

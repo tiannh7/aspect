@@ -24,6 +24,7 @@
 
 #include <aspect/postprocess/interface.h>
 #include <aspect/simulator_access.h>
+#include <aspect/potential_feedback/self_gravitation.h>
 
 #include <list>
 
@@ -67,6 +68,10 @@ namespace aspect
          */
         void
         parse_parameters (ParameterHandler &prm) override;
+
+        void initialize_simulator (const Simulator<dim> &simulator_object) override;
+
+        void initialize() override;
 
         /**
          * Save the cumulative displacement coefficients for checkpoint/restart.
@@ -128,6 +133,8 @@ namespace aspect
          */
         std::vector<double> displacement_coecos;
         std::vector<double> displacement_coesin;
+
+        PotentialFeedback::SelfGravitation<dim> self_gravity_helper;
     };
   }
 }

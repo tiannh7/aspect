@@ -22,9 +22,9 @@
 #define _aspect_boundary_traction_potential_feedback_traction_h
 
 #include <aspect/boundary_traction/interface.h>
-#include <aspect/boundary_traction/rotational_feedback.h>
-#include <aspect/boundary_traction/self_gravitation.h>
-#include <aspect/potential_feedback/settings.h>
+#include <aspect/potential_feedback/rotational_feedback.h>
+#include <aspect/potential_feedback/self_gravitation.h>
+#include <aspect/potential_feedback/interface.h>
 #include <aspect/simulator_access.h>
 
 namespace aspect
@@ -90,6 +90,12 @@ namespace aspect
           return settings;
         }
 
+        const PotentialFeedback::SelfGravitation<dim> &
+        get_self_gravity() const
+        {
+          return self_gravity;
+        }
+
         static void declare_parameters(ParameterHandler &prm);
         void parse_parameters(ParameterHandler &prm) override;
 
@@ -106,8 +112,8 @@ namespace aspect
         bool self_gravity_active = false;
         bool rotational_feedback_active = false;
 
-        SelfGravitation<dim> self_gravity;
-        RotationalFeedback<dim> rotational_feedback;
+        PotentialFeedback::SelfGravitation<dim> self_gravity;
+        PotentialFeedback::RotationalFeedback<dim> rotational_feedback;
     };
   }
 }

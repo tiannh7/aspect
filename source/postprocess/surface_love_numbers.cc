@@ -22,7 +22,7 @@
 #include <aspect/postprocess/surface_love_numbers.h>
 #include <aspect/geometry_model/spherical_shell.h>
 #include <aspect/global.h>
-#include <aspect/postprocess/geoid.h>
+#include <aspect/boundary_traction/potential_feedback_traction.h>
 #include <aspect/utilities.h>
 
 #include <deal.II/base/parameter_handler.h>
@@ -283,8 +283,55 @@ namespace aspect
 
                   if (output_coefficients)
                     {
-                      const Geoid<dim> &geoid_postprocessor =
-                        this->get_postprocess_manager().template get_matching_active_plugin<Geoid<dim>>();
+                      const auto &traction_manager = this->get_boundary_traction_manager();
+                      const bool use_self_gravity =
+                        traction_manager.template has_matching_active_plugin<
+                        PotentialFeedback::SelfGravitation<dim>>();
+                      const bool use_potential_feedback =
+                        traction_manager.template has_matching_active_plugin<
+                        BoundaryTraction::PotentialFeedbackTraction<dim>>();
+
+                      const PotentialFeedback::SelfGravitation<dim> *self_gravity = nullptr;
+                      if (use_self_gravity)
+                        {
+                          self_gravity = &traction_manager.template get_matching_active_plugin<
+                                         PotentialFeedback::SelfGravitation<dim>>();
+                        }
+                      else if (use_potential_feedback)
+                        {
+                          const auto &pf = traction_manager.template get_matching_active_plugin<
+                                           BoundaryTraction::PotentialFeedbackTraction<dim>>();
+                          if (pf.has_self_gravity_feedback())
+                            self_gravity = &pf.get_self_gravity();
+                        }
+
+                      if (self_gravity == nullptr)
+                        {
+                          self_gravity = &self_gravity_helper;
+                        }
+
+                      // Compute density anomalies contribution using the helper
+                      std::pair<std::vector<double>,std::vector<double>> SH_density_coes =
+                        self_gravity->compute_internal_density_potential(surface_radius);
+
+                      std::pair<double, std::pair<std::vector<double>,std::vector<double>>> SH_surface_topo_coes;
+                      std::pair<double, std::pair<std::vector<double>,std::vector<double>>> SH_CMB_topo_coes;
+
+                      const GeometryModel::SphericalShell<dim> &geometry_model =
+                        Plugins::get_plugin_as_type<const GeometryModel::SphericalShell<dim>> (this->get_geometry_model());
+                      const double inner_radius = geometry_model.inner_radius();
+                      const double CMB_delta_rho = self_gravity->cmb_density_jump();
+
+                      // If self-gravity feedback is not active, compute topography potential coefficients
+                      if (!use_self_gravity && !use_potential_feedback)
+                        {
+                          const auto SH_topo_coes =
+                            self_gravity->compute_topography_potential(surface_radius, inner_radius);
+                          SH_surface_topo_coes = SH_topo_coes.first;
+                          SH_CMB_topo_coes = SH_topo_coes.second;
+                        }
+
+                      const double surface_delta_rho = self_gravity->surface_density_jump();
 
                       std::ofstream unified_output(output_directory +
                                                    "surface_love_number_coefficients" +
@@ -298,7 +345,7 @@ namespace aspect
                       unified_output << "# initial_elastic_displacement_time_s: " << std::setprecision(16) << initial_elastic_displacement_time << "\n";
                       unified_output << "# surface_radius_m: " << std::setprecision(16) << surface_radius << "\n";
                       unified_output << "# surface_gravity_m_s2: " << std::setprecision(16) << surface_gravity << "\n";
-                      unified_output << "# h_lm = surface_mass_potential_lm/load_geoid_scale_l - target_delta_lm\n";
+                      unified_output << "# h_lm = (surface_mass_potential_lm/load_geoid_scale_l - target_delta_lm) * displacement_to_love_scale_l\n";
                       unified_output << "# k_lm = geoid_lm/load_geoid_scale_l - target_delta_lm\n";
                       unified_output << "# l_lm = tangential_displacement_lm/load_height * displacement_to_love_scale_l\n";
                       unified_output << "# displacement_to_love_scale_l = (2*l+1)*g/(4*pi*G*rho_load*R_surface)\n";
@@ -308,14 +355,82 @@ namespace aspect
                       unified_output << "# time: " << std::setprecision(16) << this->get_time() << "\n";
                       unified_output << "# timestep: " << this->get_timestep_number() << "\n";
 
+                      const double G = aspect::constants::big_g;
+                      const bool use_boundary_potential = (use_self_gravity || use_potential_feedback);
+
                       coefficient_index = 0;
                       for (unsigned int degree = min_degree; degree <= max_degree; ++degree)
                         for (unsigned int order = 0; order <= degree; ++order, ++coefficient_index)
                           {
+                            const std::pair<double,double> self_gravity_surface =
+                              (use_boundary_potential
+                               ? self_gravity->surface_mass_potential_coefficient(degree, order)
+                               : std::pair<double,double> {0.0, 0.0});
+
+                            const std::pair<double,double> self_gravity_cmb =
+                              (use_boundary_potential
+                               ? self_gravity->cmb_mass_potential_coefficient(degree, order)
+                               : std::pair<double,double> {0.0, 0.0});
+
+                            const std::pair<double,double> self_gravity_tidal =
+                              (use_boundary_potential
+                               ? self_gravity->tidal_surface_potential_coefficient(degree, order)
+                               : std::pair<double,double> {0.0, 0.0});
+
+                            const double coecos_density_anomaly =
+                              (4.0 * numbers::PI * G / (surface_gravity * (2.0 * degree + 1.0)))
+                              * SH_density_coes.first.at(coefficient_index);
+                            const double coesin_density_anomaly =
+                              (4.0 * numbers::PI * G / (surface_gravity * (2.0 * degree + 1.0)))
+                              * SH_density_coes.second.at(coefficient_index);
+
+                            const double coecos_surface_topo =
+                              (use_boundary_potential
+                               ? self_gravity_surface.first
+                               : (4.0 * numbers::PI * G / (surface_gravity * (2.0 * degree + 1.0)))
+                               * surface_delta_rho * SH_surface_topo_coes.second.first.at(coefficient_index) * surface_radius);
+                            const double coesin_surface_topo =
+                              (use_boundary_potential
+                               ? self_gravity_surface.second
+                               : (4.0 * numbers::PI * G / (surface_gravity * (2.0 * degree + 1.0)))
+                               * surface_delta_rho * SH_surface_topo_coes.second.second.at(coefficient_index) * surface_radius);
+
+                            const double coecos_CMB_topo =
+                              (use_boundary_potential
+                               ? self_gravity_cmb.first
+                               : (4.0 * numbers::PI * G / (surface_gravity * (2.0 * degree + 1.0)))
+                               * CMB_delta_rho * SH_CMB_topo_coes.second.first.at(coefficient_index) * inner_radius
+#if DEAL_II_VERSION_GTE(9,6,0)
+                               * Utilities::pow(inner_radius / surface_radius, degree + 1));
+#else
+                               * std::pow(inner_radius / surface_radius, degree + 1));
+#endif
+                            const double coesin_CMB_topo =
+                              (use_boundary_potential
+                               ? self_gravity_cmb.second
+                               : (4.0 * numbers::PI * G / (surface_gravity * (2.0 * degree + 1.0)))
+                               * CMB_delta_rho * SH_CMB_topo_coes.second.second.at(coefficient_index) * inner_radius
+#if DEAL_II_VERSION_GTE(9,6,0)
+                               * Utilities::pow(inner_radius / surface_radius, degree + 1));
+#else
+                               * std::pow(inner_radius / surface_radius, degree + 1));
+#endif
+
+                            const double coecos_tidal =
+                              (use_boundary_potential
+                               ? self_gravity_tidal.first
+                               : 0.0);
+                            const double coesin_tidal =
+                              (use_boundary_potential
+                               ? self_gravity_tidal.second
+                               : 0.0);
+
                             const std::pair<double,double> geoid_coefficient =
-                              geoid_postprocessor.geoid_coefficient(degree, order);
+                              std::make_pair(coecos_density_anomaly + coecos_surface_topo + coecos_CMB_topo + coecos_tidal,
+                                             coesin_density_anomaly + coesin_surface_topo + coesin_CMB_topo + coesin_tidal);
+
                             const std::pair<double,double> surface_coefficient =
-                              geoid_postprocessor.surface_topography_contribution_coefficient(degree, order);
+                              std::make_pair(coecos_surface_topo, coesin_surface_topo);
 
                             const double load_geoid_scale =
                               4.0 * numbers::PI * constants::big_g
@@ -324,18 +439,20 @@ namespace aspect
                             const bool is_target =
                               (degree == load_degree && order == load_order);
                             const double target_cos_delta = (is_target ? 1.0 : 0.0);
-                            const double h_cos =
-                              surface_coefficient.first / load_geoid_scale - target_cos_delta;
-                            const double h_sin =
-                              surface_coefficient.second / load_geoid_scale;
-                            const double k_cos =
-                              geoid_coefficient.first / load_geoid_scale - target_cos_delta;
-                            const double k_sin =
-                              geoid_coefficient.second / load_geoid_scale;
                             const double displacement_to_love_scale =
                               (2.0 * degree + 1.0) * surface_gravity
                               / (4.0 * numbers::PI * constants::big_g
                                  * load_density * surface_radius);
+                            const double h_cos =
+                              (surface_coefficient.first / load_geoid_scale - target_cos_delta)
+                              * displacement_to_love_scale;
+                            const double h_sin =
+                              surface_coefficient.second / load_geoid_scale
+                              * displacement_to_love_scale;
+                            const double k_cos =
+                              geoid_coefficient.first / load_geoid_scale - target_cos_delta;
+                            const double k_sin =
+                              geoid_coefficient.second / load_geoid_scale;
                             const double l_cos =
                               displacement_coecos[coefficient_index] / load_height
                               * displacement_to_love_scale;
@@ -381,10 +498,6 @@ namespace aspect
     SurfaceLoveNumbers<dim>::required_other_postprocessors() const
     {
       std::list<std::string> deps;
-
-      if (output_coefficients)
-        deps.emplace_back("geoid");
-
       return deps;
     }
 
@@ -392,8 +505,26 @@ namespace aspect
 
     template <int dim>
     void
+    SurfaceLoveNumbers<dim>::initialize_simulator (const Simulator<dim> &simulator)
+    {
+      SimulatorAccess<dim>::initialize_simulator(simulator);
+      self_gravity_helper.initialize_simulator(simulator);
+    }
+
+
+    template <int dim>
+    void
+    SurfaceLoveNumbers<dim>::initialize ()
+    {
+      self_gravity_helper.initialize();
+    }
+
+
+    template <int dim>
+    void
     SurfaceLoveNumbers<dim>::declare_parameters (ParameterHandler &prm)
     {
+      PotentialFeedback::SelfGravitation<dim>::declare_parameters(prm);
       prm.enter_subsection("Postprocess");
       {
         prm.enter_subsection("Surface love numbers");
@@ -439,6 +570,7 @@ namespace aspect
     void
     SurfaceLoveNumbers<dim>::parse_parameters (ParameterHandler &prm)
     {
+      self_gravity_helper.parse_parameters(prm);
       prm.enter_subsection("Postprocess");
       {
         prm.enter_subsection("Surface love numbers");
