@@ -113,7 +113,15 @@ namespace aspect
           harmonic_value = legendre_p(harmonic_degree, std::cos(theta));
         }
 
-      return load_magnitude * harmonic_value;
+      double magnitude = load_magnitude;
+      if (use_load_height)
+        {
+          const double gravity =
+            this->get_gravity_model().gravity_vector(position).norm();
+          magnitude = load_density * gravity * load_height;
+        }
+
+      return magnitude * harmonic_value;
     }
 
 
@@ -181,7 +189,20 @@ namespace aspect
           prm.declare_entry ("Load magnitude", "-1.0",
                              Patterns::Double(),
                              "Positive scalar traction amplitude in Pa multiplying the "
-                             "selected angular function.");
+                             "selected angular function. Alternatively, specify "
+                             "Load height and Load density to derive this "
+                             "traction amplitude from basic surface-load "
+                             "quantities and the active gravity model.");
+          prm.declare_entry ("Load height", "-1.0",
+                             Patterns::Double(),
+                             "Positive harmonic load-height amplitude in meters. If this "
+                             "parameter is non-negative then the scalar traction "
+                             "amplitude is computed as Load density times the "
+                             "active gravity-model magnitude times Load height.");
+          prm.declare_entry ("Load density", "-1.0",
+                             Patterns::Double(),
+                             "Positive density contrast in kg/m^3 used with "
+                             "Load height to compute surface-load traction.");
           prm.declare_entry ("Positive load direction", "unspecified",
                              Patterns::Selection("outward radial|inward radial|outward normal|inward normal|unspecified"),
                              "The physical direction of positive harmonic load. "
@@ -222,16 +243,43 @@ namespace aspect
           normalization = prm.get("Normalization");
 
           const double parsed_load_magnitude = prm.get_double("Load magnitude");
+          const double parsed_load_height = prm.get_double("Load height");
+          const double parsed_load_density = prm.get_double("Load density");
           const std::string parsed_direction = prm.get("Positive load direction");
 
           const double parsed_amplitude = prm.get_double("Amplitude");
           const double parsed_sign = prm.get_double("Sign");
           const std::string parsed_component = prm.get("Component");
 
-          const bool has_new = (parsed_load_magnitude != -1.0 || parsed_direction != "unspecified");
+          const bool has_height = (parsed_load_height != -1.0);
+          const bool has_new = (parsed_load_magnitude != -1.0
+                                || parsed_direction != "unspecified"
+                                || has_height);
           const bool has_old = (parsed_amplitude != 1e300 || parsed_sign != 1e300 || parsed_component != "unspecified");
 
-          if (has_new && has_old)
+          use_load_height = false;
+          load_height = 0.0;
+          load_density = 0.0;
+
+          if (has_height)
+            {
+              AssertThrow(!has_old,
+                          ExcMessage("Do not combine Load height with the deprecated Amplitude, Sign, or Component parameters."));
+              AssertThrow(parsed_load_magnitude == -1.0,
+                          ExcMessage("Specify either Load height or Load magnitude, not both."));
+              AssertThrow(parsed_load_height >= 0.0,
+                          ExcMessage("Load height must be non-negative."));
+              AssertThrow(parsed_load_density > 0.0,
+                          ExcMessage("Load density must be positive when Load height is specified."));
+
+              use_load_height = true;
+              load_height = parsed_load_height;
+              load_density = parsed_load_density;
+              load_magnitude = 0.0;
+              positive_load_direction =
+                (parsed_direction == "unspecified" ? "outward normal" : parsed_direction);
+            }
+          else if (has_new && has_old)
             {
               double old_magnitude = std::abs((parsed_amplitude == 1e300 ? 0.0 : parsed_amplitude) * (parsed_sign == 1e300 ? 1.0 : parsed_sign));
               std::string old_comp = (parsed_component == "unspecified" ? "normal" : parsed_component);

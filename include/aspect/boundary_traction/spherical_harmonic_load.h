@@ -83,6 +83,9 @@ namespace aspect
         unsigned int harmonic_degree;
         unsigned int harmonic_order;
         double load_magnitude;
+        bool use_load_height;
+        double load_height;
+        double load_density;
         std::string positive_load_direction;
         std::string coefficient_type;
         std::string normalization;

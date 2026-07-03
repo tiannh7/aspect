@@ -86,6 +86,14 @@ namespace aspect
         double
         evaluate_gravity_anomaly (const Point<dim> &) const;
 
+        std::pair<double,double>
+        geoid_coefficient (const unsigned int degree,
+                           const unsigned int order) const;
+
+        std::pair<double,double>
+        surface_topography_contribution_coefficient (const unsigned int degree,
+                                                     const unsigned int order) const;
+
       private:
         /**
          * Parameters to set the maximum and minimum degree when computing geoid from spherical harmonics
@@ -123,6 +131,13 @@ namespace aspect
          * A parameter to control whether to output the free-air gravity anomaly
          */
         bool output_gravity_anomaly;
+
+        /**
+         * A parameter to control whether this postprocessor writes its own
+         * geoid text files. The spherical-harmonic coefficients are always
+         * computed and kept in memory for dependent postprocessors.
+         */
+        bool output_text_files;
 
         /** Spherically symmetric reference density removed from the volume
          * integral. It has no physical l>0 signal, but integrating it on a
@@ -211,6 +226,9 @@ namespace aspect
          * A vector to store the sine terms of the geoid anomaly spherical harmonic coefficients.
          */
         std::vector<double> geoid_coesin;
+
+        std::vector<double> surface_topo_contribution_coecos;
+        std::vector<double> surface_topo_contribution_coesin;
 
         /**
          * Surface gravity value used for gravity anomaly calculations.

@@ -508,9 +508,10 @@ namespace aspect
                    dim == 3,
                    ExcMessage("The geoid postprocessor is currently only implemented for the 3d spherical shell geometry model."));
 
-      Utilities::create_directory (this->get_output_directory() + "geoid/",
-                                   this->get_mpi_communicator(),
-                                   /* silent=*/true);
+      if (output_text_files)
+        Utilities::create_directory (this->get_output_directory() + "geoid/",
+                                     this->get_mpi_communicator(),
+                                     /* silent=*/true);
 
       const GeometryModel::SphericalShell<dim> &geometry_model =
         Plugins::get_plugin_as_type<const GeometryModel::SphericalShell<dim>> (this->get_geometry_model());
@@ -587,14 +588,14 @@ namespace aspect
       // Compute the spherical harmonic coefficients of geoid anomaly.
       std::vector<double> density_anomaly_contribution_coecos;
       std::vector<double> density_anomaly_contribution_coesin;
-      std::vector<double> surface_topo_contribution_coecos;
-      std::vector<double> surface_topo_contribution_coesin;
       std::vector<double> CMB_topo_contribution_coecos;
       std::vector<double> CMB_topo_contribution_coesin;
       std::vector<double> tidal_potential_contribution_coecos;
       std::vector<double> tidal_potential_contribution_coesin;
       geoid_coecos.clear();
       geoid_coesin.clear();
+      surface_topo_contribution_coecos.clear();
+      surface_topo_contribution_coesin.clear();
 
       // First compute the spherical harmonic contributions from density anomaly, surface topography and CMB topography.
       int ind = 0; // coefficients index
@@ -767,7 +768,7 @@ namespace aspect
         }
 
       // The user can get the spherical harmonic coefficients of the density anomaly contribution if needed
-      if (output_density_anomaly_contribution_SH_coes == true)
+      if (output_text_files && output_density_anomaly_contribution_SH_coes == true)
         {
           // Have a stream into which we write the SH coefficients data from density anomaly contribution.
           // The text stream is then later sent to processor 0.
@@ -810,7 +811,7 @@ namespace aspect
         }
 
       // The user can get the spherical harmonic coefficients of the surface topography contribution if needed
-      if (output_surface_topo_contribution_SH_coes == true)
+      if (output_text_files && output_surface_topo_contribution_SH_coes == true)
         {
           // Have a stream into which we write the SH coefficients data from surface topography contribution.
           // The text stream is then later sent to processor 0.
@@ -858,7 +859,7 @@ namespace aspect
         }
 
       // The user can get the spherical harmonic coefficients of the CMB topography contribution if needed.
-      if (output_CMB_topo_contribution_SH_coes == true)
+      if (output_text_files && output_CMB_topo_contribution_SH_coes == true)
         {
           // Have a stream into which we write the SH coefficients data from CMB topography contribution.
           // The text stream is then later sent to processor 0.
@@ -905,7 +906,7 @@ namespace aspect
         }
 
       // The user can get the spherical harmonic coefficients of the geoid anomaly if needed.
-      if (output_geoid_anomaly_SH_coes == true)
+      if (output_text_files && output_geoid_anomaly_SH_coes == true)
         {
           // Have a stream into which we write the geoid anomaly SH coefficients data.
           // The text stream is then later sent to processor 0.
@@ -947,61 +948,65 @@ namespace aspect
             }
         }
 
-      // Have a stream into which we write the geoid height data. the text stream is then
-      // later sent to processor 0.
-      std::ostringstream output;
-
-      // On processor 0, write the header lines
-      if (Utilities::MPI::this_mpi_process(this->get_mpi_communicator()) == 0)
+      std::string filename;
+      if (output_text_files)
         {
-          output << "# "
-                 << ((output_in_lat_lon == true)? "longitude latitude" : "x y z")
-                 << " geoid_anomaly" << std::endl;
-        }
+          // Have a stream into which we write the geoid height data. the text stream is then
+          // later sent to processor 0.
+          std::ostringstream output;
 
-      // Prepare the output data.
-      if (output_in_lat_lon == true)
-        {
-          double lon, lat;
-          for (unsigned int i=0; i<surface_cell_spherical_coordinates.size(); ++i)
+          // On processor 0, write the header lines
+          if (Utilities::MPI::this_mpi_process(this->get_mpi_communicator()) == 0)
             {
-              // Transfer the spherical coordinates to geographical coordinates.
-              lat = 90. - surface_cell_spherical_coordinates.at(i).first * constants::radians_to_degree;
-              lon = (surface_cell_spherical_coordinates.at(i).second <= numbers::PI
-                     ?
-                     surface_cell_spherical_coordinates.at(i).second * constants::radians_to_degree
-                     :
-                     surface_cell_spherical_coordinates.at(i).second * constants::radians_to_degree - 360.);
-
-              // Write the solution to the stream output.
-              output << lon
-                     << ' '
-                     << lat
-                     << ' '
-                     << geoid_anomaly.at(i)
-                     << std::endl;
+              output << "# "
+                     << ((output_in_lat_lon == true)? "longitude latitude" : "x y z")
+                     << " geoid_anomaly" << std::endl;
             }
-        }
-      else
-        {
-          for (unsigned int i=0; i<surface_cell_locations.size(); ++i)
+
+          // Prepare the output data.
+          if (output_in_lat_lon == true)
             {
-              // Write the solution to the stream output.
-              output << surface_cell_locations.at(i)
-                     << ' '
-                     << geoid_anomaly.at(i)
-                     << std::endl;
+              double lon, lat;
+              for (unsigned int i=0; i<surface_cell_spherical_coordinates.size(); ++i)
+                {
+                  // Transfer the spherical coordinates to geographical coordinates.
+                  lat = 90. - surface_cell_spherical_coordinates.at(i).first * constants::radians_to_degree;
+                  lon = (surface_cell_spherical_coordinates.at(i).second <= numbers::PI
+                         ?
+                         surface_cell_spherical_coordinates.at(i).second * constants::radians_to_degree
+                         :
+                         surface_cell_spherical_coordinates.at(i).second * constants::radians_to_degree - 360.);
+
+                  // Write the solution to the stream output.
+                  output << lon
+                         << ' '
+                         << lat
+                         << ' '
+                         << geoid_anomaly.at(i)
+                         << std::endl;
+                }
             }
+          else
+            {
+              for (unsigned int i=0; i<surface_cell_locations.size(); ++i)
+                {
+                  // Write the solution to the stream output.
+                  output << surface_cell_locations.at(i)
+                         << ' '
+                         << geoid_anomaly.at(i)
+                         << std::endl;
+                }
+            }
+
+          filename = this->get_output_directory() +
+                     "geoid/geoid_anomaly." +
+                     dealii::Utilities::int_to_string(this->get_timestep_number(), 5);
+
+          Utilities::collect_and_write_file_content(filename, output.str(), this->get_mpi_communicator());
         }
-
-      const std::string filename = this->get_output_directory() +
-                                   "geoid/geoid_anomaly." +
-                                   dealii::Utilities::int_to_string(this->get_timestep_number(), 5);
-
-      Utilities::collect_and_write_file_content(filename, output.str(), this->get_mpi_communicator());
 
       // Prepare the free-air gravity anomaly output.
-      if (output_gravity_anomaly == true)
+      if (output_text_files && output_gravity_anomaly == true)
         {
           // Have a stream into which we write the gravity anomaly data. the text stream is then
           // later sent to processor 0.
@@ -1085,8 +1090,12 @@ namespace aspect
 
       last_text_output_time = this->get_time();
 
-      return std::pair<std::string,std::string>("Writing geoid anomaly:",
-                                                filename);
+      if (output_text_files)
+        return std::pair<std::string,std::string>("Writing geoid anomaly:",
+                                                  filename);
+      else
+        return std::pair<std::string,std::string>("Computing geoid coefficients:",
+                                                  "in memory");
     }
 
     template <int dim>
@@ -1161,6 +1170,70 @@ namespace aspect
       return value;
     }
 
+
+
+    namespace
+    {
+      unsigned int
+      geoid_coefficient_index (const unsigned int min_degree,
+                               const unsigned int max_degree,
+                               const unsigned int degree,
+                               const unsigned int order)
+      {
+        AssertThrow(degree >= min_degree && degree <= max_degree,
+                    ExcMessage("Requested a geoid coefficient outside the configured degree range."));
+        AssertThrow(order <= degree,
+                    ExcMessage("Requested a geoid coefficient with order larger than degree."));
+
+        unsigned int index = 0;
+        for (unsigned int current_degree = min_degree; current_degree < degree; ++current_degree)
+          index += current_degree + 1;
+        index += order;
+
+        return index;
+      }
+    }
+
+
+
+    template <int dim>
+    std::pair<double,double>
+    Geoid<dim>::geoid_coefficient (const unsigned int degree,
+                                   const unsigned int order) const
+    {
+      const unsigned int index =
+        geoid_coefficient_index(min_degree, max_degree, degree, order);
+
+      AssertThrow(index < geoid_coecos.size() && index < geoid_coesin.size(),
+                  ExcMessage("Geoid coefficients are not available. Make sure the geoid postprocessor has executed before requesting them."));
+
+      return std::make_pair(geoid_coecos[index], geoid_coesin[index]);
+    }
+
+
+
+    template <int dim>
+    std::pair<double,double>
+    Geoid<dim>::surface_topography_contribution_coefficient (const unsigned int degree,
+                                                             const unsigned int order) const
+    {
+      const unsigned int index =
+        geoid_coefficient_index(min_degree, max_degree, degree, order);
+
+      if (surface_topo_contribution_coecos.empty() &&
+          surface_topo_contribution_coesin.empty())
+        return std::make_pair(0.0, 0.0);
+
+      AssertThrow(index < surface_topo_contribution_coecos.size()
+                  && index < surface_topo_contribution_coesin.size(),
+                  ExcMessage("Surface-topography geoid coefficients are not available. Make sure the geoid postprocessor has executed before requesting them."));
+
+      return std::make_pair(surface_topo_contribution_coecos[index],
+                            surface_topo_contribution_coesin[index]);
+    }
+
+
+
     template <int dim>
     void
     Geoid<dim>::declare_parameters (ParameterHandler &prm)
@@ -1188,6 +1261,10 @@ namespace aspect
                             Patterns::Bool(),
                             "Option to output the geoid anomaly in geographical coordinates (latitude and longitude). "
                             "The default is false, so the postprocessor will output the data in geocentric coordinates (x,y,z) as normally.");
+          prm.declare_entry("Output text files", "true",
+                            Patterns::Bool(),
+                            "Whether this postprocessor writes its own geoid text files. "
+                            "The spherical-harmonic coefficients are still computed and kept in memory for dependent postprocessors.");
           prm.declare_entry("Reference density for anomaly", "-1e300",
                             Patterns::Double(),
                             "Deprecated.");
@@ -1250,6 +1327,7 @@ namespace aspect
           max_degree = prm.get_integer ("Maximum degree");
           min_degree = prm.get_integer ("Minimum degree");
           output_in_lat_lon = prm.get_bool ("Output data in geographical coordinates");
+          output_text_files = prm.get_bool ("Output text files");
           const double legacy_geoid_ref_density = prm.get_double ("Reference density for anomaly");
           std::string mode = "true";
           double tolerance = 0.0;

@@ -19,9 +19,10 @@
 */
 
 
-#include <aspect/postprocess/surface_displacement_spherical_harmonics.h>
+#include <aspect/postprocess/surface_love_numbers.h>
 #include <aspect/geometry_model/spherical_shell.h>
 #include <aspect/global.h>
+#include <aspect/postprocess/geoid.h>
 #include <aspect/utilities.h>
 
 #include <deal.II/base/parameter_handler.h>
@@ -30,6 +31,7 @@
 
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 
 
@@ -110,24 +112,27 @@ namespace aspect
           result += degree + 1;
         return result;
       }
+
+
+
     }
 
 
 
     template <int dim>
     std::pair<std::string,std::string>
-    SurfaceDisplacementSphericalHarmonics<dim>::execute (TableHandler &statistics)
+    SurfaceLoveNumbers<dim>::execute (TableHandler &statistics)
     {
       if constexpr (dim != 3)
         {
           AssertThrow(false,
-                      ExcMessage("The surface displacement spherical harmonics postprocessor is currently only implemented for the 3d spherical shell geometry model."));
+                      ExcMessage("The surface love numbers postprocessor is currently only implemented for the 3d spherical shell geometry model."));
           return std::make_pair("", "");
         }
       else
         {
           AssertThrow (Plugins::plugin_type_matches<const GeometryModel::SphericalShell<dim>>(this->get_geometry_model()),
-                       ExcMessage("The surface displacement spherical harmonics postprocessor is currently only implemented for the 3d spherical shell geometry model."));
+                       ExcMessage("The surface love numbers postprocessor is currently only implemented for the 3d spherical shell geometry model."));
 
           const unsigned int n_coefficients =
             n_spherical_harmonic_coefficients(min_degree, max_degree);
@@ -137,7 +142,9 @@ namespace aspect
               displacement_coesin.assign(n_coefficients, 0.0);
             }
 
-          const double timestep = this->get_timestep();
+          double timestep = this->get_timestep();
+          if (this->get_timestep_number() == 0 && initial_elastic_displacement_time > 0.0)
+            timestep = initial_elastic_displacement_time;
           std::vector<double> local_increment_cos(n_coefficients, 0.0);
           std::vector<double> local_increment_sin(n_coefficients, 0.0);
 
@@ -239,7 +246,7 @@ namespace aspect
 
           if (output_needed)
             {
-              Utilities::create_directory(this->get_output_directory() + "surface_displacement_spherical_harmonics/",
+              Utilities::create_directory(this->get_output_directory() + "surface_love_numbers/",
                                           this->get_mpi_communicator(),
                                           true);
 
@@ -248,7 +255,12 @@ namespace aspect
                   const std::string timestep_suffix =
                     "." + Utilities::int_to_string(this->get_timestep_number(), 5);
                   const std::string output_directory =
-                    this->get_output_directory() + "surface_displacement_spherical_harmonics/";
+                    this->get_output_directory() + "surface_love_numbers/";
+                  const Point<dim> surface_point =
+                    this->get_geometry_model().representative_point(1.0);
+                  const double surface_radius = surface_point.norm();
+                  const double surface_gravity =
+                    this->get_gravity_model().gravity_vector(surface_point).norm();
 
                   std::ofstream displacement_output(output_directory +
                                                     "surface_tangential_displacement_SH_coefficients" +
@@ -259,15 +271,6 @@ namespace aspect
                   displacement_output << "# time: " << std::setprecision(16) << this->get_time() << "\n";
                   displacement_output << "# timestep: " << this->get_timestep_number() << "\n";
 
-                  std::ofstream love_output(output_directory +
-                                            "surface_horizontal_love_number_SH_coefficients" +
-                                            timestep_suffix);
-                  love_output << "# degree order cosine_coefficient sine_coefficient\n";
-                  love_output << "# field: horizontal load Love number l_lm = V_lm / load_displacement_scale\n";
-                  love_output << "# load_displacement_scale_m: " << std::setprecision(16) << load_displacement_scale << "\n";
-                  love_output << "# time: " << std::setprecision(16) << this->get_time() << "\n";
-                  love_output << "# timestep: " << this->get_timestep_number() << "\n";
-
                   unsigned int coefficient_index = 0;
                   for (unsigned int degree = min_degree; degree <= max_degree; ++degree)
                     for (unsigned int order = 0; order <= degree; ++order, ++coefficient_index)
@@ -276,25 +279,89 @@ namespace aspect
                                             << order << ' '
                                             << std::setprecision(16) << displacement_coecos[coefficient_index] << ' '
                                             << std::setprecision(16) << displacement_coesin[coefficient_index] << '\n';
-
-                        love_output << degree << ' '
-                                    << order << ' '
-                                    << std::setprecision(16) << displacement_coecos[coefficient_index] / load_displacement_scale << ' '
-                                    << std::setprecision(16) << displacement_coesin[coefficient_index] / load_displacement_scale << '\n';
                       }
+
+                  if (output_coefficients)
+                    {
+                      const Geoid<dim> &geoid_postprocessor =
+                        this->get_postprocess_manager().template get_matching_active_plugin<Geoid<dim>>();
+
+                      std::ofstream unified_output(output_directory +
+                                                   "surface_love_number_coefficients" +
+                                                   timestep_suffix);
+                      unified_output << "# degree order h_cos h_sin k_cos k_sin l_cos l_sin geoid_cos geoid_sin surface_mass_potential_cos surface_mass_potential_sin tangential_displacement_cos tangential_displacement_sin\n";
+                      unified_output << "# field: load Love numbers plus raw surface spherical-harmonic coefficients\n";
+                      unified_output << "# load_height_m: " << std::setprecision(16) << load_height << "\n";
+                      unified_output << "# load_density_kg_m3: " << std::setprecision(16) << load_density << "\n";
+                      unified_output << "# target_load_degree: " << load_degree << "\n";
+                      unified_output << "# target_load_order: " << load_order << "\n";
+                      unified_output << "# initial_elastic_displacement_time_s: " << std::setprecision(16) << initial_elastic_displacement_time << "\n";
+                      unified_output << "# surface_radius_m: " << std::setprecision(16) << surface_radius << "\n";
+                      unified_output << "# surface_gravity_m_s2: " << std::setprecision(16) << surface_gravity << "\n";
+                      unified_output << "# h_lm = surface_mass_potential_lm/load_geoid_scale_l - target_delta_lm\n";
+                      unified_output << "# k_lm = geoid_lm/load_geoid_scale_l - target_delta_lm\n";
+                      unified_output << "# l_lm = tangential_displacement_lm/load_height * displacement_to_love_scale_l\n";
+                      unified_output << "# displacement_to_love_scale_l = (2*l+1)*g/(4*pi*G*rho_load*R_surface)\n";
+                      unified_output << "# geoid: total geoid-anomaly coefficient from the geoid postprocessor, m\n";
+                      unified_output << "# surface_mass_potential: surface-topography mass-potential contribution from the geoid postprocessor, m\n";
+                      unified_output << "# tangential_displacement: cumulative poloidal tangential displacement coefficient V_lm, m\n";
+                      unified_output << "# time: " << std::setprecision(16) << this->get_time() << "\n";
+                      unified_output << "# timestep: " << this->get_timestep_number() << "\n";
+
+                      coefficient_index = 0;
+                      for (unsigned int degree = min_degree; degree <= max_degree; ++degree)
+                        for (unsigned int order = 0; order <= degree; ++order, ++coefficient_index)
+                          {
+                            const std::pair<double,double> geoid_coefficient =
+                              geoid_postprocessor.geoid_coefficient(degree, order);
+                            const std::pair<double,double> surface_coefficient =
+                              geoid_postprocessor.surface_topography_contribution_coefficient(degree, order);
+
+                            const double load_geoid_scale =
+                              4.0 * numbers::PI * constants::big_g
+                              * load_density * load_height * surface_radius
+                              / (surface_gravity * (2.0 * degree + 1.0));
+                            const bool is_target =
+                              (degree == load_degree && order == load_order);
+                            const double target_cos_delta = (is_target ? 1.0 : 0.0);
+                            const double h_cos =
+                              surface_coefficient.first / load_geoid_scale - target_cos_delta;
+                            const double h_sin =
+                              surface_coefficient.second / load_geoid_scale;
+                            const double k_cos =
+                              geoid_coefficient.first / load_geoid_scale - target_cos_delta;
+                            const double k_sin =
+                              geoid_coefficient.second / load_geoid_scale;
+                            const double displacement_to_love_scale =
+                              (2.0 * degree + 1.0) * surface_gravity
+                              / (4.0 * numbers::PI * constants::big_g
+                                 * load_density * surface_radius);
+                            const double l_cos =
+                              displacement_coecos[coefficient_index] / load_height
+                              * displacement_to_love_scale;
+                            const double l_sin =
+                              displacement_coesin[coefficient_index] / load_height
+                              * displacement_to_love_scale;
+
+                            unified_output << degree << ' '
+                                           << order << ' '
+                                           << std::setprecision(16) << h_cos << ' '
+                                           << std::setprecision(16) << h_sin << ' '
+                                           << std::setprecision(16) << k_cos << ' '
+                                           << std::setprecision(16) << k_sin << ' '
+                                           << std::setprecision(16) << l_cos << ' '
+                                           << std::setprecision(16) << l_sin << ' '
+                                           << std::setprecision(16) << geoid_coefficient.first << ' '
+                                           << std::setprecision(16) << geoid_coefficient.second << ' '
+                                           << std::setprecision(16) << surface_coefficient.first << ' '
+                                           << std::setprecision(16) << surface_coefficient.second << ' '
+                                           << std::setprecision(16) << displacement_coecos[coefficient_index] << ' '
+                                           << std::setprecision(16) << displacement_coesin[coefficient_index] << '\n';
+                          }
+                    }
                 }
 
               last_text_output_time = this->get_time();
-            }
-
-          const unsigned int target_index =
-            (min_degree <= 2 && max_degree >= 2 ? (2 - min_degree) * (2 + min_degree + 1) / 2 + 0 : numbers::invalid_unsigned_int);
-          if (target_index != numbers::invalid_unsigned_int && target_index < displacement_coecos.size())
-            {
-              statistics.add_value("Surface horizontal Love number l2m0 cosine",
-                                   displacement_coecos[target_index] / load_displacement_scale);
-              statistics.set_precision("Surface horizontal Love number l2m0 cosine", 8);
-              statistics.set_scientific("Surface horizontal Love number l2m0 cosine", true);
             }
 
           std::ostringstream output;
@@ -302,7 +369,7 @@ namespace aspect
           output << std::scientific
                  << "tracked " << n_coefficients << " coefficients";
 
-          return std::make_pair("Surface displacement spherical harmonics:",
+          return std::make_pair("Surface love numbers:",
                                 output.str());
         }
     }
@@ -310,12 +377,26 @@ namespace aspect
 
 
     template <int dim>
+    std::list<std::string>
+    SurfaceLoveNumbers<dim>::required_other_postprocessors() const
+    {
+      std::list<std::string> deps;
+
+      if (output_coefficients)
+        deps.emplace_back("geoid");
+
+      return deps;
+    }
+
+
+
+    template <int dim>
     void
-    SurfaceDisplacementSphericalHarmonics<dim>::declare_parameters (ParameterHandler &prm)
+    SurfaceLoveNumbers<dim>::declare_parameters (ParameterHandler &prm)
     {
       prm.enter_subsection("Postprocess");
       {
-        prm.enter_subsection("Surface displacement spherical harmonics");
+        prm.enter_subsection("Surface love numbers");
         {
           prm.declare_entry("Maximum degree", "32",
                             Patterns::Integer(0),
@@ -325,13 +406,19 @@ namespace aspect
                             Patterns::Integer(0),
                             "Minimum spherical-harmonic degree for the tangential "
                             "surface-displacement projection.");
-          prm.declare_entry("Load displacement scale", "1.0",
+          prm.declare_entry("Output coefficients", "true",
+                            Patterns::Bool(),
+                            "Whether to write one text file per output time "
+                            "with normalized h, k, and l load Love numbers "
+                            "followed by the raw geoid, surface mass-potential, "
+                            "and cumulative tangential displacement coefficients "
+                            "used to compute them.");
+          prm.declare_entry("Initial elastic displacement time", "0",
                             Patterns::Double(0),
-                            "Reference displacement amplitude in meters used to "
-                            "convert the cumulative tangential displacement "
-                            "coefficient to a horizontal load Love number. For "
-                            "the Zhong2022 single-harmonic benchmarks this is "
-                            "the load amplitude d = R*1e-6.");
+                            "Time interval used to convert the timestep-zero "
+                            "instantaneous elastic tangential velocity to an "
+                            "initial tangential displacement. Units follow the "
+                            "model time setting.");
           prm.declare_entry("Time between text output", "0",
                             Patterns::Double(0),
                             "Time interval between text outputs. A value of zero "
@@ -350,19 +437,37 @@ namespace aspect
 
     template <int dim>
     void
-    SurfaceDisplacementSphericalHarmonics<dim>::parse_parameters (ParameterHandler &prm)
+    SurfaceLoveNumbers<dim>::parse_parameters (ParameterHandler &prm)
     {
       prm.enter_subsection("Postprocess");
       {
-        prm.enter_subsection("Surface displacement spherical harmonics");
+        prm.enter_subsection("Surface love numbers");
         {
           max_degree = prm.get_integer("Maximum degree");
           min_degree = prm.get_integer("Minimum degree");
-          load_displacement_scale = prm.get_double("Load displacement scale");
+          output_coefficients = prm.get_bool("Output coefficients");
+          initial_elastic_displacement_time =
+            prm.get_double("Initial elastic displacement time");
           time_between_text_output = prm.get_double("Time between text output");
           time_steps_between_text_output = prm.get_integer("Time steps between text output");
           if (this->convert_output_to_years())
-            time_between_text_output *= constants::year_in_seconds;
+            {
+              initial_elastic_displacement_time *= constants::year_in_seconds;
+              time_between_text_output *= constants::year_in_seconds;
+            }
+        }
+        prm.leave_subsection();
+      }
+      prm.leave_subsection();
+
+      prm.enter_subsection("Boundary traction model");
+      {
+        prm.enter_subsection("Spherical harmonic load");
+        {
+          load_degree = prm.get_integer("Harmonic degree");
+          load_order = prm.get_integer("Harmonic order");
+          load_height = prm.get_double("Load height");
+          load_density = prm.get_double("Load density");
         }
         prm.leave_subsection();
       }
@@ -370,8 +475,12 @@ namespace aspect
 
       AssertThrow(min_degree <= max_degree,
                   ExcMessage("Minimum degree must be smaller than or equal to maximum degree."));
-      AssertThrow(load_displacement_scale > 0.0,
-                  ExcMessage("Load displacement scale must be positive."));
+      AssertThrow(load_order <= load_degree,
+                  ExcMessage("Spherical harmonic load order must be smaller than or equal to load degree."));
+      AssertThrow(load_height > 0.0,
+                  ExcMessage("Surface love numbers require Spherical harmonic load/Load height to be positive."));
+      AssertThrow(load_density > 0.0,
+                  ExcMessage("Surface love numbers require Spherical harmonic load/Load density to be positive."));
     }
 
 
@@ -379,7 +488,7 @@ namespace aspect
     template <int dim>
     template <class Archive>
     void
-    SurfaceDisplacementSphericalHarmonics<dim>::serialize (Archive &ar, const unsigned int)
+    SurfaceLoveNumbers<dim>::serialize (Archive &ar, const unsigned int)
     {
       ar &last_text_output_time
       & displacement_coecos
@@ -390,7 +499,7 @@ namespace aspect
 
     template <int dim>
     void
-    SurfaceDisplacementSphericalHarmonics<dim>::save (std::map<std::string, std::string> &status_strings) const
+    SurfaceLoveNumbers<dim>::save (std::map<std::string, std::string> &status_strings) const
     {
       std::ostringstream os;
       {
@@ -398,18 +507,18 @@ namespace aspect
         oa << (*this);
       }
 
-      status_strings["SurfaceDisplacementSphericalHarmonics"] = os.str();
+      status_strings["SurfaceLoveNumbers"] = os.str();
     }
 
 
 
     template <int dim>
     void
-    SurfaceDisplacementSphericalHarmonics<dim>::load (const std::map<std::string, std::string> &status_strings)
+    SurfaceLoveNumbers<dim>::load (const std::map<std::string, std::string> &status_strings)
     {
-      if (status_strings.find("SurfaceDisplacementSphericalHarmonics") != status_strings.end())
+      if (status_strings.find("SurfaceLoveNumbers") != status_strings.end())
         {
-          std::istringstream is (status_strings.find("SurfaceDisplacementSphericalHarmonics")->second);
+          std::istringstream is (status_strings.find("SurfaceLoveNumbers")->second);
           aspect::iarchive ia (is);
           ia >> (*this);
         }
@@ -423,14 +532,14 @@ namespace aspect
 {
   namespace Postprocess
   {
-    ASPECT_REGISTER_POSTPROCESSOR(SurfaceDisplacementSphericalHarmonics,
-                                  "surface displacement spherical harmonics",
-                                  "A postprocessor that integrates tangential "
-                                  "surface velocity through time and projects "
-                                  "the cumulative tangential displacement onto "
-                                  "real spherical harmonics. The coefficients "
-                                  "can be normalized by a benchmark load "
-                                  "displacement scale to obtain horizontal "
-                                  "load Love numbers.")
+    ASPECT_REGISTER_POSTPROCESSOR(SurfaceLoveNumbers,
+                                  "surface love numbers",
+                                  "A postprocessor that writes the surface "
+                                  "spherical-harmonic coefficients needed to "
+                                  "compute load Love numbers. It combines "
+                                  "the geoid postprocessor's geoid and surface "
+                                  "mass-potential coefficients with the "
+                                  "cumulative tangential displacement "
+                                  "coefficients.")
   }
 }

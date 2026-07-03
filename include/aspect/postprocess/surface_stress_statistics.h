@@ -25,6 +25,8 @@
 #include <aspect/postprocess/interface.h>
 #include <aspect/simulator_access.h>
 
+#include <deal.II/base/parameter_handler.h>
+
 namespace aspect
 {
   namespace Postprocess
@@ -43,6 +45,16 @@ namespace aspect
       public:
         std::pair<std::string,std::string>
         execute (TableHandler &statistics) override;
+
+        static
+        void
+        declare_parameters (ParameterHandler &prm);
+
+        void
+        parse_parameters (ParameterHandler &prm) override;
+
+      private:
+        bool output_unified_coefficients = true;
     };
   }
 }

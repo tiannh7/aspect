@@ -19,28 +19,26 @@
 */
 
 
-#ifndef _aspect_postprocess_surface_displacement_spherical_harmonics_h
-#define _aspect_postprocess_surface_displacement_spherical_harmonics_h
+#ifndef _aspect_postprocess_surface_love_numbers_h
+#define _aspect_postprocess_surface_love_numbers_h
 
 #include <aspect/postprocess/interface.h>
 #include <aspect/simulator_access.h>
+
+#include <list>
 
 namespace aspect
 {
   namespace Postprocess
   {
     /**
-     * A postprocessor that integrates tangential surface velocity through time
-     * and projects the cumulative tangential displacement onto real spherical
-     * harmonics.
-     *
-     * The projected coefficient is the scalar poloidal displacement amplitude
-     * @f$V_{lm}@f$ in @f$u_t = V_{lm} \nabla_s Y_{lm}@f$. Dividing it by the
-     * configured load displacement scale gives the horizontal load Love number
-     * @f$l_l@f$ for single-harmonic load benchmarks.
+     * A postprocessor that writes one timestep-consistent set of surface
+     * coefficients used to compute load Love numbers in postprocessing.
+     * The file combines geoid, surface mass-potential, and cumulative
+     * tangential displacement coefficients.
      */
     template <int dim>
-    class SurfaceDisplacementSphericalHarmonics : public Interface<dim>, public ::aspect::SimulatorAccess<dim>
+    class SurfaceLoveNumbers : public Interface<dim>, public ::aspect::SimulatorAccess<dim>
     {
       public:
         /**
@@ -49,6 +47,13 @@ namespace aspect
          */
         std::pair<std::string,std::string>
         execute (TableHandler &statistics) override;
+
+        /**
+         * The unified Love-number output uses geoid and surface
+         * mass-potential coefficients computed by the geoid postprocessor.
+         */
+        std::list<std::string>
+        required_other_postprocessors() const override;
 
         /**
          * Declare the parameters this class takes through input files.
@@ -89,10 +94,26 @@ namespace aspect
         unsigned int min_degree;
 
         /**
-         * Reference displacement amplitude used to convert displacement
-         * coefficients to horizontal Love numbers.
+         * Whether to combine the in-memory geoid/topography coefficients with
+         * the cumulative tangential displacement coefficients into one output
+         * file.
          */
-        double load_displacement_scale;
+        bool output_coefficients = true;
+
+        /**
+         * Surface-load properties read from the spherical harmonic load
+         * boundary-traction subsection.
+         */
+        unsigned int load_degree = 0;
+        unsigned int load_order = 0;
+        double load_height = 0.0;
+        double load_density = 0.0;
+
+        /**
+         * Time interval used to convert the timestep-zero instantaneous
+         * elastic velocity to an initial tangential displacement.
+         */
+        double initial_elastic_displacement_time = 0.0;
 
         /**
          * Output interval control parameters.

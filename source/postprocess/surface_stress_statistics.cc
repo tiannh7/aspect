@@ -25,6 +25,7 @@
 #include <aspect/geometry_model/interface.h>
 
 #include <deal.II/base/quadrature_lib.h>
+#include <deal.II/base/parameter_handler.h>
 #include <deal.II/base/symmetric_tensor.h>
 #include <deal.II/fe/fe_values.h>
 
@@ -336,52 +337,52 @@ namespace aspect
             {
               const std::vector<std::string> component_names = stress_component_names_3d;
 
-              const auto write_sh_coefficients =
-                [this, n_stress_sh_coefficients]
-                (const std::string &filename,
-                 const std::string &field_description,
-                 const std::vector<double> &cos_coefficients,
-                 const std::vector<double> &sin_coefficients)
-              {
-                Assert(cos_coefficients.size() == n_stress_sh_coefficients,
-                       ExcInternalError());
-                Assert(sin_coefficients.size() == n_stress_sh_coefficients,
-                       ExcInternalError());
-
-                std::ofstream output(this->get_output_directory() + "surface_stress/" + filename);
-                output << "# degree order cosine_coefficient sine_coefficient\n";
-                output << "# field: " << field_description << ", Pa\n";
-                output << "# spherical harmonic normalization: ASPECT real_spherical_harmonic\n";
-
-                for (unsigned int degree = 0, coefficient_index = 0;
-                     degree <= stress_sh_max_degree;
-                     ++degree)
-                  for (unsigned int order = 0; order <= degree; ++order, ++coefficient_index)
-                    output << degree << ' '
-                           << order << ' '
-                           << cos_coefficients[coefficient_index] << ' '
-                           << sin_coefficients[coefficient_index] << '\n';
-              };
-
               const std::string timestep_suffix =
                 "." + Utilities::int_to_string(this->get_timestep_number(), 5);
 
-              write_sh_coefficients("surface_tangential_deviatoric_stress_SH_coefficients" + timestep_suffix,
-                                    "0.5*(deviatoric_stress_tt + deviatoric_stress_pp), geoscience sign convention",
-                                    global_surface_tangential_deviatoric_stress_sh_cos,
-                                    global_surface_tangential_deviatoric_stress_sh_sin);
-
-              for (unsigned int i=0; i<n_components; ++i)
+              if (output_unified_coefficients)
                 {
-                  write_sh_coefficients("surface_total_stress_" + component_names[i] + "_SH_coefficients" + timestep_suffix,
-                                        "total_stress_" + component_names[i] + ", geoscience sign convention",
-                                        global_surface_total_stress_sh_cos[i],
-                                        global_surface_total_stress_sh_sin[i]);
-                  write_sh_coefficients("surface_deviatoric_stress_" + component_names[i] + "_SH_coefficients" + timestep_suffix,
-                                        "deviatoric_stress_" + component_names[i] + ", geoscience sign convention",
-                                        global_surface_deviatoric_stress_sh_cos[i],
-                                        global_surface_deviatoric_stress_sh_sin[i]);
+                  std::ofstream output(this->get_output_directory()
+                                       + "surface_stress/surface_stress_SH_coefficients"
+                                       + timestep_suffix);
+                  output << "# degree order "
+                         << "tangential_deviatoric_cos tangential_deviatoric_sin";
+                  for (const std::string &component_name : component_names)
+                    output << " total_" << component_name << "_cos"
+                           << " total_" << component_name << "_sin";
+                  for (const std::string &component_name : component_names)
+                    output << " deviatoric_" << component_name << "_cos"
+                           << " deviatoric_" << component_name << "_sin";
+                  output << '\n';
+                  output << "# field: surface stress spherical-harmonic coefficients, Pa\n";
+                  output << "# tangential_deviatoric: 0.5*(deviatoric_stress_tt + deviatoric_stress_pp), geoscience sign convention\n";
+                  output << "# total_* and deviatoric_* use the geoscience sign convention\n";
+                  output << "# spherical harmonic normalization: ASPECT real_spherical_harmonic\n";
+                  output << "# time: " << std::setprecision(16) << this->get_time() << "\n";
+                  output << "# timestep: " << this->get_timestep_number() << "\n";
+
+                  for (unsigned int degree = 0, coefficient_index = 0;
+                       degree <= stress_sh_max_degree;
+                       ++degree)
+                    for (unsigned int order = 0; order <= degree; ++order, ++coefficient_index)
+                      {
+                        output << degree << ' '
+                               << order << ' '
+                               << std::setprecision(16)
+                               << global_surface_tangential_deviatoric_stress_sh_cos[coefficient_index] << ' '
+                               << global_surface_tangential_deviatoric_stress_sh_sin[coefficient_index];
+                        for (unsigned int i=0; i<n_components; ++i)
+                          output << ' '
+                                 << global_surface_total_stress_sh_cos[i][coefficient_index] << ' '
+                                 << global_surface_total_stress_sh_sin[i][coefficient_index];
+                        for (unsigned int i=0; i<n_components; ++i)
+                          output << ' '
+                                 << global_surface_deviatoric_stress_sh_cos[i][coefficient_index] << ' '
+                                 << global_surface_deviatoric_stress_sh_sin[i][coefficient_index];
+                        output << '\n';
+                      }
                 }
+
             }
         }
 
@@ -446,6 +447,44 @@ namespace aspect
         }
 
       return std::pair<std::string,std::string>("Surface stress statistics:", screen_text.str());
+    }
+
+
+
+    template <int dim>
+    void
+    SurfaceStressStatistics<dim>::declare_parameters (ParameterHandler &prm)
+    {
+      prm.enter_subsection("Postprocess");
+      {
+        prm.enter_subsection("Surface stress statistics");
+        {
+          prm.declare_entry("Output unified coefficients", "true",
+                            Patterns::Bool(),
+                            "Whether to write one surface-stress spherical-harmonic "
+                            "coefficient file per timestep containing all tensor "
+                            "components.");
+        }
+        prm.leave_subsection();
+      }
+      prm.leave_subsection();
+    }
+
+
+
+    template <int dim>
+    void
+    SurfaceStressStatistics<dim>::parse_parameters (ParameterHandler &prm)
+    {
+      prm.enter_subsection("Postprocess");
+      {
+        prm.enter_subsection("Surface stress statistics");
+        {
+          output_unified_coefficients = prm.get_bool("Output unified coefficients");
+        }
+        prm.leave_subsection();
+      }
+      prm.leave_subsection();
     }
   }
 }
