@@ -30,6 +30,8 @@
 #include <deal.II/fe/fe_values.h>
 
 #include <algorithm>
+#include <fstream>
+#include <iomanip>
 #include <tuple>
 #include <numeric>
 #include <set>
@@ -75,18 +77,15 @@ namespace aspect
       bottom_boundary_id =
         this->get_geometry_model().translate_symbolic_boundary_name_to_id("bottom");
 
+      const double mm_initial_elastic_dt =
+        this->get_material_model().initial_elastic_time_step();
+      if (mm_initial_elastic_dt > 0.0 && initial_displacement_timestep == 0.0)
+        initial_displacement_timestep = mm_initial_elastic_dt;
+
       if (configured_from_potential_feedback)
         {
           enable_surface_potential_traction = true;
           enable_cmb_potential_traction = true;
-        }
-      else
-        {
-          const double mm_initial_elastic_dt = this->get_material_model().initial_elastic_time_step();
-          if (mm_initial_elastic_dt > 0.0 && initial_displacement_timestep == 0.0)
-            {
-              initial_displacement_timestep = mm_initial_elastic_dt;
-            }
         }
 
       last_text_output_time = -1.0;
@@ -218,18 +217,22 @@ namespace aspect
         mesh_face_values.n_quadrature_points);
 
       const double delta_rho_surf = density_below_surface - density_above_surface;
+      const double delta_rho_cmb = density_below_cmb - density_above_cmb;
 
       // Surface topography data
       std::vector<double> phi_pts;
       std::vector<double> theta_pts; // only used in 3D
       std::vector<double> weight_pts;
       std::vector<double> topo_pts;
+      std::vector<double> surface_deformation_topo_pts;
+      std::vector<double> external_load_topo_pts;
 
       // CMB topography data
       std::vector<double> cmb_phi_pts;
       std::vector<double> cmb_theta_pts; // only used in 3D
       std::vector<double> cmb_weight_pts;
       std::vector<double> cmb_topo_pts;
+      std::vector<double> cmb_deformation_topo_pts;
       std::vector<double> cmb_committed_topo_pts;
 
       auto mesh_cell = mesh_deformation_dof_handler.begin_active();
@@ -336,6 +339,8 @@ namespace aspect
                             theta_pts.push_back(scoord[2]);
                           weight_pts.push_back(w);
                           topo_pts.push_back(h_effective);
+                          surface_deformation_topo_pts.push_back(h_rock);
+                          external_load_topo_pts.push_back(h_load);
                         }
                       else // is_bottom
                         {
@@ -343,6 +348,36 @@ namespace aspect
                           const double committed_cmb_topography = r - inner_radius;
                           const double cmb_topography =
                             committed_cmb_topography + predicted_radial_displacement;
+
+                          const Tensor<1,dim> face_normal =
+                            fe_face_values.normal_vector(q);
+                          Tensor<1,dim> load_traction;
+                          const auto &traction_manager =
+                            this->get_boundary_traction_manager();
+                          const auto &plugins = traction_manager.get_active_plugins();
+                          const auto &plugin_boundaries =
+                            traction_manager.get_active_plugin_boundary_indicators();
+                          unsigned int plugin_index = 0;
+                          for (const auto &plugin : plugins)
+                            {
+                              if (plugin_boundaries[plugin_index] == bottom_boundary_id
+                                  && dynamic_cast<const SelfGravitation<dim> *>(plugin.get()) == nullptr
+                                  && dynamic_cast<const PotentialFeedback::BoundaryTractionMarker *>(plugin.get()) == nullptr)
+                                load_traction += plugin->boundary_traction(
+                                                   bottom_boundary_id, position, face_normal);
+                              ++plugin_index;
+                            }
+
+                          const double g_magnitude =
+                            this->get_gravity_model().gravity_vector(position).norm();
+
+                          double h_cmb_load = 0.0;
+                          if (g_magnitude > 0 && delta_rho_cmb > 0)
+                            h_cmb_load = (load_traction * face_normal) /
+                                         (delta_rho_cmb * g_magnitude);
+
+                          const double cmb_effective_topography =
+                            cmb_topography + h_cmb_load;
                           const double ref_radius = inner_radius;
                           const double w =
                             fe_face_values.JxW(q) /
@@ -352,7 +387,8 @@ namespace aspect
                           if (dim == 3)
                             cmb_theta_pts.push_back(scoord[2]);
                           cmb_weight_pts.push_back(w);
-                          cmb_topo_pts.push_back(cmb_topography);
+                          cmb_topo_pts.push_back(cmb_effective_topography);
+                          cmb_deformation_topo_pts.push_back(cmb_topography);
                           cmb_committed_topo_pts.push_back(
                             committed_cmb_topography);
                         }
@@ -372,17 +408,29 @@ namespace aspect
       //
       // CMB scaling: 3D: (r_cmb/R)^(l+2),  2D: (r_cmb/R)^(n+1)
 
-      const double delta_rho_cmb  = density_below_cmb - density_above_cmb;
-
       if (dim == 3)
         {
           auto [cos_topo, sin_topo] = sh_transform->analyze(
                                         theta_pts, phi_pts, weight_pts, topo_pts,
                                         this->get_mpi_communicator());
           const unsigned int n_coeff = sh_transform->n_coefficients();
+          auto [cos_surface_deformation, sin_surface_deformation] =
+            sh_transform->analyze(theta_pts,
+                                  phi_pts,
+                                  weight_pts,
+                                  surface_deformation_topo_pts,
+                                  this->get_mpi_communicator());
+          auto [cos_external_load, sin_external_load] =
+            sh_transform->analyze(theta_pts,
+                                  phi_pts,
+                                  weight_pts,
+                                  external_load_topo_pts,
+                                  this->get_mpi_communicator());
 
           std::vector<double> cos_cmb(n_coeff, 0.0);
           std::vector<double> sin_cmb(n_coeff, 0.0);
+          std::vector<double> cos_cmb_deformation(n_coeff, 0.0);
+          std::vector<double> sin_cmb_deformation(n_coeff, 0.0);
           // analyze() performs MPI collectives, so every rank must call it.
           // Ranks without locally owned CMB faces contribute empty vectors,
           // which correctly produce a zero local contribution.
@@ -392,6 +440,12 @@ namespace aspect
                                              cmb_theta_pts, cmb_phi_pts,
                                              cmb_weight_pts, cmb_topo_pts,
                                              this->get_mpi_communicator());
+              std::tie(cos_cmb_deformation, sin_cmb_deformation) =
+                sh_transform->analyze(cmb_theta_pts,
+                                      cmb_phi_pts,
+                                      cmb_weight_pts,
+                                      cmb_deformation_topo_pts,
+                                      this->get_mpi_communicator());
               std::tie(cmb_committed_topography_cos_coeffs,
                        cmb_committed_topography_sin_coeffs) =
                          sh_transform->analyze(
@@ -484,6 +538,29 @@ namespace aspect
                                             surface_to_surface);
           surface_mass_potential_cos_coeffs = surface_potential_cos_coeffs;
           surface_mass_potential_sin_coeffs = surface_potential_sin_coeffs;
+          external_load_surface_potential_cos_coeffs.assign(n_coeff, 0.0);
+          external_load_surface_potential_sin_coeffs.assign(n_coeff, 0.0);
+          surface_deformation_mass_potential_cos_coeffs =
+            surface_mass_potential_cos_coeffs;
+          surface_deformation_mass_potential_sin_coeffs =
+            surface_mass_potential_sin_coeffs;
+
+          external_load_surface_potential_cos_coeffs = cos_external_load;
+          external_load_surface_potential_sin_coeffs = sin_external_load;
+          sh_transform->apply_degree_filter(
+            external_load_surface_potential_cos_coeffs,
+            external_load_surface_potential_sin_coeffs,
+            surface_to_surface);
+
+          surface_deformation_mass_potential_cos_coeffs =
+            cos_surface_deformation;
+          surface_deformation_mass_potential_sin_coeffs =
+            sin_surface_deformation;
+          sh_transform->apply_degree_filter(
+            surface_deformation_mass_potential_cos_coeffs,
+            surface_deformation_mass_potential_sin_coeffs,
+            surface_to_surface);
+
           std::vector<double> cmb_at_surface_cos = cos_cmb;
           std::vector<double> cmb_at_surface_sin = sin_cmb;
           sh_transform->apply_degree_filter(cmb_at_surface_cos,
@@ -515,6 +592,16 @@ namespace aspect
           tidal_surface_potential_sin_coeffs.assign(n_coeff, 0.0);
           tidal_cmb_potential_cos_coeffs.assign(n_coeff, 0.0);
           tidal_cmb_potential_sin_coeffs.assign(n_coeff, 0.0);
+          reference_frame_surface_potential_cos_coeffs.assign(n_coeff, 0.0);
+          reference_frame_surface_potential_sin_coeffs.assign(n_coeff, 0.0);
+          reference_frame_cmb_potential_cos_coeffs.assign(n_coeff, 0.0);
+          reference_frame_cmb_potential_sin_coeffs.assign(n_coeff, 0.0);
+          degree_one_load_compensation_cos_coeffs.assign(n_coeff, 0.0);
+          degree_one_load_compensation_sin_coeffs.assign(n_coeff, 0.0);
+          degree_one_load_replay_cmb_potential_cos_coeffs.assign(n_coeff, 0.0);
+          degree_one_load_replay_cmb_potential_sin_coeffs.assign(n_coeff, 0.0);
+          citcomsve_degree_one_load_replay_diagnostic =
+            CitcomSVEDegreeOneLoadReplayDiagnostic();
 
           tidal_potential.add_to_coefficients(
             *sh_transform,
@@ -527,6 +614,349 @@ namespace aspect
             tidal_surface_potential_sin_coeffs,
             tidal_cmb_potential_cos_coeffs,
             tidal_cmb_potential_sin_coeffs);
+
+          cm_displacement_increment = Tensor<1,dim>();
+          deformation_cm_displacement_increment = Tensor<1,dim>();
+          external_load_cm_displacement_increment = Tensor<1,dim>();
+          surface_deformation_cm_displacement_increment = Tensor<1,dim>();
+          cmb_deformation_cm_displacement_increment = Tensor<1,dim>();
+
+          reference_frame_acceleration = Tensor<1,dim>();
+          if ((center_of_mass_correction
+               || citcomsve_degree_one_load_compensation)
+              && min_degree <= 1 && max_degree >= 1)
+            {
+              // With normalized real degree-1 harmonics, the center-of-mass
+              // displacement associated with a Phi/g coefficient is Phi_1m/g
+              // times sqrt(3/(4*pi)). This reproduces CitcomSVE's initial
+              // l=1 load CM: a 6.37 m surface load gives about 2.604 m of
+              // CM_z.
+              const unsigned int idx10 = sh_transform->index(1, 0);
+              const unsigned int idx11 = sh_transform->index(1, 1);
+              const double y1_normalization =
+                std::sqrt(3.0 / (4.0 * numbers::PI));
+
+              const auto potential_to_cm =
+                [idx10, idx11, y1_normalization]
+                (const std::vector<double> &cos_coeffs,
+                 const std::vector<double> &sin_coeffs)
+              {
+                Tensor<1,dim> result;
+                result[0] = -cos_coeffs[idx11] * y1_normalization;
+                result[1] = -sin_coeffs[idx11] * y1_normalization;
+                result[2] =  cos_coeffs[idx10] * y1_normalization;
+                return result;
+              };
+
+              cm_displacement_increment =
+                potential_to_cm(surface_potential_cos_coeffs,
+                                surface_potential_sin_coeffs);
+              external_load_cm_displacement_increment =
+                potential_to_cm(external_load_surface_potential_cos_coeffs,
+                                external_load_surface_potential_sin_coeffs);
+              surface_deformation_cm_displacement_increment =
+                potential_to_cm(surface_deformation_mass_potential_cos_coeffs,
+                                surface_deformation_mass_potential_sin_coeffs);
+              cmb_deformation_cm_displacement_increment =
+                potential_to_cm(cmb_mass_potential_cos_coeffs,
+                                cmb_mass_potential_sin_coeffs);
+
+              if (citcomsve_degree_one_load_compensation)
+                {
+                  const double compensation_scale =
+                    citcomsve_degree_one_load_compensation_scale;
+
+                  degree_one_load_compensation_cos_coeffs[idx10] =
+                    -compensation_scale
+                    * external_load_surface_potential_cos_coeffs[idx10];
+                  degree_one_load_compensation_cos_coeffs[idx11] =
+                    -compensation_scale
+                    * external_load_surface_potential_cos_coeffs[idx11];
+                  degree_one_load_compensation_sin_coeffs[idx11] =
+                    -compensation_scale
+                    * external_load_surface_potential_sin_coeffs[idx11];
+
+                  for (unsigned int order = 0; order <= 1; ++order)
+                    {
+                      const unsigned int index = sh_transform->index(1, order);
+                      degree_one_load_replay_cmb_potential_cos_coeffs[index] =
+                        cmb_potential_cos_coeffs[index]
+                        + (surface_to_cmb[1] + cmb_to_cmb[1])
+                        * degree_one_load_compensation_cos_coeffs[index];
+                      degree_one_load_replay_cmb_potential_sin_coeffs[index] =
+                        cmb_potential_sin_coeffs[index]
+                        + (surface_to_cmb[1] + cmb_to_cmb[1])
+                        * degree_one_load_compensation_sin_coeffs[index];
+                    }
+
+                  if (citcomsve_degree_one_cmb_final_rhs_override)
+                    degree_one_load_replay_cmb_potential_cos_coeffs[idx10] =
+                      citcomsve_degree_one_cmb_final_rhs_value
+                      + degree_one_load_compensation_cos_coeffs[idx10];
+
+                  citcomsve_degree_one_load_replay_diagnostic.valid = true;
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .original_surface_load_height_10 = cos_external_load[idx10];
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .phi_external_10_over_g =
+                    external_load_surface_potential_cos_coeffs[idx10];
+                  citcomsve_degree_one_load_replay_diagnostic.citcomsve_cm_z =
+                    external_load_surface_potential_cos_coeffs[idx10]
+                    * y1_normalization;
+                  citcomsve_degree_one_load_replay_diagnostic.citcomsve_h_comp_10 =
+                    degree_one_load_compensation_cos_coeffs[idx10];
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .corrected_surface_load_height_10 =
+                    cos_external_load[idx10]
+                    + degree_one_load_compensation_cos_coeffs[idx10];
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .corrected_cmb_load_height_10 =
+                    degree_one_load_compensation_cos_coeffs[idx10];
+                  citcomsve_degree_one_load_replay_diagnostic.surface_kernel_l1 =
+                    surface_to_surface[1];
+                  citcomsve_degree_one_load_replay_diagnostic.cmb_kernel_l1 =
+                    cmb_to_surface[1];
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .net_degree1_phi_over_g_after_load_compensation =
+                    external_load_surface_potential_cos_coeffs[idx10]
+                    + (surface_to_surface[1] + cmb_to_surface[1])
+                    * degree_one_load_compensation_cos_coeffs[idx10];
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .phi_cmb_pre_cancellation_over_g_10 =
+                    cmb_potential_cos_coeffs[idx10];
+                  citcomsve_degree_one_load_replay_diagnostic.h_comp_10 =
+                    degree_one_load_compensation_cos_coeffs[idx10];
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .surface_deformation_topo_cos_10 =
+                    cos_surface_deformation[idx10];
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .cmb_deformation_topo_cos_10 =
+                    cos_cmb_deformation[idx10];
+                  citcomsve_degree_one_load_replay_diagnostic.surface_to_cmb_l1 =
+                    surface_to_cmb[1];
+                  citcomsve_degree_one_load_replay_diagnostic.cmb_to_cmb_l1 =
+                    cmb_to_cmb[1];
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .surface_deformation_to_cmb_phi_over_g_10 =
+                    surface_to_cmb[1] * cos_surface_deformation[idx10];
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .cmb_deformation_to_cmb_phi_over_g_10 =
+                    cmb_to_cmb[1] * cos_cmb_deformation[idx10];
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .original_surface_load_to_cmb_l1_times_height =
+                    surface_to_cmb[1] * cos_external_load[idx10];
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .surface_to_cmb_l1_times_h_comp =
+                    surface_to_cmb[1]
+                    * degree_one_load_compensation_cos_coeffs[idx10];
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .cmb_to_cmb_l1_times_h_comp =
+                    cmb_to_cmb[1]
+                    * degree_one_load_compensation_cos_coeffs[idx10];
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .phi_cmb_deformation_pre_compensation_over_g_10 =
+                    citcomsve_degree_one_load_replay_diagnostic
+                    .surface_deformation_to_cmb_phi_over_g_10
+                    + citcomsve_degree_one_load_replay_diagnostic
+                    .cmb_deformation_to_cmb_phi_over_g_10;
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .phi_cmb_initial_load_pair_replay_over_g_10 =
+                    citcomsve_degree_one_load_replay_diagnostic
+                    .original_surface_load_to_cmb_l1_times_height
+                    + citcomsve_degree_one_load_replay_diagnostic
+                    .surface_to_cmb_l1_times_h_comp
+                    + citcomsve_degree_one_load_replay_diagnostic
+                    .cmb_to_cmb_l1_times_h_comp;
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .phi_cmb_replay_over_g_10 =
+                    degree_one_load_replay_cmb_potential_cos_coeffs[idx10];
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .cmb_intermediate_compensation_rhs_10 =
+                    -degree_one_load_compensation_cos_coeffs[idx10];
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .cmb_potential_append_rhs_10 =
+                    degree_one_load_replay_cmb_potential_cos_coeffs[idx10];
+                  citcomsve_degree_one_load_replay_diagnostic
+                  .cmb_final_rhs_10 =
+                    citcomsve_degree_one_load_replay_diagnostic
+                    .cmb_intermediate_compensation_rhs_10
+                    + citcomsve_degree_one_load_replay_diagnostic
+                    .cmb_potential_append_rhs_10;
+
+                  Utilities::create_directory(
+                    this->get_output_directory() + "self_gravity/",
+                    this->get_mpi_communicator(),
+                    /*silent=*/true);
+
+                  if (Utilities::MPI::this_mpi_process(
+                        this->get_mpi_communicator()) == 0)
+                    {
+                      const std::string filename =
+                        this->get_output_directory()
+                        + "self_gravity/"
+                        + "citcomsve_degree1_load_replay_diagnostic."
+                        + Utilities::int_to_string(this->get_timestep_number(), 5);
+                      std::ofstream output(filename);
+                      output << "# CitcomSVE incompressible l=1,m=0 "
+                             << "initial-load center-of-mass replay diagnostic\n";
+                      output << "# timestep: " << this->get_timestep_number()
+                             << "\n";
+                      output << "# potential_iteration: "
+                             << potential_iteration_number << "\n";
+                      output << "# include_current_velocity_increment: "
+                             << include_current_velocity_increment << "\n";
+                      output << "# deformation_topography_reference_frame: "
+                             << "solution-frame displacement before "
+                             << "degree-1 reference-frame potential "
+                             << "cancellation; surface excludes external load "
+                             << "height and CMB excludes non-self-gravity "
+                             << "CMB load height.\n";
+                      output
+                          << "original_surface_load_height_10 "
+                          << "phi_external_10_over_g "
+                          << "citcomsve_cm_z "
+                          << "citcomsve_h_comp_10 "
+                          << "corrected_surface_load_height_10 "
+                          << "corrected_cmb_load_height_10 "
+                          << "surface_kernel_l1 "
+                          << "cmb_kernel_l1 "
+                          << "net_degree1_phi_over_g_after_load_compensation "
+                          << "phi_cmb_pre_cancellation_over_g_10 "
+                          << "h_comp_10 "
+                          << "surface_deformation_topo_cos_10 "
+                          << "cmb_deformation_topo_cos_10 "
+                          << "surface_to_cmb_l1 "
+                          << "cmb_to_cmb_l1 "
+                          << "surface_deformation_to_cmb_phi_over_g_10 "
+                          << "cmb_deformation_to_cmb_phi_over_g_10 "
+                          << "original_surface_load_to_cmb_l1_times_height "
+                          << "surface_to_cmb_l1_times_h_comp "
+                          << "cmb_to_cmb_l1_times_h_comp "
+                          << "phi_cmb_deformation_pre_compensation_over_g_10 "
+                          << "phi_cmb_initial_load_pair_replay_over_g_10 "
+                          << "phi_cmb_replay_over_g_10 "
+                          << "cmb_intermediate_compensation_rhs_10 "
+                          << "cmb_potential_append_rhs_10 "
+                          << "cmb_final_rhs_10\n";
+                      output << std::setprecision(16)
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .original_surface_load_height_10 << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .phi_external_10_over_g << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .citcomsve_cm_z << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .citcomsve_h_comp_10 << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .corrected_surface_load_height_10 << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .corrected_cmb_load_height_10 << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .surface_kernel_l1 << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .cmb_kernel_l1 << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .net_degree1_phi_over_g_after_load_compensation
+                             << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .phi_cmb_pre_cancellation_over_g_10 << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .h_comp_10 << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .surface_deformation_topo_cos_10 << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .cmb_deformation_topo_cos_10 << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .surface_to_cmb_l1 << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .cmb_to_cmb_l1 << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .surface_deformation_to_cmb_phi_over_g_10 << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .cmb_deformation_to_cmb_phi_over_g_10 << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .original_surface_load_to_cmb_l1_times_height
+                             << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .surface_to_cmb_l1_times_h_comp << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .cmb_to_cmb_l1_times_h_comp << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .phi_cmb_deformation_pre_compensation_over_g_10
+                             << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .phi_cmb_initial_load_pair_replay_over_g_10 << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .phi_cmb_replay_over_g_10 << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .cmb_intermediate_compensation_rhs_10 << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .cmb_potential_append_rhs_10 << ' '
+                             << citcomsve_degree_one_load_replay_diagnostic
+                             .cmb_final_rhs_10
+                             << '\n';
+                    }
+                }
+
+              std::vector<double> deformation_potential_cos =
+                surface_deformation_mass_potential_cos_coeffs;
+              std::vector<double> deformation_potential_sin =
+                surface_deformation_mass_potential_sin_coeffs;
+              for (unsigned int i = 0; i < n_coeff; ++i)
+                {
+                  deformation_potential_cos[i] += cmb_mass_potential_cos_coeffs[i];
+                  deformation_potential_sin[i] += cmb_mass_potential_sin_coeffs[i];
+                }
+              deformation_cm_displacement_increment =
+                potential_to_cm(deformation_potential_cos,
+                                deformation_potential_sin);
+
+              // Zero degree-1 from the potential coefficients used for
+              // boundary traction (geoid/k cancellation).  This is the
+              // existing center_of_mass_correction: it ensures k1 = -1.
+              if (center_of_mass_correction)
+                {
+                  for (unsigned int order = 0; order <= 1; ++order)
+                    {
+                      const unsigned int index = sh_transform->index(1, order);
+
+                      reference_frame_surface_potential_cos_coeffs[index] =
+                        -surface_potential_cos_coeffs[index];
+                      reference_frame_surface_potential_sin_coeffs[index] =
+                        -surface_potential_sin_coeffs[index];
+                      reference_frame_cmb_potential_cos_coeffs[index] =
+                        -cmb_potential_cos_coeffs[index];
+                      reference_frame_cmb_potential_sin_coeffs[index] =
+                        -cmb_potential_sin_coeffs[index];
+
+                      surface_potential_cos_coeffs[index] = 0.0;
+                      surface_potential_sin_coeffs[index] = 0.0;
+                      cmb_potential_cos_coeffs[index] = 0.0;
+                      cmb_potential_sin_coeffs[index] = 0.0;
+                    }
+                }
+
+              const std::vector<double> theta = {numbers::PI / 2.0,
+                                                 numbers::PI / 2.0,
+                                                 0.0
+                                                };
+              const std::vector<double> phi = {0.0,
+                                               numbers::PI / 2.0,
+                                               0.0
+                                              };
+              const std::vector<double> height =
+                sh_transform->synthesize(
+                  reference_frame_surface_potential_cos_coeffs,
+                  reference_frame_surface_potential_sin_coeffs,
+                  theta,
+                  phi);
+              const double surface_gravity =
+                this->get_gravity_model()
+                .gravity_vector(geometry.representative_point(1.0)).norm();
+              for (unsigned int d = 0; d < dim; ++d)
+                reference_frame_acceleration[d] =
+                  -surface_gravity * height[d] / outer_radius;
+            }
         }
       else
         {
@@ -611,6 +1041,18 @@ namespace aspect
           tidal_surface_potential_sin_coeffs.assign(n_coeff, 0.0);
           tidal_cmb_potential_cos_coeffs.assign(n_coeff, 0.0);
           tidal_cmb_potential_sin_coeffs.assign(n_coeff, 0.0);
+          reference_frame_surface_potential_cos_coeffs.assign(n_coeff, 0.0);
+          reference_frame_surface_potential_sin_coeffs.assign(n_coeff, 0.0);
+          reference_frame_cmb_potential_cos_coeffs.assign(n_coeff, 0.0);
+          reference_frame_cmb_potential_sin_coeffs.assign(n_coeff, 0.0);
+          degree_one_load_compensation_cos_coeffs.assign(n_coeff, 0.0);
+          degree_one_load_compensation_sin_coeffs.assign(n_coeff, 0.0);
+          reference_frame_acceleration = Tensor<1,dim>();
+          cm_displacement_increment = Tensor<1,dim>();
+          deformation_cm_displacement_increment = Tensor<1,dim>();
+          external_load_cm_displacement_increment = Tensor<1,dim>();
+          surface_deformation_cm_displacement_increment = Tensor<1,dim>();
+          cmb_deformation_cm_displacement_increment = Tensor<1,dim>();
         }
 
       if (include_current_velocity_increment &&
@@ -701,6 +1143,38 @@ namespace aspect
 
     template <int dim>
     std::pair<double,double>
+    SelfGravitation<dim>::external_load_surface_potential_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      AssertThrow(dim == 3,
+                  ExcMessage("Spherical-harmonic coefficient access is only "
+                             "available in 3D."));
+      const unsigned int index = sh_transform->index(degree, order);
+      return {external_load_surface_potential_cos_coeffs.at(index),
+              external_load_surface_potential_sin_coeffs.at(index)
+             };
+    }
+
+
+    template <int dim>
+    std::pair<double,double>
+    SelfGravitation<dim>::surface_deformation_mass_potential_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      AssertThrow(dim == 3,
+                  ExcMessage("Spherical-harmonic coefficient access is only "
+                             "available in 3D."));
+      const unsigned int index = sh_transform->index(degree, order);
+      return {surface_deformation_mass_potential_cos_coeffs.at(index),
+              surface_deformation_mass_potential_sin_coeffs.at(index)
+             };
+    }
+
+
+    template <int dim>
+    std::pair<double,double>
     SelfGravitation<dim>::cmb_mass_potential_coefficient(
       const unsigned int degree,
       const unsigned int order) const
@@ -735,6 +1209,75 @@ namespace aspect
 
 
     template <int dim>
+    std::pair<double,double>
+    SelfGravitation<dim>::reference_frame_surface_potential_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      AssertThrow(dim == 3,
+                  ExcMessage("Spherical-harmonic coefficient access is only "
+                             "available in 3D."));
+      if (reference_frame_surface_potential_cos_coeffs.empty())
+        return {0.0, 0.0};
+
+      const unsigned int index = sh_transform->index(degree, order);
+      return {reference_frame_surface_potential_cos_coeffs.at(index),
+              reference_frame_surface_potential_sin_coeffs.at(index)
+             };
+    }
+
+
+    template <int dim>
+    Tensor<1,dim>
+    SelfGravitation<dim>::reference_frame_body_force(
+      const Point<dim> &position) const
+    {
+      (void)position;
+      return reference_frame_acceleration;
+    }
+
+
+    template <int dim>
+    Tensor<1,dim>
+    SelfGravitation<dim>::get_cm_displacement_increment() const
+    {
+      return cm_displacement_increment;
+    }
+
+
+    template <int dim>
+    Tensor<1,dim>
+    SelfGravitation<dim>::get_deformation_cm_displacement_increment() const
+    {
+      return deformation_cm_displacement_increment;
+    }
+
+
+    template <int dim>
+    Tensor<1,dim>
+    SelfGravitation<dim>::get_external_load_cm_displacement_increment() const
+    {
+      return external_load_cm_displacement_increment;
+    }
+
+
+    template <int dim>
+    Tensor<1,dim>
+    SelfGravitation<dim>::get_surface_deformation_cm_displacement_increment() const
+    {
+      return surface_deformation_cm_displacement_increment;
+    }
+
+
+    template <int dim>
+    Tensor<1,dim>
+    SelfGravitation<dim>::get_cmb_deformation_cm_displacement_increment() const
+    {
+      return cmb_deformation_cm_displacement_increment;
+    }
+
+
+    template <int dim>
     double
     SelfGravitation<dim>::surface_density_jump() const
     {
@@ -747,6 +1290,40 @@ namespace aspect
     SelfGravitation<dim>::cmb_density_jump() const
     {
       return density_below_cmb - density_above_cmb;
+    }
+
+
+    template <int dim>
+    bool
+    SelfGravitation<dim>::has_citcomsve_degree_one_load_replay_diagnostic() const
+    {
+      return citcomsve_degree_one_load_replay_diagnostic.valid;
+    }
+
+
+    template <int dim>
+    double
+    SelfGravitation<dim>::citcomsve_degree_one_cmb_intermediate_compensation_rhs_10() const
+    {
+      return citcomsve_degree_one_load_replay_diagnostic
+             .cmb_intermediate_compensation_rhs_10;
+    }
+
+
+    template <int dim>
+    double
+    SelfGravitation<dim>::citcomsve_degree_one_cmb_potential_append_rhs_10() const
+    {
+      return citcomsve_degree_one_load_replay_diagnostic
+             .cmb_potential_append_rhs_10;
+    }
+
+
+    template <int dim>
+    double
+    SelfGravitation<dim>::citcomsve_degree_one_cmb_final_rhs_10() const
+    {
+      return citcomsve_degree_one_load_replay_diagnostic.cmb_final_rhs_10;
     }
 
 
@@ -778,6 +1355,8 @@ namespace aspect
 
       double potential_height = 0.0;
       double cmb_topography = 0.0;
+      double degree_one_load_compensation_topography = 0.0;
+      double degree_one_load_replay_cmb_potential_height = 0.0;
       if (dim == 3)
         {
           const double th = scoord[2]; // colatitude
@@ -789,12 +1368,29 @@ namespace aspect
                                      th_vec, ph_vec);
           potential_height = potential[0];
 
-
           if (is_cmb && include_cmb_contribution)
             cmb_topography = sh_transform->synthesize(
                                cmb_committed_topography_cos_coeffs,
                                cmb_committed_topography_sin_coeffs,
                                th_vec, ph_vec)[0];
+
+          if (citcomsve_degree_one_load_compensation
+              && !degree_one_load_compensation_cos_coeffs.empty())
+            degree_one_load_compensation_topography =
+              sh_transform->synthesize(
+                degree_one_load_compensation_cos_coeffs,
+                degree_one_load_compensation_sin_coeffs,
+                th_vec, ph_vec)[0];
+
+          if (is_cmb
+              && citcomsve_degree_one_load_compensation
+              && !degree_one_load_replay_cmb_potential_cos_coeffs.empty())
+            degree_one_load_replay_cmb_potential_height =
+              sh_transform->synthesize(
+                degree_one_load_replay_cmb_potential_cos_coeffs,
+                degree_one_load_replay_cmb_potential_sin_coeffs,
+                th_vec, ph_vec)[0];
+
         }
       else
         {
@@ -804,7 +1400,6 @@ namespace aspect
                                           potential_sin,
                                           ph_vec);
           potential_height = potential[0];
-
 
           if (is_cmb && include_cmb_contribution)
             cmb_topography = fourier_transform->synthesize(
@@ -832,6 +1427,9 @@ namespace aspect
                     + (enable_surface_potential_traction
                        ? potential_height
                        : 0.0))
+                 * normal_vector
+                 - density_below_surface * g_magnitude
+                 * degree_one_load_compensation_topography
                  * normal_vector;
         }
 
@@ -841,7 +1439,9 @@ namespace aspect
              * (cmb_topography
                 + (enable_cmb_potential_traction
                    ? -potential_height
-                   : 0.0))
+                   : 0.0)
+                + degree_one_load_compensation_topography
+                - degree_one_load_replay_cmb_potential_height)
              * normal_vector;
     }
 
@@ -876,6 +1476,15 @@ namespace aspect
       include_internal_density_anomalies = settings.include_internal_density_anomalies;
       reference_density_for_internal_anomalies = settings.reference_density_for_internal_anomalies;
       internal_density_anomaly_tolerance = settings.internal_density_anomaly_tolerance;
+      center_of_mass_correction = settings.center_of_mass_correction;
+      citcomsve_degree_one_load_compensation =
+        settings.citcomsve_degree_one_load_compensation;
+      citcomsve_degree_one_load_compensation_scale =
+        settings.citcomsve_degree_one_load_compensation_scale;
+      citcomsve_degree_one_cmb_final_rhs_override =
+        settings.citcomsve_degree_one_cmb_final_rhs_override;
+      citcomsve_degree_one_cmb_final_rhs_value =
+        settings.citcomsve_degree_one_cmb_final_rhs_value;
       configured_from_potential_feedback = true;
       time_between_text_output = 0.0;
       time_steps_between_text_output = 0;
@@ -888,6 +1497,11 @@ namespace aspect
                              "must not exceed Maximum degree."));
       AssertThrow(planet_mean_density > 0.0,
                   ExcMessage("Planet mean density must be positive."));
+      AssertThrow(!citcomsve_degree_one_load_compensation
+                  || (min_degree <= 1 && max_degree >= 1),
+                  ExcMessage("CitcomSVE degree 1 load compensation requires "
+                             "degree 1 to be included in the self-gravity "
+                             "spherical-harmonic range."));
     }
 
 
@@ -988,6 +1602,39 @@ namespace aspect
                             "Diagnostic switch controlling whether Phi/g is "
                             "applied as a non-local traction at the CMB. The "
                             "local CMB topography term is unaffected.");
+          prm.declare_entry("Center of mass correction", "false",
+                            Patterns::Bool(),
+                            "Whether to apply the degree-1 center-of-mass "
+                            "reference-frame correction. This correction only "
+                            "affects degree 1 and is separate from ASPECT "
+                            "nullspace removal.");
+          prm.declare_entry("CitcomSVE degree 1 load compensation", "false",
+                            Patterns::Bool(),
+                            "Whether to apply the CitcomSVE-style degree-1 "
+                            "center-of-mass compensating load before solving "
+                            "the displacement response. This diagnostic option "
+                            "is disabled by default and is separate from "
+                            "ASPECT nullspace removal and from the degree-1 "
+                            "geoid reference-frame correction.");
+          prm.declare_entry("CitcomSVE degree 1 load compensation scale", "1.0",
+                            Patterns::Double(),
+                            "Scale factor for the CitcomSVE-style degree-1 "
+                            "compensating load. The default value reproduces "
+                            "the direct coefficient conversion; benchmark "
+                            "debugging may use this to isolate normalization "
+                            "differences without changing default behavior.");
+          prm.declare_entry("CitcomSVE degree 1 CMB final RHS override", "false",
+                            Patterns::Bool(),
+                            "Whether to override the diagnostic CitcomSVE "
+                            "degree-1 CMB replay so that the final l=1,m=0 "
+                            "CMB RHS coefficient matches the prescribed value. "
+                            "This option is disabled by default and is intended "
+                            "only for benchmark diagnostics.");
+          prm.declare_entry("CitcomSVE degree 1 CMB final RHS value", "0.0",
+                            Patterns::Double(),
+                            "Meter-equivalent radial-outward l=1,m=0 CMB final "
+                            "RHS coefficient used when the diagnostic override "
+                            "is enabled.");
           prm.declare_entry("Include internal density anomalies", "auto",
                             Patterns::Selection("true|false|auto"),
                             "Whether to include the internal mantle density anomalies "
@@ -1052,6 +1699,16 @@ namespace aspect
             prm.get_bool("Enable surface potential traction");
           enable_cmb_potential_traction =
             prm.get_bool("Enable CMB potential traction");
+          center_of_mass_correction =
+            prm.get_bool("Center of mass correction");
+          citcomsve_degree_one_load_compensation =
+            prm.get_bool("CitcomSVE degree 1 load compensation");
+          citcomsve_degree_one_load_compensation_scale =
+            prm.get_double("CitcomSVE degree 1 load compensation scale");
+          citcomsve_degree_one_cmb_final_rhs_override =
+            prm.get_bool("CitcomSVE degree 1 CMB final RHS override");
+          citcomsve_degree_one_cmb_final_rhs_value =
+            prm.get_double("CitcomSVE degree 1 CMB final RHS value");
           include_internal_density_anomalies =
             prm.get("Include internal density anomalies");
           reference_density_for_internal_anomalies =
@@ -1095,6 +1752,12 @@ namespace aspect
                   ExcMessage("Minimum degree must not exceed Maximum degree."));
       AssertThrow(planet_mean_density > 0.0,
                   ExcMessage("Planet mean density must be positive."));
+      AssertThrow(!citcomsve_degree_one_load_compensation
+                  || (min_degree <= 1 && max_degree >= 1),
+                  ExcMessage("Boundary traction model/Self gravitation/"
+                             "CitcomSVE degree 1 load compensation requires "
+                             "degree 1 to be included in the self-gravity "
+                             "spherical-harmonic range."));
     }
 
 

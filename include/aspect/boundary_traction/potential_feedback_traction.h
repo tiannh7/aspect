@@ -66,12 +66,23 @@ namespace aspect
                                            const unsigned int order) const;
 
         std::pair<double,double>
+        external_load_surface_potential_coefficient(const unsigned int degree,
+                                                    const unsigned int order) const;
+
+        std::pair<double,double>
+        surface_deformation_mass_potential_coefficient(const unsigned int degree,
+                                                       const unsigned int order) const;
+
+        std::pair<double,double>
         cmb_mass_potential_coefficient(const unsigned int degree,
                                        const unsigned int order) const;
 
         std::pair<double,double>
         tidal_surface_potential_coefficient(const unsigned int degree,
                                             const unsigned int order) const;
+
+        Tensor<1,dim>
+        reference_frame_body_force(const Point<dim> &position) const;
 
         double surface_density_jump() const;
 

@@ -1403,6 +1403,13 @@ namespace aspect
                             LinearAlgebra::BlockVector &distributed_stokes_solution) const;
 
       /**
+       * Return the spatially uniform velocity that was removed by the most
+       * recent net-translation nullspace removal.
+       */
+      Tensor<1,dim>
+      get_last_removed_net_translation() const;
+
+      /**
        * Compute the angular momentum and other rotation properties
        * of the velocities in the given solution vector.
        *
@@ -1739,6 +1746,12 @@ namespace aspect
        * @{
        */
       Parameters<dim>                     parameters;
+
+      /**
+       * Spatially uniform velocity removed by the most recent net-translation
+       * nullspace removal.
+       */
+      mutable Tensor<1,dim>               last_removed_net_translation;
 
       /**
        * Unique pointer for an instance of the MeltHandler. This way,

@@ -940,6 +940,15 @@ namespace aspect
   {
     simulator->remove_nullspace(solution, distributed_stokes_solution);
   }
+
+
+
+  template <int dim>
+  Tensor<1,dim>
+  SimulatorAccess<dim>::get_last_removed_net_translation() const
+  {
+    return simulator->get_last_removed_net_translation();
+  }
 }
 
 

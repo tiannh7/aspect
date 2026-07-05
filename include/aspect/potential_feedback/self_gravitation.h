@@ -100,6 +100,20 @@ namespace aspect
                                            const unsigned int order) const;
 
         /** Return the cosine/sine coefficient of Phi/g at the surface due
+         * to the externally applied surface load before degree-1 reference
+         * frame cancellation. */
+        std::pair<double,double>
+        external_load_surface_potential_coefficient(const unsigned int degree,
+                                                    const unsigned int order) const;
+
+        /** Return the cosine/sine coefficient of Phi/g at the surface due
+         * to surface deformation before degree-1 reference-frame
+         * cancellation. */
+        std::pair<double,double>
+        surface_deformation_mass_potential_coefficient(const unsigned int degree,
+                                                       const unsigned int order) const;
+
+        /** Return the cosine/sine coefficient of Phi/g at the surface due
          * to CMB topography. These accessors let geoid output use the same
          * converged boundary state as the traction operator. */
         std::pair<double,double>
@@ -112,11 +126,54 @@ namespace aspect
         tidal_surface_potential_coefficient(const unsigned int degree,
                                             const unsigned int order) const;
 
+        /** Return the cosine/sine coefficient of the reference-frame
+         * correction to Phi/g evaluated at the surface. */
+        std::pair<double,double>
+        reference_frame_surface_potential_coefficient(const unsigned int degree,
+                                                      const unsigned int order) const;
+
+        /** Return the uniform acceleration associated with the degree-1
+         * center-of-mass reference-frame correction. */
+        Tensor<1,dim>
+        reference_frame_body_force(const Point<dim> &position) const;
+
+        /** Return the center-of-mass displacement vector computed from the
+         * total degree-1 surface + CMB mass potential, including any external
+         * surface load. */
+        Tensor<1,dim>
+        get_cm_displacement_increment() const;
+
+        /** Return the center-of-mass displacement vector computed from the
+         * deformation-only degree-1 surface + CMB mass potential, excluding
+         * externally applied surface loads. */
+        Tensor<1,dim>
+        get_deformation_cm_displacement_increment() const;
+
+        /** Return the center-of-mass displacement vector computed from the
+         * externally applied degree-1 surface-load mass potential only. */
+        Tensor<1,dim>
+        get_external_load_cm_displacement_increment() const;
+
+        /** Return the center-of-mass displacement vector computed from the
+         * degree-1 surface-deformation mass potential only. */
+        Tensor<1,dim>
+        get_surface_deformation_cm_displacement_increment() const;
+
+        /** Return the center-of-mass displacement vector computed from the
+         * degree-1 CMB-deformation mass potential only. */
+        Tensor<1,dim>
+        get_cmb_deformation_cm_displacement_increment() const;
+
         /** Return the density jump used for the surface mass term. */
         double surface_density_jump() const;
 
         /** Return the density jump used for the CMB mass term. */
         double cmb_density_jump() const;
+
+        bool has_citcomsve_degree_one_load_replay_diagnostic() const;
+        double citcomsve_degree_one_cmb_intermediate_compensation_rhs_10() const;
+        double citcomsve_degree_one_cmb_potential_append_rhs_10() const;
+        double citcomsve_degree_one_cmb_final_rhs_10() const;
 
         /** Whether the last post-Stokes update changed the combined surface
          * and CMB Phi/g coefficient vectors by less than the configured
@@ -142,6 +199,37 @@ namespace aspect
         double get_internal_density_anomaly_tolerance() const;
 
       private:
+        struct CitcomSVEDegreeOneLoadReplayDiagnostic
+        {
+          bool valid = false;
+          double original_surface_load_height_10 = 0.0;
+          double phi_external_10_over_g = 0.0;
+          double citcomsve_cm_z = 0.0;
+          double citcomsve_h_comp_10 = 0.0;
+          double corrected_surface_load_height_10 = 0.0;
+          double corrected_cmb_load_height_10 = 0.0;
+          double surface_kernel_l1 = 0.0;
+          double cmb_kernel_l1 = 0.0;
+          double net_degree1_phi_over_g_after_load_compensation = 0.0;
+          double phi_cmb_pre_cancellation_over_g_10 = 0.0;
+          double h_comp_10 = 0.0;
+          double surface_deformation_topo_cos_10 = 0.0;
+          double cmb_deformation_topo_cos_10 = 0.0;
+          double surface_to_cmb_l1 = 0.0;
+          double cmb_to_cmb_l1 = 0.0;
+          double surface_deformation_to_cmb_phi_over_g_10 = 0.0;
+          double cmb_deformation_to_cmb_phi_over_g_10 = 0.0;
+          double original_surface_load_to_cmb_l1_times_height = 0.0;
+          double surface_to_cmb_l1_times_h_comp = 0.0;
+          double cmb_to_cmb_l1_times_h_comp = 0.0;
+          double phi_cmb_deformation_pre_compensation_over_g_10 = 0.0;
+          double phi_cmb_initial_load_pair_replay_over_g_10 = 0.0;
+          double phi_cmb_replay_over_g_10 = 0.0;
+          double cmb_intermediate_compensation_rhs_10 = 0.0;
+          double cmb_potential_append_rhs_10 = 0.0;
+          double cmb_final_rhs_10 = 0.0;
+        };
+
         /**
          * Compute the self-gravity correction for the current topography.
          * Collects surface topography from mesh deformation, performs SH
@@ -177,6 +265,11 @@ namespace aspect
         unsigned int potential_iteration_number;
         bool   enable_surface_potential_traction;
         bool   enable_cmb_potential_traction;
+        bool   center_of_mass_correction;
+        bool   citcomsve_degree_one_load_compensation;
+        double citcomsve_degree_one_load_compensation_scale;
+        bool   citcomsve_degree_one_cmb_final_rhs_override;
+        double citcomsve_degree_one_cmb_final_rhs_value;
         TidalPotential tidal_potential;
 
         std::string include_internal_density_anomalies;
@@ -214,6 +307,10 @@ namespace aspect
         // postprocessor.
         std::vector<double> surface_mass_potential_cos_coeffs;
         std::vector<double> surface_mass_potential_sin_coeffs;
+        std::vector<double> external_load_surface_potential_cos_coeffs;
+        std::vector<double> external_load_surface_potential_sin_coeffs;
+        std::vector<double> surface_deformation_mass_potential_cos_coeffs;
+        std::vector<double> surface_deformation_mass_potential_sin_coeffs;
         std::vector<double> cmb_mass_potential_cos_coeffs;
         std::vector<double> cmb_mass_potential_sin_coeffs;
 
@@ -224,6 +321,22 @@ namespace aspect
         std::vector<double> tidal_surface_potential_sin_coeffs;
         std::vector<double> tidal_cmb_potential_cos_coeffs;
         std::vector<double> tidal_cmb_potential_sin_coeffs;
+
+        // Reference-frame potential that enforces the degree-1 center-of-mass
+        // convention without erasing the physical surface/CMB mass
+        // coefficients used for displacement diagnostics.
+        std::vector<double> reference_frame_surface_potential_cos_coeffs;
+        std::vector<double> reference_frame_surface_potential_sin_coeffs;
+        std::vector<double> reference_frame_cmb_potential_cos_coeffs;
+        std::vector<double> reference_frame_cmb_potential_sin_coeffs;
+        Tensor<1,dim> reference_frame_acceleration;
+
+        // Degree-1 equivalent topography coefficients for the
+        // CitcomSVE-style center-of-mass compensating load.
+        std::vector<double> degree_one_load_compensation_cos_coeffs;
+        std::vector<double> degree_one_load_compensation_sin_coeffs;
+        std::vector<double> degree_one_load_replay_cmb_potential_cos_coeffs;
+        std::vector<double> degree_one_load_replay_cmb_potential_sin_coeffs;
 
         // CMB topography coefficients used by the direct density-jump
         // restoring traction.
@@ -237,6 +350,17 @@ namespace aspect
         // Zhong et al. (2022) benchmark experiments.
         std::vector<double> cmb_committed_topography_cos_coeffs;
         std::vector<double> cmb_committed_topography_sin_coeffs;
+
+        // Center-of-mass displacement vectors (meters) inferred from degree-1
+        // mass-potential coefficients.
+        Tensor<1,dim> cm_displacement_increment;
+        Tensor<1,dim> deformation_cm_displacement_increment;
+        Tensor<1,dim> external_load_cm_displacement_increment;
+        Tensor<1,dim> surface_deformation_cm_displacement_increment;
+        Tensor<1,dim> cmb_deformation_cm_displacement_increment;
+
+        CitcomSVEDegreeOneLoadReplayDiagnostic
+        citcomsve_degree_one_load_replay_diagnostic;
     };
   }
 }

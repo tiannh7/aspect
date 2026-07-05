@@ -173,6 +173,43 @@ namespace aspect
     }
 
 
+    template <int dim>
+    std::pair<double,double>
+    PotentialFeedbackTraction<dim>::external_load_surface_potential_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().external_load_surface_potential_coefficient(
+                 degree, order);
+
+      AssertThrow(self_gravity_active,
+                  ExcMessage("The `potential feedback' boundary traction "
+                             "does not have active self-gravity feedback."));
+      return self_gravity.external_load_surface_potential_coefficient(degree,
+                                                                      order);
+    }
+
+
+
+    template <int dim>
+    std::pair<double,double>
+    PotentialFeedbackTraction<dim>::surface_deformation_mass_potential_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().surface_deformation_mass_potential_coefficient(
+                 degree, order);
+
+      AssertThrow(self_gravity_active,
+                  ExcMessage("The `potential feedback' boundary traction "
+                             "does not have active self-gravity feedback."));
+      return self_gravity.surface_deformation_mass_potential_coefficient(
+               degree, order);
+    }
+
+
 
     template <int dim>
     std::pair<double,double>
@@ -206,6 +243,22 @@ namespace aspect
                   ExcMessage("The `potential feedback' boundary traction "
                              "does not have active self-gravity feedback."));
       return self_gravity.tidal_surface_potential_coefficient(degree, order);
+    }
+
+
+    template <int dim>
+    Tensor<1,dim>
+    PotentialFeedbackTraction<dim>::reference_frame_body_force(
+      const Point<dim> &position) const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().reference_frame_body_force(position);
+
+      Tensor<1,dim> force;
+      if (self_gravity_active)
+        force += self_gravity.reference_frame_body_force(position);
+
+      return force;
     }
 
 

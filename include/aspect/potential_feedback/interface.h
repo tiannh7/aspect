@@ -127,6 +127,10 @@ namespace aspect
 
       bool center_of_mass_correction = false;
       bool remove_pure_rotation_from_displacement = false;
+      bool citcomsve_degree_one_load_compensation = false;
+      double citcomsve_degree_one_load_compensation_scale = 1.0;
+      bool citcomsve_degree_one_cmb_final_rhs_override = false;
+      double citcomsve_degree_one_cmb_final_rhs_value = 0.0;
 
       bool has_active_mechanisms() const;
 

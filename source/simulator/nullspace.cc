@@ -209,6 +209,8 @@ namespace aspect
   void Simulator<dim>::remove_nullspace(LinearAlgebra::BlockVector &relevant_dst,
                                         LinearAlgebra::BlockVector &tmp_distributed_stokes) const
   {
+    last_removed_net_translation = Tensor<1,dim>();
+
     if (parameters.nullspace_removal & NullspaceRemoval::angular_momentum)
       {
         remove_net_angular_momentum( /* use_constant_density = */ false, // remove net momentum
@@ -242,6 +244,17 @@ namespace aspect
                                                                  tmp_distributed_stokes);
       }
   }
+
+
+
+  template <int dim>
+  Tensor<1,dim>
+  Simulator<dim>::get_last_removed_net_translation() const
+  {
+    return last_removed_net_translation;
+  }
+
+
 
   template <int dim>
   void Simulator<dim>::remove_net_linear_momentum(const bool use_constant_density,
@@ -312,6 +325,7 @@ namespace aspect
           velocity_correction[1] = 0.0;  // don't correct y translation
         if ( !(parameters.nullspace_removal & NullspaceRemoval::net_translation_z) && dim == 3 )
           velocity_correction[2] = 0.0;  // don't correct z translation
+        last_removed_net_translation = velocity_correction;
       }
     else // disable momentum correction
       {
@@ -513,6 +527,7 @@ namespace aspect
 {
 #define INSTANTIATE(dim) \
   template struct RotationProperties<dim>; \
+  template Tensor<1,dim> Simulator<dim>::get_last_removed_net_translation () const; \
   template void Simulator<dim>::remove_nullspace (LinearAlgebra::BlockVector &,LinearAlgebra::BlockVector &vector) const; \
   template void Simulator<dim>::setup_nullspace_constraints (AffineConstraints<double> &);
 

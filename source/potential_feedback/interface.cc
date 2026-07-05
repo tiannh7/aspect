@@ -172,6 +172,13 @@ namespace aspect
                             Patterns::Bool(),
                             "Recompute feedback potentials from the current "
                             "Stokes velocity after every Stokes solve.");
+          prm.declare_entry("Initial displacement time step", "0",
+                            Patterns::Double(0),
+                            "Displacement interval used to convert the "
+                            "timestep-0 Stokes velocity into an incremental "
+                            "boundary displacement in seconds. If zero, "
+                            "feedback mechanisms use the material model's "
+                            "initial elastic time step when available.");
         }
         prm.leave_subsection();
 
@@ -187,6 +194,32 @@ namespace aspect
                             "Whether to remove pure-rotation reference-frame "
                             "content from displacement diagnostics. This is "
                             "separate from ASPECT velocity nullspace removal.");
+          prm.declare_entry("CitcomSVE degree 1 load compensation", "false",
+                            Patterns::Bool(),
+                            "Whether to apply the CitcomSVE-style degree-1 "
+                            "center-of-mass compensating load before solving "
+                            "the displacement response. This option is disabled "
+                            "by default and is separate from ASPECT nullspace "
+                            "removal and from degree-1 geoid cancellation.");
+          prm.declare_entry("CitcomSVE degree 1 load compensation scale", "1.0",
+                            Patterns::Double(),
+                            "Scale factor for the CitcomSVE-style degree-1 "
+                            "compensating load. The default value reproduces "
+                            "the direct coefficient conversion; benchmark "
+                            "debugging may use this to isolate normalization "
+                            "differences without changing default behavior.");
+          prm.declare_entry("CitcomSVE degree 1 CMB final RHS override", "false",
+                            Patterns::Bool(),
+                            "Whether to override the diagnostic CitcomSVE "
+                            "degree-1 CMB replay so that the final l=1,m=0 "
+                            "CMB RHS coefficient matches the prescribed value. "
+                            "This option is disabled by default and is intended "
+                            "only for benchmark diagnostics.");
+          prm.declare_entry("CitcomSVE degree 1 CMB final RHS value", "0.0",
+                            Patterns::Double(),
+                            "Meter-equivalent radial-outward l=1,m=0 CMB final "
+                            "RHS coefficient used when the diagnostic override "
+                            "is enabled.");
         }
         prm.leave_subsection();
       }
@@ -260,6 +293,8 @@ namespace aspect
           freeze_feedback_after_timestep_zero =
             prm.get_bool("Freeze feedback after timestep zero");
           iterate_with_stokes = prm.get_bool("Iterate with Stokes");
+          initial_displacement_timestep =
+            prm.get_double("Initial displacement time step");
         }
         prm.leave_subsection();
 
@@ -269,6 +304,14 @@ namespace aspect
             prm.get_bool("Center of mass correction");
           remove_pure_rotation_from_displacement =
             prm.get_bool("Remove pure rotation from displacement");
+          citcomsve_degree_one_load_compensation =
+            prm.get_bool("CitcomSVE degree 1 load compensation");
+          citcomsve_degree_one_load_compensation_scale =
+            prm.get_double("CitcomSVE degree 1 load compensation scale");
+          citcomsve_degree_one_cmb_final_rhs_override =
+            prm.get_bool("CitcomSVE degree 1 CMB final RHS override");
+          citcomsve_degree_one_cmb_final_rhs_value =
+            prm.get_double("CitcomSVE degree 1 CMB final RHS value");
         }
         prm.leave_subsection();
       }

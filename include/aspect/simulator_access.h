@@ -1049,6 +1049,13 @@ namespace aspect
                             LinearAlgebra::BlockVector &distributed_stokes_solution) const;
 
       /**
+       * Return the spatially uniform velocity that was removed by the most
+       * recent net-translation nullspace removal.
+       */
+      Tensor<1,dim>
+      get_last_removed_net_translation() const;
+
+      /**
        * Adjust the pressure variable (which is only determined up to
        * a constant by the equations) by adding a constant to it in
        * such a way that the pressure on the surface or within the

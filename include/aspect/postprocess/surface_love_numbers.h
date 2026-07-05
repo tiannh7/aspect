@@ -27,6 +27,7 @@
 #include <aspect/potential_feedback/self_gravitation.h>
 
 #include <list>
+#include <string>
 
 namespace aspect
 {
@@ -121,6 +122,35 @@ namespace aspect
         double initial_elastic_displacement_time = 0.0;
 
         /**
+         * Reference frame for degree-1 tangential displacement diagnostics.
+         */
+        std::string degree_one_displacement_reference_frame = "solution";
+
+        /**
+         * Scale factor applied to diagnosed degree-1 center-of-mass shifts.
+         */
+        double degree_one_cm_displacement_scale = 1.0;
+
+        /**
+         * Whether to run the default-off degree-1 mass-moment projection
+         * diagnostic prototype.
+         */
+        bool degree_one_mass_moment_projection_prototype = false;
+
+        /**
+         * Whether to write a default-off diagnostic that projects the actual
+         * total boundary traction returned by the boundary-traction manager
+         * onto Y10 on the top and bottom boundaries.
+         */
+        bool degree_one_boundary_traction_rhs_diagnostic = false;
+
+        /**
+         * Ratio dV_10/dU_10 used by the l1m0 coefficient-space spheroidal
+         * projection prototype.
+         */
+        double degree_one_mass_moment_projection_poloidal_ratio = -1.0;
+
+        /**
          * Output interval control parameters.
          */
         double       time_between_text_output = 0.;
@@ -133,6 +163,12 @@ namespace aspect
          */
         std::vector<double> displacement_coecos;
         std::vector<double> displacement_coesin;
+
+        /**
+         * Cumulative cosine and sine coefficients of the radial displacement.
+         */
+        std::vector<double> radial_displacement_coecos;
+        std::vector<double> radial_displacement_coesin;
 
         PotentialFeedback::SelfGravitation<dim> self_gravity_helper;
     };
