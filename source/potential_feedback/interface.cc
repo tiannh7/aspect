@@ -104,6 +104,23 @@ namespace aspect
 
         return result;
       }
+
+
+      DegreeOneReferenceFrame
+      parse_degree_one_reference_frame(const std::string &name)
+      {
+        if (name == "none")
+          return DegreeOneReferenceFrame::none;
+        if (name == "geoid cancellation")
+          return DegreeOneReferenceFrame::geoid_cancellation;
+        if (name == "center of mass")
+          return DegreeOneReferenceFrame::center_of_mass;
+        if (name == "citcomsve center of mass")
+          return DegreeOneReferenceFrame::citcomsve_center_of_mass;
+
+        AssertThrow(false, ExcInternalError());
+        return DegreeOneReferenceFrame::none;
+      }
     }
 
 
@@ -344,11 +361,15 @@ namespace aspect
                             Patterns::Selection("none|geoid cancellation|center of mass|citcomsve center of mass"),
                             "Degree-1 potential/reference-frame convention. "
                             "`none' leaves degree-1 potential unmodified. "
-                            "`geoid cancellation' and `center of mass' remove "
-                            "degree-1 potential from the emitted boundary "
-                            "traction potential. `citcomsve center of mass' "
-                            "also enables the CitcomSVE incompressible "
-                            "degree-1 load-compensation replay.");
+                            "`geoid cancellation' removes degree-1 potential "
+                            "from the emitted boundary traction potential. "
+                            "`center of mass' applies an ASPECT-native "
+                            "reference-frame correction from the total "
+                            "degree-1 mass dipole of active self-gravity "
+                            "mass sources. `citcomsve center of mass' keeps "
+                            "the benchmark-compatible CitcomSVE "
+                            "incompressible degree-1 load-compensation "
+                            "replay.");
           prm.declare_entry("Remove pure rotation from displacement", "true",
                             Patterns::Bool(),
                             "Whether to remove pure-rotation reference-frame "
@@ -469,19 +490,27 @@ namespace aspect
 
         prm.enter_subsection("Reference frame");
         {
-          degree_one_reference_frame = prm.get("Degree 1 reference frame");
-          if (degree_one_reference_frame == "none")
+          degree_one_reference_frame =
+            parse_degree_one_reference_frame(prm.get("Degree 1 reference frame"));
+          if (degree_one_reference_frame == DegreeOneReferenceFrame::none)
             {
               center_of_mass_correction = false;
               citcomsve_degree_one_load_compensation = false;
             }
-          else if (degree_one_reference_frame == "geoid cancellation"
-                   || degree_one_reference_frame == "center of mass")
+          else if (degree_one_reference_frame ==
+                   DegreeOneReferenceFrame::geoid_cancellation)
             {
               center_of_mass_correction = true;
               citcomsve_degree_one_load_compensation = false;
             }
-          else if (degree_one_reference_frame == "citcomsve center of mass")
+          else if (degree_one_reference_frame ==
+                   DegreeOneReferenceFrame::center_of_mass)
+            {
+              center_of_mass_correction = true;
+              citcomsve_degree_one_load_compensation = false;
+            }
+          else if (degree_one_reference_frame ==
+                   DegreeOneReferenceFrame::citcomsve_center_of_mass)
             {
               center_of_mass_correction = true;
               citcomsve_degree_one_load_compensation = true;

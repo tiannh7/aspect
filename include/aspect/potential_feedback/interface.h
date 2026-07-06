@@ -47,6 +47,19 @@ namespace aspect
 
 
     /**
+     * Degree-1 reference-frame convention for potential-feedback sources.
+     */
+    enum class DegreeOneReferenceFrame
+    {
+      none,
+      geoid_cancellation,
+      center_of_mass,
+      citcomsve_center_of_mass
+    };
+
+
+
+    /**
      * Densities immediately above and below a density interface.
      */
     struct InterfaceDensity
@@ -148,7 +161,8 @@ namespace aspect
       // Stored in seconds after parsing, matching ASPECT's internal time units.
       double initial_displacement_timestep = 0.0;
 
-      std::string degree_one_reference_frame = "none";
+      DegreeOneReferenceFrame degree_one_reference_frame =
+        DegreeOneReferenceFrame::none;
       bool center_of_mass_correction = false;
       bool remove_pure_rotation_from_displacement = false;
       bool citcomsve_degree_one_load_compensation = false;

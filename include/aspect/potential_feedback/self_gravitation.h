@@ -232,6 +232,20 @@ namespace aspect
           double cmb_final_rhs_10 = 0.0;
         };
 
+        struct NativeCenterOfMassDiagnostic
+        {
+          bool valid = false;
+          Tensor<1,3> mass_dipole_pre;
+          Tensor<1,3> mass_dipole_post;
+          Tensor<1,3> translation;
+          Tensor<1,3> internal_density_dipole;
+          Tensor<1,3> surface_interface_dipole;
+          Tensor<1,3> cmb_interface_dipole;
+          Tensor<1,3> external_load_dipole;
+          double total_mass = 0.0;
+          double correctable_mass = 0.0;
+        };
+
         /**
          * Compute the self-gravity correction for the current topography.
          * Collects surface topography from mesh deformation, performs SH
@@ -248,6 +262,20 @@ namespace aspect
         std::pair<std::vector<double>, std::vector<double>>
         to_spherical_harmonic_coefficients(const std::vector<std::vector<double>> &spherical_function) const;
 
+        Tensor<1,3>
+        degree_one_mass_dipole_from_height_coefficients(
+          const std::vector<double> &cos_coeffs,
+          const std::vector<double> &sin_coeffs,
+          const double density_jump,
+          const double radius) const;
+
+        Tensor<1,3>
+        compute_internal_density_mass_dipole() const;
+
+        void
+        write_native_center_of_mass_diagnostic(
+          const bool include_current_velocity_increment) const;
+
         unsigned int max_degree;
         unsigned int min_degree;
 
@@ -256,6 +284,7 @@ namespace aspect
         double density_above_cmb;
         double density_below_cmb;
         double planet_mean_density;
+        double planet_mass;
         bool   include_cmb_contribution;
         bool   include_surface_contribution;
         bool   self_gravity_mass_feedback_enabled;
@@ -270,6 +299,7 @@ namespace aspect
         unsigned int potential_iteration_number;
         bool   enable_surface_potential_traction;
         bool   enable_cmb_potential_traction;
+        DegreeOneReferenceFrame degree_one_reference_frame;
         bool   center_of_mass_correction;
         bool   citcomsve_degree_one_load_compensation;
         std::string external_load_source;
@@ -366,6 +396,7 @@ namespace aspect
 
         CitcomSVEDegreeOneLoadReplayDiagnostic
         citcomsve_degree_one_load_replay_diagnostic;
+        NativeCenterOfMassDiagnostic native_center_of_mass_diagnostic;
     };
   }
 }

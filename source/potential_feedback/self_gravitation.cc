@@ -306,6 +306,7 @@ namespace aspect
       std::vector<double> cmb_topo_pts;
       std::vector<double> cmb_deformation_topo_pts;
       std::vector<double> cmb_committed_topo_pts;
+      std::vector<double> cmb_external_load_topo_pts;
 
       auto mesh_cell = mesh_deformation_dof_handler.begin_active();
       for (const auto &cell : this->get_dof_handler().active_cell_iterators())
@@ -442,6 +443,7 @@ namespace aspect
                           cmb_deformation_topo_pts.push_back(cmb_topography);
                           cmb_committed_topo_pts.push_back(
                             committed_cmb_topography);
+                          cmb_external_load_topo_pts.push_back(h_cmb_load);
                         }
                     }
                 }
@@ -482,6 +484,8 @@ namespace aspect
           std::vector<double> sin_cmb(n_coeff, 0.0);
           std::vector<double> cos_cmb_deformation(n_coeff, 0.0);
           std::vector<double> sin_cmb_deformation(n_coeff, 0.0);
+          std::vector<double> cos_cmb_external_load(n_coeff, 0.0);
+          std::vector<double> sin_cmb_external_load(n_coeff, 0.0);
           // analyze() performs MPI collectives, so every rank must call it.
           // Ranks without locally owned CMB faces contribute empty vectors,
           // which correctly produce a zero local contribution.
@@ -502,6 +506,12 @@ namespace aspect
                          sh_transform->analyze(
                            cmb_theta_pts, cmb_phi_pts, cmb_weight_pts,
                            cmb_committed_topo_pts, this->get_mpi_communicator());
+              std::tie(cos_cmb_external_load, sin_cmb_external_load) =
+                sh_transform->analyze(cmb_theta_pts,
+                                      cmb_phi_pts,
+                                      cmb_weight_pts,
+                                      cmb_external_load_topo_pts,
+                                      this->get_mpi_communicator());
             }
 
           if (!self_gravity_mass_feedback_enabled)
@@ -528,10 +538,73 @@ namespace aspect
               std::fill(sin_cmb_deformation.begin(),
                         sin_cmb_deformation.end(),
                         0.0);
+              std::fill(cos_cmb_external_load.begin(),
+                        cos_cmb_external_load.end(),
+                        0.0);
+              std::fill(sin_cmb_external_load.begin(),
+                        sin_cmb_external_load.end(),
+                        0.0);
             }
 
           cmb_topography_cos_coeffs = cos_cmb;
           cmb_topography_sin_coeffs = sin_cmb;
+
+          native_center_of_mass_diagnostic =
+            NativeCenterOfMassDiagnostic();
+          if (degree_one_reference_frame ==
+              DegreeOneReferenceFrame::center_of_mass
+              && min_degree <= 1 && max_degree >= 1)
+            {
+              native_center_of_mass_diagnostic.valid = true;
+              native_center_of_mass_diagnostic.surface_interface_dipole =
+                degree_one_mass_dipole_from_height_coefficients(
+                  cos_surface_deformation,
+                  sin_surface_deformation,
+                  delta_rho_surf,
+                  outer_radius);
+              native_center_of_mass_diagnostic.cmb_interface_dipole =
+                degree_one_mass_dipole_from_height_coefficients(
+                  cos_cmb_deformation,
+                  sin_cmb_deformation,
+                  delta_rho_cmb,
+                  inner_radius);
+              native_center_of_mass_diagnostic.external_load_dipole =
+                degree_one_mass_dipole_from_height_coefficients(
+                  cos_external_load,
+                  sin_external_load,
+                  delta_rho_surf,
+                  outer_radius)
+                +
+                degree_one_mass_dipole_from_height_coefficients(
+                  cos_cmb_external_load,
+                  sin_cmb_external_load,
+                  delta_rho_cmb,
+                  inner_radius);
+              native_center_of_mass_diagnostic.internal_density_dipole =
+                compute_internal_density_mass_dipole();
+              native_center_of_mass_diagnostic.mass_dipole_pre =
+                native_center_of_mass_diagnostic.surface_interface_dipole
+                + native_center_of_mass_diagnostic.cmb_interface_dipole
+                + native_center_of_mass_diagnostic.external_load_dipole
+                + native_center_of_mass_diagnostic.internal_density_dipole;
+              native_center_of_mass_diagnostic.total_mass =
+                (planet_mass > 0.0
+                 ? planet_mass
+                 : 4.0 * numbers::PI / 3.0
+                 * planet_mean_density
+                 * outer_radius * outer_radius * outer_radius);
+              native_center_of_mass_diagnostic.correctable_mass =
+                native_center_of_mass_diagnostic.total_mass;
+              for (unsigned int d = 0; d < 3; ++d)
+                native_center_of_mass_diagnostic.translation[d] =
+                  native_center_of_mass_diagnostic.mass_dipole_pre[d]
+                  / native_center_of_mass_diagnostic.total_mass;
+              for (unsigned int d = 0; d < 3; ++d)
+                native_center_of_mass_diagnostic.mass_dipole_post[d] =
+                  native_center_of_mass_diagnostic.mass_dipole_pre[d]
+                  - native_center_of_mass_diagnostic.total_mass
+                  * native_center_of_mass_diagnostic.translation[d];
+            }
 
           const unsigned int step = this->get_timestep_number();
           const double time = this->get_time();
@@ -680,6 +753,93 @@ namespace aspect
           citcomsve_degree_one_load_replay_diagnostic =
             CitcomSVEDegreeOneLoadReplayDiagnostic();
 
+          cm_displacement_increment = Tensor<1,dim>();
+          deformation_cm_displacement_increment = Tensor<1,dim>();
+          external_load_cm_displacement_increment = Tensor<1,dim>();
+          surface_deformation_cm_displacement_increment = Tensor<1,dim>();
+          cmb_deformation_cm_displacement_increment = Tensor<1,dim>();
+          reference_frame_acceleration = Tensor<1,dim>();
+
+          if (native_center_of_mass_diagnostic.valid)
+            {
+              const unsigned int idx10 = sh_transform->index(1, 0);
+              const unsigned int idx11 = sh_transform->index(1, 1);
+              const double y1_normalization =
+                std::sqrt(3.0 / (4.0 * numbers::PI));
+              const Tensor<1,3> &translation =
+                native_center_of_mass_diagnostic.translation;
+
+              reference_frame_surface_potential_cos_coeffs[idx10] =
+                -translation[2] / y1_normalization;
+              reference_frame_surface_potential_cos_coeffs[idx11] =
+                translation[0] / y1_normalization;
+              reference_frame_surface_potential_sin_coeffs[idx11] =
+                translation[1] / y1_normalization;
+              reference_frame_cmb_potential_cos_coeffs[idx10] =
+                reference_frame_surface_potential_cos_coeffs[idx10];
+              reference_frame_cmb_potential_cos_coeffs[idx11] =
+                reference_frame_surface_potential_cos_coeffs[idx11];
+              reference_frame_cmb_potential_sin_coeffs[idx11] =
+                reference_frame_surface_potential_sin_coeffs[idx11];
+
+              for (unsigned int order = 0; order <= 1; ++order)
+                {
+                  const unsigned int index = sh_transform->index(1, order);
+                  surface_potential_cos_coeffs[index] +=
+                    reference_frame_surface_potential_cos_coeffs[index];
+                  surface_potential_sin_coeffs[index] +=
+                    reference_frame_surface_potential_sin_coeffs[index];
+                  cmb_potential_cos_coeffs[index] +=
+                    reference_frame_cmb_potential_cos_coeffs[index];
+                  cmb_potential_sin_coeffs[index] +=
+                    reference_frame_cmb_potential_sin_coeffs[index];
+                }
+
+              for (unsigned int d = 0; d < dim; ++d)
+                {
+                  cm_displacement_increment[d] =
+                    native_center_of_mass_diagnostic.translation[d];
+                  external_load_cm_displacement_increment[d] =
+                    native_center_of_mass_diagnostic.external_load_dipole[d]
+                    / native_center_of_mass_diagnostic.total_mass;
+                  surface_deformation_cm_displacement_increment[d] =
+                    native_center_of_mass_diagnostic.surface_interface_dipole[d]
+                    / native_center_of_mass_diagnostic.total_mass;
+                  cmb_deformation_cm_displacement_increment[d] =
+                    native_center_of_mass_diagnostic.cmb_interface_dipole[d]
+                    / native_center_of_mass_diagnostic.total_mass;
+                  deformation_cm_displacement_increment[d] =
+                    (native_center_of_mass_diagnostic.surface_interface_dipole[d]
+                     + native_center_of_mass_diagnostic.cmb_interface_dipole[d]
+                     + native_center_of_mass_diagnostic.internal_density_dipole[d])
+                    / native_center_of_mass_diagnostic.total_mass;
+                }
+
+              const std::vector<double> theta = {numbers::PI / 2.0,
+                                                 numbers::PI / 2.0,
+                                                 0.0
+                                                };
+              const std::vector<double> phi = {0.0,
+                                               numbers::PI / 2.0,
+                                               0.0
+                                              };
+              const std::vector<double> height =
+                sh_transform->synthesize(
+                  reference_frame_surface_potential_cos_coeffs,
+                  reference_frame_surface_potential_sin_coeffs,
+                  theta,
+                  phi);
+              const double surface_gravity =
+                this->get_gravity_model()
+                .gravity_vector(geometry.representative_point(1.0)).norm();
+              for (unsigned int d = 0; d < dim; ++d)
+                reference_frame_acceleration[d] =
+                  -surface_gravity * height[d] / outer_radius;
+
+              write_native_center_of_mass_diagnostic(
+                include_current_velocity_increment);
+            }
+
           tidal_potential.add_to_coefficients(
             *sh_transform,
             radius_ratio,
@@ -693,15 +853,10 @@ namespace aspect
             tidal_cmb_potential_cos_coeffs,
             tidal_cmb_potential_sin_coeffs);
 
-          cm_displacement_increment = Tensor<1,dim>();
-          deformation_cm_displacement_increment = Tensor<1,dim>();
-          external_load_cm_displacement_increment = Tensor<1,dim>();
-          surface_deformation_cm_displacement_increment = Tensor<1,dim>();
-          cmb_deformation_cm_displacement_increment = Tensor<1,dim>();
-
-          reference_frame_acceleration = Tensor<1,dim>();
-          if ((center_of_mass_correction
-               || citcomsve_degree_one_load_compensation)
+          if ((degree_one_reference_frame ==
+               DegreeOneReferenceFrame::geoid_cancellation
+               || degree_one_reference_frame ==
+               DegreeOneReferenceFrame::citcomsve_center_of_mass)
               && min_degree <= 1 && max_degree >= 1)
             {
               // With normalized real degree-1 harmonics, the center-of-mass
@@ -1119,6 +1274,8 @@ namespace aspect
           reference_frame_cmb_potential_sin_coeffs.assign(n_coeff, 0.0);
           degree_one_load_compensation_cos_coeffs.assign(n_coeff, 0.0);
           degree_one_load_compensation_sin_coeffs.assign(n_coeff, 0.0);
+          native_center_of_mass_diagnostic =
+            NativeCenterOfMassDiagnostic();
           reference_frame_acceleration = Tensor<1,dim>();
           cm_displacement_increment = Tensor<1,dim>();
           deformation_cm_displacement_increment = Tensor<1,dim>();
@@ -1535,6 +1692,7 @@ namespace aspect
       density_below_cmb =
         settings.interface_properties.cmb.density_below;
       planet_mean_density = settings.planet.planet_mean_density;
+      planet_mass = settings.planet.planet_mass;
       include_surface_contribution =
         self_gravity_list_contains(settings.self_gravity_boundary_indicators,
                                    "surface");
@@ -1556,6 +1714,7 @@ namespace aspect
       include_internal_density_anomalies = settings.include_internal_density_anomalies;
       reference_density_for_internal_anomalies = settings.reference_density_for_internal_anomalies;
       internal_density_anomaly_tolerance = settings.internal_density_anomaly_tolerance;
+      degree_one_reference_frame = settings.degree_one_reference_frame;
       center_of_mass_correction = settings.center_of_mass_correction;
       citcomsve_degree_one_load_compensation =
         settings.citcomsve_degree_one_load_compensation;
@@ -1595,6 +1754,19 @@ namespace aspect
                   ExcMessage("CitcomSVE degree 1 load compensation requires "
                              "degree 1 to be included in the self-gravity "
                              "spherical-harmonic range."));
+      AssertThrow(degree_one_reference_frame !=
+                  DegreeOneReferenceFrame::center_of_mass
+                  || dim == 3,
+                  ExcMessage("The ASPECT-native degree-1 center-of-mass "
+                             "reference frame is currently implemented only "
+                             "for 3D spherical shells."));
+      AssertThrow(degree_one_reference_frame !=
+                  DegreeOneReferenceFrame::center_of_mass
+                  || (min_degree <= 1 && max_degree >= 1),
+                  ExcMessage("The ASPECT-native degree-1 center-of-mass "
+                             "reference frame requires degree 1 to be "
+                             "included in the self-gravity spherical-harmonic "
+                             "range."));
     }
 
 
@@ -1749,6 +1921,7 @@ namespace aspect
           density_above_cmb = prm.get_double("Density above CMB");
           density_below_cmb = prm.get_double("Density below CMB");
           planet_mean_density = prm.get_double("Planet mean density");
+          planet_mass = 0.0;
           include_cmb_contribution = prm.get_bool("Include CMB contribution");
           iterate_with_stokes = prm.get_bool("Iterate with Stokes");
           freeze_potential_after_timestep_zero =
@@ -1767,6 +1940,14 @@ namespace aspect
             prm.get_bool("Center of mass correction");
           citcomsve_degree_one_load_compensation =
             prm.get_bool("CitcomSVE degree 1 load compensation");
+          if (citcomsve_degree_one_load_compensation)
+            degree_one_reference_frame =
+              DegreeOneReferenceFrame::citcomsve_center_of_mass;
+          else if (center_of_mass_correction)
+            degree_one_reference_frame =
+              DegreeOneReferenceFrame::geoid_cancellation;
+          else
+            degree_one_reference_frame = DegreeOneReferenceFrame::none;
           include_surface_contribution = true;
           self_gravity_mass_feedback_enabled = true;
           external_load_source = "auto";
@@ -1872,6 +2053,231 @@ namespace aspect
 
       return std::make_pair(coecos, coesin);
     }
+
+
+    template <int dim>
+    Tensor<1,3>
+    SelfGravitation<dim>::degree_one_mass_dipole_from_height_coefficients(
+      const std::vector<double> &cos_coeffs,
+      const std::vector<double> &sin_coeffs,
+      const double density_jump,
+      const double radius) const
+    {
+      Tensor<1,3> dipole;
+      if (dim != 3 || min_degree > 1 || max_degree < 1 || cos_coeffs.empty())
+        return dipole;
+
+      const unsigned int idx10 = sh_transform->index(1, 0);
+      const unsigned int idx11 = sh_transform->index(1, 1);
+      const double y1_normalization =
+        std::sqrt(3.0 / (4.0 * numbers::PI));
+      const double scale =
+        density_jump * radius * radius * radius / y1_normalization;
+
+      dipole[0] = -scale * cos_coeffs[idx11];
+      dipole[1] = -scale * sin_coeffs[idx11];
+      dipole[2] =  scale * cos_coeffs[idx10];
+      return dipole;
+    }
+
+
+    template <int dim>
+    Tensor<1,3>
+    SelfGravitation<dim>::compute_internal_density_mass_dipole() const
+    {
+      AssertThrow(false, ExcNotImplemented());
+      return Tensor<1,3>();
+    }
+
+
+    template <>
+    Tensor<1,3>
+    SelfGravitation<3>::compute_internal_density_mass_dipole() const
+    {
+      Tensor<1,3> global_dipole;
+
+      bool actual_include_internal = false;
+      if (include_internal_density_anomalies == "true")
+        actual_include_internal = true;
+      else if (include_internal_density_anomalies == "false")
+        actual_include_internal = false;
+      else if (include_internal_density_anomalies == "auto")
+        {
+          actual_include_internal =
+            (this->introspection().n_compositional_fields > 0 ||
+             this->introspection().variable_exists("temperature"));
+        }
+
+      if (!actual_include_internal)
+        return global_dipole;
+
+      const unsigned int quadrature_degree =
+        this->introspection().polynomial_degree.temperature;
+      const QGauss<3> quadrature_formula(quadrature_degree);
+
+      FEValues<3> fe_values(this->get_mapping(),
+                            this->get_fe(),
+                            quadrature_formula,
+                            update_values |
+                            update_quadrature_points |
+                            update_JxW_values |
+                            update_gradients);
+
+      MaterialModel::MaterialModelInputs<3>
+      in(fe_values.n_quadrature_points, this->n_compositional_fields());
+      MaterialModel::MaterialModelOutputs<3>
+      out(fe_values.n_quadrature_points, this->n_compositional_fields());
+      in.requested_properties = MaterialModel::MaterialProperties::density;
+
+      const double effective_tolerance =
+        (internal_density_anomaly_tolerance > 0.0
+         ? internal_density_anomaly_tolerance
+         : 1e-12 * std::max(1.0,
+                            std::abs(reference_density_for_internal_anomalies)));
+
+      if (include_internal_density_anomalies == "auto")
+        {
+          double local_max_density_anomaly = 0.0;
+
+          for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+            if (cell->is_locally_owned())
+              {
+                fe_values.reinit(cell);
+                in.reinit(fe_values,
+                          cell,
+                          this->introspection(),
+                          this->get_solution());
+                this->get_material_model().evaluate(in, out);
+
+                for (unsigned int q = 0; q < quadrature_formula.size(); ++q)
+                  local_max_density_anomaly =
+                    std::max(local_max_density_anomaly,
+                             std::abs(out.densities[q]
+                                      - reference_density_for_internal_anomalies));
+              }
+
+          const double global_max_density_anomaly =
+            Utilities::MPI::max(local_max_density_anomaly,
+                                this->get_mpi_communicator());
+
+          if (global_max_density_anomaly <= effective_tolerance)
+            return global_dipole;
+        }
+
+      Tensor<1,3> local_dipole;
+      for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
+            fe_values.reinit(cell);
+            in.reinit(fe_values,
+                      cell,
+                      this->introspection(),
+                      this->get_solution());
+            this->get_material_model().evaluate(in, out);
+
+            for (unsigned int q = 0; q < quadrature_formula.size(); ++q)
+              {
+                const double density_anomaly =
+                  out.densities[q] - reference_density_for_internal_anomalies;
+
+                if (density_anomaly == 0.0)
+                  continue;
+
+                for (unsigned int d = 0; d < 3; ++d)
+                  local_dipole[d] += density_anomaly
+                                     * in.position[q][d]
+                                     * fe_values.JxW(q);
+              }
+          }
+
+      std::vector<double> local_values(3);
+      for (unsigned int d = 0; d < 3; ++d)
+        local_values[d] = local_dipole[d];
+      std::vector<double> global_values(3);
+      dealii::Utilities::MPI::sum(local_values,
+                                  this->get_mpi_communicator(),
+                                  global_values);
+      for (unsigned int d = 0; d < 3; ++d)
+        global_dipole[d] = global_values[d];
+
+      return global_dipole;
+    }
+
+
+    template <int dim>
+    void
+    SelfGravitation<dim>::write_native_center_of_mass_diagnostic(
+      const bool include_current_velocity_increment) const
+    {
+      if (!native_center_of_mass_diagnostic.valid || !printing_this_step)
+        return;
+
+      Utilities::create_directory(this->get_output_directory() + "self_gravity/",
+                                  this->get_mpi_communicator(),
+                                  /*silent=*/true);
+
+      if (Utilities::MPI::this_mpi_process(this->get_mpi_communicator()) != 0)
+        return;
+
+      const std::string filename =
+        this->get_output_directory()
+        + "self_gravity/"
+        + "native_center_of_mass_diagnostic."
+        + Utilities::int_to_string(this->get_timestep_number(), 5);
+      std::ofstream output(filename);
+      output << "# ASPECT-native degree-1 center-of-mass reference-frame diagnostic\n";
+      output << "# timestep: " << this->get_timestep_number() << "\n";
+      output << "# potential_iteration: " << potential_iteration_number << "\n";
+      output << "# include_current_velocity_increment: "
+             << include_current_velocity_increment << "\n";
+      output << "# mass_dipole_post = mass_dipole_pre - total_mass * translation\n";
+      output
+          << "native_com_mass_dipole_pre_kg_m_x "
+          << "native_com_mass_dipole_pre_kg_m_y "
+          << "native_com_mass_dipole_pre_kg_m_z "
+          << "native_com_mass_dipole_post_kg_m_x "
+          << "native_com_mass_dipole_post_kg_m_y "
+          << "native_com_mass_dipole_post_kg_m_z "
+          << "native_com_translation_m_x "
+          << "native_com_translation_m_y "
+          << "native_com_translation_m_z "
+          << "native_com_internal_density_dipole_kg_m_x "
+          << "native_com_internal_density_dipole_kg_m_y "
+          << "native_com_internal_density_dipole_kg_m_z "
+          << "native_com_surface_interface_dipole_kg_m_x "
+          << "native_com_surface_interface_dipole_kg_m_y "
+          << "native_com_surface_interface_dipole_kg_m_z "
+          << "native_com_cmb_interface_dipole_kg_m_x "
+          << "native_com_cmb_interface_dipole_kg_m_y "
+          << "native_com_cmb_interface_dipole_kg_m_z "
+          << "native_com_external_load_dipole_kg_m_x "
+          << "native_com_external_load_dipole_kg_m_y "
+          << "native_com_external_load_dipole_kg_m_z "
+          << "native_com_total_mass_kg "
+          << "native_com_correctable_mass_kg\n";
+      output << std::setprecision(16);
+      for (unsigned int d = 0; d < 3; ++d)
+        output << native_center_of_mass_diagnostic.mass_dipole_pre[d] << ' ';
+      for (unsigned int d = 0; d < 3; ++d)
+        output << native_center_of_mass_diagnostic.mass_dipole_post[d] << ' ';
+      for (unsigned int d = 0; d < 3; ++d)
+        output << native_center_of_mass_diagnostic.translation[d] << ' ';
+      for (unsigned int d = 0; d < 3; ++d)
+        output << native_center_of_mass_diagnostic.internal_density_dipole[d]
+               << ' ';
+      for (unsigned int d = 0; d < 3; ++d)
+        output << native_center_of_mass_diagnostic.surface_interface_dipole[d]
+               << ' ';
+      for (unsigned int d = 0; d < 3; ++d)
+        output << native_center_of_mass_diagnostic.cmb_interface_dipole[d]
+               << ' ';
+      for (unsigned int d = 0; d < 3; ++d)
+        output << native_center_of_mass_diagnostic.external_load_dipole[d]
+               << ' ';
+      output << native_center_of_mass_diagnostic.total_mass << ' '
+             << native_center_of_mass_diagnostic.correctable_mass << '\n';
+    }
+
 
     template <int dim>
     std::pair<std::vector<double>, std::vector<double>>
