@@ -49,6 +49,22 @@ namespace aspect
         return std::find(values.begin(), values.end(), name) != values.end();
       }
 
+
+      bool
+      selected_load_source_contains(
+        const std::map<std::string, std::vector<std::string>> &selection,
+        const std::string &boundary_name,
+        const std::string &plugin_name)
+      {
+        const auto boundary = selection.find(boundary_name);
+        if (boundary == selection.end())
+          return false;
+
+        return std::find(boundary->second.begin(),
+                         boundary->second.end(),
+                         plugin_name) != boundary->second.end();
+      }
+
       bool
       print_self_gravity_diagnostic_once(
         const std::string &name,
@@ -219,6 +235,62 @@ namespace aspect
       const double delta_rho_surf = density_below_surface - density_above_surface;
       const double delta_rho_cmb = density_below_cmb - density_above_cmb;
 
+      const auto &traction_manager =
+        this->get_boundary_traction_manager();
+      const auto &plugins = traction_manager.get_active_plugins();
+      const auto &plugin_boundaries =
+        traction_manager.get_active_plugin_boundary_indicators();
+      const auto &plugin_names = traction_manager.get_active_plugin_names();
+
+      const auto load_traction_on_boundary =
+        [&plugins,
+         &plugin_boundaries,
+         &plugin_names,
+         this]
+        (const types::boundary_id boundary_id,
+         const Point<dim> &position,
+         const Tensor<1,dim> &face_normal,
+         const std::string &boundary_name)
+      {
+        Tensor<1,dim> load_traction;
+        if (external_load_source == "none")
+          return load_traction;
+
+        unsigned int plugin_index = 0;
+        for (const auto &plugin : plugins)
+          {
+            const bool plugin_on_boundary =
+              plugin_boundaries[plugin_index] == boundary_id;
+            const bool is_feedback_plugin =
+              dynamic_cast<const SelfGravitation<dim> *>(plugin.get()) != nullptr
+              ||
+              dynamic_cast<const PotentialFeedback::BoundaryTractionMarker *>(plugin.get()) != nullptr;
+
+            bool use_plugin = false;
+            if (plugin_on_boundary && !is_feedback_plugin)
+              {
+                if (external_load_source == "auto")
+                  use_plugin = plugin->is_potential_feedback_load_source();
+                else if (external_load_source == "selected")
+                  use_plugin = selected_load_source_contains(
+                                 selected_external_load_traction_indicators,
+                                 boundary_name,
+                                 plugin_names[plugin_index]);
+                else
+                  AssertThrow(false, ExcInternalError());
+              }
+
+            if (use_plugin)
+              load_traction += plugin->boundary_traction(boundary_id,
+                                                         position,
+                                                         face_normal);
+
+            ++plugin_index;
+          }
+
+        return load_traction;
+      };
+
       // Surface topography data
       std::vector<double> phi_pts;
       std::vector<double> theta_pts; // only used in 3D
@@ -248,7 +320,8 @@ namespace aspect
                     continue;
 
                   const types::boundary_id bid = cell->face(f)->boundary_id();
-                  const bool is_top    = (bid == top_boundary_id);
+                  const bool is_top    = (bid == top_boundary_id)
+                                         && include_surface_contribution;
                   const bool is_bottom = (bid == bottom_boundary_id) && include_cmb_contribution;
 
                   if (!is_top && !is_bottom)
@@ -300,22 +373,11 @@ namespace aspect
                           // gravity plugins assigned to the surface instead.
                           const Tensor<1,dim> face_normal =
                             fe_face_values.normal_vector(q);
-                          Tensor<1,dim> load_traction;
-                          const auto &traction_manager =
-                            this->get_boundary_traction_manager();
-                          const auto &plugins = traction_manager.get_active_plugins();
-                          const auto &plugin_boundaries =
-                            traction_manager.get_active_plugin_boundary_indicators();
-                          unsigned int plugin_index = 0;
-                          for (const auto &plugin : plugins)
-                            {
-                              if (plugin_boundaries[plugin_index] == top_boundary_id
-                                  && dynamic_cast<const SelfGravitation<dim> *>(plugin.get()) == nullptr
-                                  && dynamic_cast<const PotentialFeedback::BoundaryTractionMarker *>(plugin.get()) == nullptr)
-                                load_traction += plugin->boundary_traction(
-                                                   top_boundary_id, position, face_normal);
-                              ++plugin_index;
-                            }
+                          const Tensor<1,dim> load_traction =
+                            load_traction_on_boundary(top_boundary_id,
+                                                      position,
+                                                      face_normal,
+                                                      "surface");
 
                           // Inward load traction (T·n < 0) → positive surface mass
                           // σ_load = -T_load·n / g,  h_load = σ_load / Δρ
@@ -351,22 +413,11 @@ namespace aspect
 
                           const Tensor<1,dim> face_normal =
                             fe_face_values.normal_vector(q);
-                          Tensor<1,dim> load_traction;
-                          const auto &traction_manager =
-                            this->get_boundary_traction_manager();
-                          const auto &plugins = traction_manager.get_active_plugins();
-                          const auto &plugin_boundaries =
-                            traction_manager.get_active_plugin_boundary_indicators();
-                          unsigned int plugin_index = 0;
-                          for (const auto &plugin : plugins)
-                            {
-                              if (plugin_boundaries[plugin_index] == bottom_boundary_id
-                                  && dynamic_cast<const SelfGravitation<dim> *>(plugin.get()) == nullptr
-                                  && dynamic_cast<const PotentialFeedback::BoundaryTractionMarker *>(plugin.get()) == nullptr)
-                                load_traction += plugin->boundary_traction(
-                                                   bottom_boundary_id, position, face_normal);
-                              ++plugin_index;
-                            }
+                          const Tensor<1,dim> load_traction =
+                            load_traction_on_boundary(bottom_boundary_id,
+                                                      position,
+                                                      face_normal,
+                                                      "CMB");
 
                           const double g_magnitude =
                             this->get_gravity_model().gravity_vector(position).norm();
@@ -451,6 +502,32 @@ namespace aspect
                          sh_transform->analyze(
                            cmb_theta_pts, cmb_phi_pts, cmb_weight_pts,
                            cmb_committed_topo_pts, this->get_mpi_communicator());
+            }
+
+          if (!self_gravity_mass_feedback_enabled)
+            {
+              std::fill(cos_topo.begin(), cos_topo.end(), 0.0);
+              std::fill(sin_topo.begin(), sin_topo.end(), 0.0);
+              std::fill(cos_surface_deformation.begin(),
+                        cos_surface_deformation.end(),
+                        0.0);
+              std::fill(sin_surface_deformation.begin(),
+                        sin_surface_deformation.end(),
+                        0.0);
+              std::fill(cos_external_load.begin(),
+                        cos_external_load.end(),
+                        0.0);
+              std::fill(sin_external_load.begin(),
+                        sin_external_load.end(),
+                        0.0);
+              std::fill(cos_cmb.begin(), cos_cmb.end(), 0.0);
+              std::fill(sin_cmb.begin(), sin_cmb.end(), 0.0);
+              std::fill(cos_cmb_deformation.begin(),
+                        cos_cmb_deformation.end(),
+                        0.0);
+              std::fill(sin_cmb_deformation.begin(),
+                        sin_cmb_deformation.end(),
+                        0.0);
             }
 
           cmb_topography_cos_coeffs = cos_cmb;
@@ -606,6 +683,7 @@ namespace aspect
           tidal_potential.add_to_coefficients(
             *sh_transform,
             radius_ratio,
+            this->get_time(),
             surface_potential_cos_coeffs,
             surface_potential_sin_coeffs,
             cmb_potential_cos_coeffs,
@@ -663,8 +741,7 @@ namespace aspect
 
               if (citcomsve_degree_one_load_compensation)
                 {
-                  const double compensation_scale =
-                    citcomsve_degree_one_load_compensation_scale;
+                  const double compensation_scale = 1.0;
 
                   degree_one_load_compensation_cos_coeffs[idx10] =
                     -compensation_scale
@@ -688,11 +765,6 @@ namespace aspect
                         + (surface_to_cmb[1] + cmb_to_cmb[1])
                         * degree_one_load_compensation_sin_coeffs[index];
                     }
-
-                  if (citcomsve_degree_one_cmb_final_rhs_override)
-                    degree_one_load_replay_cmb_potential_cos_coeffs[idx10] =
-                      citcomsve_degree_one_cmb_final_rhs_value
-                      + degree_one_load_compensation_cos_coeffs[idx10];
 
                   citcomsve_degree_one_load_replay_diagnostic.valid = true;
                   citcomsve_degree_one_load_replay_diagnostic
@@ -1463,15 +1535,23 @@ namespace aspect
       density_below_cmb =
         settings.interface_properties.cmb.density_below;
       planet_mean_density = settings.planet.planet_mean_density;
+      include_surface_contribution =
+        self_gravity_list_contains(settings.self_gravity_boundary_indicators,
+                                   "surface");
       include_cmb_contribution =
-        self_gravity_list_contains(settings.self_gravity_source_interfaces,
+        self_gravity_list_contains(settings.self_gravity_boundary_indicators,
                                    "CMB");
+      self_gravity_mass_feedback_enabled =
+        self_gravity_list_contains(settings.feedback_mechanisms,
+                                   "self gravity");
       iterate_with_stokes = settings.iterate_with_stokes;
       freeze_potential_after_timestep_zero =
         settings.freeze_feedback_after_timestep_zero;
       initial_displacement_timestep =
         settings.initial_displacement_timestep;
       potential_convergence_tolerance = settings.relative_tolerance;
+      potential_iteration_relaxation_factor =
+        settings.potential_iteration_relaxation_factor;
       maximum_potential_iterations = settings.maximum_iterations;
       include_internal_density_anomalies = settings.include_internal_density_anomalies;
       reference_density_for_internal_anomalies = settings.reference_density_for_internal_anomalies;
@@ -1479,15 +1559,24 @@ namespace aspect
       center_of_mass_correction = settings.center_of_mass_correction;
       citcomsve_degree_one_load_compensation =
         settings.citcomsve_degree_one_load_compensation;
-      citcomsve_degree_one_load_compensation_scale =
-        settings.citcomsve_degree_one_load_compensation_scale;
-      citcomsve_degree_one_cmb_final_rhs_override =
-        settings.citcomsve_degree_one_cmb_final_rhs_override;
-      citcomsve_degree_one_cmb_final_rhs_value =
-        settings.citcomsve_degree_one_cmb_final_rhs_value;
+      external_load_source = settings.external_load_source;
+      selected_external_load_traction_indicators =
+        settings.selected_external_load_traction_indicators;
+      tidal_potential.configure_from_settings(settings,
+                                              min_degree,
+                                              max_degree,
+                                              dim);
       configured_from_potential_feedback = true;
-      time_between_text_output = 0.0;
-      time_steps_between_text_output = 0;
+      time_between_text_output =
+        (settings.write_self_gravity_diagnostics
+         || settings.write_coefficient_diagnostics
+         ? settings.time_between_diagnostic_output
+         : 0.0);
+      time_steps_between_text_output =
+        (settings.write_self_gravity_diagnostics
+         || settings.write_coefficient_diagnostics
+         ? settings.time_steps_between_diagnostic_output
+         : 0);
       potential_relative_change = std::numeric_limits<double>::infinity();
       current_potential_iteration_step = (unsigned int)-1;
       potential_iteration_number = 0;
@@ -1497,6 +1586,10 @@ namespace aspect
                              "must not exceed Maximum degree."));
       AssertThrow(planet_mean_density > 0.0,
                   ExcMessage("Planet mean density must be positive."));
+      AssertThrow(include_surface_contribution || include_cmb_contribution,
+                  ExcMessage("Potential feedback/Self gravity/Boundary "
+                             "indicators must include at least one of the "
+                             "surface or CMB aliases."));
       AssertThrow(!citcomsve_degree_one_load_compensation
                   || (min_degree <= 1 && max_degree >= 1),
                   ExcMessage("CitcomSVE degree 1 load compensation requires "
@@ -1616,25 +1709,6 @@ namespace aspect
                             "is disabled by default and is separate from "
                             "ASPECT nullspace removal and from the degree-1 "
                             "geoid reference-frame correction.");
-          prm.declare_entry("CitcomSVE degree 1 load compensation scale", "1.0",
-                            Patterns::Double(),
-                            "Scale factor for the CitcomSVE-style degree-1 "
-                            "compensating load. The default value reproduces "
-                            "the direct coefficient conversion; benchmark "
-                            "debugging may use this to isolate normalization "
-                            "differences without changing default behavior.");
-          prm.declare_entry("CitcomSVE degree 1 CMB final RHS override", "false",
-                            Patterns::Bool(),
-                            "Whether to override the diagnostic CitcomSVE "
-                            "degree-1 CMB replay so that the final l=1,m=0 "
-                            "CMB RHS coefficient matches the prescribed value. "
-                            "This option is disabled by default and is intended "
-                            "only for benchmark diagnostics.");
-          prm.declare_entry("CitcomSVE degree 1 CMB final RHS value", "0.0",
-                            Patterns::Double(),
-                            "Meter-equivalent radial-outward l=1,m=0 CMB final "
-                            "RHS coefficient used when the diagnostic override "
-                            "is enabled.");
           prm.declare_entry("Include internal density anomalies", "auto",
                             Patterns::Selection("true|false|auto"),
                             "Whether to include the internal mantle density anomalies "
@@ -1645,16 +1719,6 @@ namespace aspect
           prm.declare_entry("Internal density anomaly tolerance", "0",
                             Patterns::Double(0),
                             "Density anomaly threshold below which the volume integral is skipped.");
-          prm.enter_subsection("Tidal potential");
-          {
-            TidalPotential::declare_parameters(prm);
-          }
-          prm.leave_subsection();
-          prm.enter_subsection("Applied potential");
-          {
-            TidalPotential::declare_parameters(prm);
-          }
-          prm.leave_subsection();
           prm.declare_entry("Time between text output", "0.",
                             Patterns::Double(0.),
                             "The time interval in years between text outputs for self-gravity diagnostics. "
@@ -1703,35 +1767,17 @@ namespace aspect
             prm.get_bool("Center of mass correction");
           citcomsve_degree_one_load_compensation =
             prm.get_bool("CitcomSVE degree 1 load compensation");
-          citcomsve_degree_one_load_compensation_scale =
-            prm.get_double("CitcomSVE degree 1 load compensation scale");
-          citcomsve_degree_one_cmb_final_rhs_override =
-            prm.get_bool("CitcomSVE degree 1 CMB final RHS override");
-          citcomsve_degree_one_cmb_final_rhs_value =
-            prm.get_double("CitcomSVE degree 1 CMB final RHS value");
+          include_surface_contribution = true;
+          self_gravity_mass_feedback_enabled = true;
+          external_load_source = "auto";
+          selected_external_load_traction_indicators.clear();
+          potential_iteration_relaxation_factor = 1.0;
           include_internal_density_anomalies =
             prm.get("Include internal density anomalies");
           reference_density_for_internal_anomalies =
             prm.get_double("Reference density for internal anomalies");
           internal_density_anomaly_tolerance =
             prm.get_double("Internal density anomaly tolerance");
-          prm.enter_subsection("Tidal potential");
-          {
-            tidal_potential.parse_parameters(prm,
-                                             min_degree,
-                                             max_degree,
-                                             dim);
-          }
-          prm.leave_subsection();
-          prm.enter_subsection("Applied potential");
-          {
-            if (prm.get_bool("Enable"))
-              tidal_potential.parse_parameters(prm,
-                                               min_degree,
-                                               max_degree,
-                                               dim);
-          }
-          prm.leave_subsection();
           time_between_text_output = prm.get_double("Time between text output");
           time_steps_between_text_output = prm.get_integer("Time steps between text output");
           potential_relative_change = std::numeric_limits<double>::infinity();

@@ -19,6 +19,7 @@
 */
 
 #include <aspect/potential_feedback/tidal_potential.h>
+#include <aspect/potential_feedback/interface.h>
 
 #include <cmath>
 
@@ -29,61 +30,81 @@ namespace aspect
     void
     TidalPotential::declare_parameters(ParameterHandler &prm)
     {
-      prm.declare_entry("Enable", "false",
-                        Patterns::Bool(),
-                        "Whether to add an externally prescribed tidal "
-                        "potential to the boundary-potential traction. The "
-                        "potential is prescribed as Phi/g at the outer surface "
-                        "and evaluated separately at the surface and CMB.");
-      prm.declare_entry("Degree", "2",
-                        Patterns::Integer(0),
-                        "Spherical harmonic degree of the tidal potential.");
-      prm.declare_entry("Order", "0",
-                        Patterns::Integer(0),
-                        "Spherical harmonic order of the tidal potential.");
-      prm.declare_entry("Coefficient type", "cosine",
-                        Patterns::Selection("cosine|sine"),
-                        "Select the real spherical harmonic coefficient type "
-                        "for the tidal potential.");
-      prm.declare_entry("Normalization",
-                        "geodesy 4pi",
-                        Patterns::Selection("geodesy 4pi|unnormalized legendre"),
-                        "Normalization of the tidal potential. The "
-                        "'geodesy 4pi' option uses ASPECT's "
-                        "Utilities::real_spherical_harmonic convention. The "
-                        "'unnormalized legendre' option prescribes "
-                        "P_l(cos theta) and is restricted to m=0.");
-      prm.declare_entry("Height at surface", "0",
-                        Patterns::Double(),
-                        "Amplitude of the tidal potential at the outer "
-                        "surface in height units, Phi/g, multiplying the "
-                        "selected angular function. Units are meters.");
-      prm.declare_entry("Radial exponent", "2",
-                        Patterns::Double(),
-                        "Power p in Phi(r)/g = Phi(R)/g * (r/R)^p. Zhong "
-                        "et al. (2022) degree-2 tidal forcing uses p=2.");
-      prm.declare_entry("Sign", "1",
-                        Patterns::Double(),
-                        "Diagnostic multiplier on the tidal potential "
-                        "amplitude.");
+      prm.declare_entry("Model name", "none",
+                        Patterns::Selection("none|spherical harmonic potential"),
+                        "Select the tidal-potential model. The `none' model "
+                        "disables externally prescribed tidal potential. The "
+                        "`spherical harmonic potential' model adds one real "
+                        "spherical-harmonic Phi/g coefficient directly to the "
+                        "potential-feedback coefficient arrays.");
+
+      prm.enter_subsection("Spherical harmonic potential");
+      {
+        prm.declare_entry("Harmonic degree", "2",
+                          Patterns::Integer(0),
+                          "Spherical harmonic degree of the tidal potential.");
+        prm.declare_entry("Harmonic order", "0",
+                          Patterns::Integer(0),
+                          "Spherical harmonic order of the tidal potential.");
+        prm.declare_entry("Coefficient type", "cosine",
+                          Patterns::Selection("cosine|sine"),
+                          "Select the real spherical harmonic coefficient type "
+                          "for the tidal potential.");
+        prm.declare_entry("Potential quantity", "potential height",
+                          Patterns::Selection("potential height|potential"),
+                          "Whether the input amplitude is Phi/g in meters or "
+                          "Phi in m^2/s^2.");
+        prm.declare_entry("Potential height amplitude", "0.0",
+                          Patterns::Double(),
+                          "Amplitude of Phi/g at the outer surface in meters.");
+        prm.declare_entry("Potential amplitude", "0.0",
+                          Patterns::Double(),
+                          "Amplitude of Phi at the outer surface in m^2/s^2. "
+                          "Used when Potential quantity is `potential'.");
+        prm.declare_entry("Reference gravity", "1.0",
+                          Patterns::Double(0.0),
+                          "Reference gravity used to convert Phi to Phi/g.");
+        prm.declare_entry("Normalization", "geodesy 4pi",
+                          Patterns::Selection("geodesy 4pi|unnormalized legendre"),
+                          "Normalization of the tidal potential. The "
+                          "`geodesy 4pi' option uses ASPECT's "
+                          "Utilities::real_spherical_harmonic convention. The "
+                          "`unnormalized legendre' option prescribes "
+                          "P_l(cos theta) and is restricted to m=0.");
+        prm.declare_entry("Time dependence", "none",
+                          Patterns::Selection("none|sinusoidal"),
+                          "Whether the tidal potential is static or multiplied "
+                          "by cos(Angular frequency * time + Phase).");
+        prm.declare_entry("Angular frequency", "0.0",
+                          Patterns::Double(),
+                          "Angular frequency for sinusoidal time dependence.");
+        prm.declare_entry("Phase", "0.0",
+                          Patterns::Double(),
+                          "Phase for sinusoidal time dependence in radians.");
+      }
+      prm.leave_subsection();
     }
 
 
 
     void
-    TidalPotential::parse_parameters(ParameterHandler &prm,
-                                     const unsigned int min_degree,
-                                     const unsigned int max_degree,
-                                     const unsigned int dimension)
+    TidalPotential::configure_from_settings(const Settings &settings,
+                                            const unsigned int min_degree,
+                                            const unsigned int max_degree,
+                                            const unsigned int dimension)
     {
-      enabled = prm.get_bool("Enable");
-      degree = prm.get_integer("Degree");
-      order = prm.get_integer("Order");
-      coefficient_type = prm.get("Coefficient type");
-      normalization = prm.get("Normalization");
-      surface_height = prm.get_double("Height at surface");
-      radial_exponent = prm.get_double("Radial exponent");
-      sign = prm.get_double("Sign");
+      enabled = settings.tidal_model_name == "spherical harmonic potential";
+      degree = settings.tidal_harmonic_degree;
+      order = settings.tidal_harmonic_order;
+      coefficient_type = settings.tidal_coefficient_type;
+      potential_quantity = settings.tidal_potential_quantity;
+      potential_height_amplitude = settings.tidal_potential_height_amplitude;
+      potential_amplitude = settings.tidal_potential_amplitude;
+      reference_gravity = settings.tidal_reference_gravity;
+      normalization = settings.tidal_normalization;
+      time_dependence = settings.tidal_time_dependence;
+      angular_frequency = settings.tidal_angular_frequency;
+      phase = settings.tidal_phase;
 
       AssertThrow(order <= degree,
                   ExcMessage("Tidal potential order must not exceed its "
@@ -105,6 +126,10 @@ namespace aspect
                         ExcMessage("The 'unnormalized legendre' tidal "
                                    "potential normalization is only "
                                    "implemented for m=0."));
+          if (potential_quantity == "potential")
+            AssertThrow(reference_gravity > 0.0,
+                        ExcMessage("Reference gravity must be positive when "
+                                   "tidal Potential quantity is `potential'."));
         }
     }
 
@@ -114,6 +139,7 @@ namespace aspect
     TidalPotential::add_to_coefficients(
       const Utilities::SphericalHarmonicTransform &sh_transform,
       const double radius_ratio,
+      const double time,
       std::vector<double> &surface_potential_cos_coeffs,
       std::vector<double> &surface_potential_sin_coeffs,
       std::vector<double> &cmb_potential_cos_coeffs,
@@ -127,7 +153,13 @@ namespace aspect
         return;
 
       const unsigned int i_applied = sh_transform.index(degree, order);
-      double coefficient = sign * surface_height;
+      double coefficient =
+        (potential_quantity == "potential height"
+         ? potential_height_amplitude
+         : potential_amplitude / reference_gravity);
+
+      if (time_dependence == "sinusoidal")
+        coefficient *= std::cos(angular_frequency * time + phase);
 
       if (normalization == "unnormalized legendre")
         {
@@ -141,7 +173,7 @@ namespace aspect
         }
 
       const double cmb_coefficient =
-        coefficient * std::pow(radius_ratio, radial_exponent);
+        coefficient * std::pow(radius_ratio, static_cast<int>(degree));
 
       if (coefficient_type == "cosine")
         {

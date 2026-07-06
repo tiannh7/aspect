@@ -79,6 +79,15 @@ namespace aspect
 
 
     template <int dim>
+    bool
+    SphericalHarmonicLoad<dim>::is_potential_feedback_load_source () const
+    {
+      return true;
+    }
+
+
+
+    template <int dim>
     double
     SphericalHarmonicLoad<dim>::
     scalar_load (const Point<dim> &position) const

@@ -66,6 +66,19 @@ namespace aspect
         boundary_traction (const types::boundary_id boundary_indicator,
                            const Point<dim> &position,
                            const Tensor<1,dim> &normal_vector) const = 0;
+
+        /**
+         * Return whether this traction model represents an externally applied
+         * load that can be converted to equivalent interface mass by potential
+         * feedback. Generic traction models return false by default;
+         * load-specific plugins can opt in.
+         */
+        virtual
+        bool
+        is_potential_feedback_load_source () const
+        {
+          return false;
+        }
     };
 
     template <int dim>

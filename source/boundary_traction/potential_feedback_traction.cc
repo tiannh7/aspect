@@ -322,7 +322,8 @@ namespace aspect
     PotentialFeedbackTraction<dim>::parse_parameters(ParameterHandler &prm)
     {
       settings.parse_parameters(prm);
-      self_gravity_active = mechanism_is_active("self gravity");
+      self_gravity_active = mechanism_is_active("self gravity")
+                            || mechanism_is_active("tidal potential");
       rotational_feedback_active =
         mechanism_is_active("rotational feedback");
 

@@ -28,7 +28,9 @@
 #include <aspect/utilities.h>
 
 #include <memory>
+#include <map>
 #include <string>
+#include <vector>
 
 namespace aspect
 {
@@ -255,10 +257,13 @@ namespace aspect
         double density_below_cmb;
         double planet_mean_density;
         bool   include_cmb_contribution;
+        bool   include_surface_contribution;
+        bool   self_gravity_mass_feedback_enabled;
         bool   iterate_with_stokes;
         bool   freeze_potential_after_timestep_zero;
         double initial_displacement_timestep;
         double potential_convergence_tolerance;
+        double potential_iteration_relaxation_factor;
         double potential_relative_change;
         unsigned int maximum_potential_iterations;
         unsigned int current_potential_iteration_step;
@@ -267,9 +272,9 @@ namespace aspect
         bool   enable_cmb_potential_traction;
         bool   center_of_mass_correction;
         bool   citcomsve_degree_one_load_compensation;
-        double citcomsve_degree_one_load_compensation_scale;
-        bool   citcomsve_degree_one_cmb_final_rhs_override;
-        double citcomsve_degree_one_cmb_final_rhs_value;
+        std::string external_load_source;
+        std::map<std::string, std::vector<std::string>>
+        selected_external_load_traction_indicators;
         TidalPotential tidal_potential;
 
         std::string include_internal_density_anomalies;

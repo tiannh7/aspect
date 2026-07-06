@@ -54,6 +54,13 @@ namespace aspect
                            const Tensor<1,dim> &normal_vector) const override;
 
         /**
+         * Spherical harmonic loads are load-compatible sources for potential
+         * feedback.
+         */
+        bool
+        is_potential_feedback_load_source () const override;
+
+        /**
          * Declare the parameters this class takes through input files.
          */
         static

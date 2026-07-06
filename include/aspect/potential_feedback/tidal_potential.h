@@ -32,26 +32,29 @@ namespace aspect
 {
   namespace PotentialFeedback
   {
+    struct Settings;
+
     /**
      * Helper for externally prescribed tidal potentials. The helper stores
-     * the prescribed Phi/g coefficient at the surface and maps it to the CMB
-     * with a configurable radial power. SelfGravitation owns the actual
-     * boundary traction path, because the tidal potential acts through the
-     * same density-interface operator as the self-gravity potential.
+     * the prescribed Phi/g coefficient at the surface and maps it to the CMB.
+     * SelfGravitation owns the actual boundary traction path, because the
+     * tidal potential acts through the same density-interface operator as the
+     * self-gravity potential.
      */
     class TidalPotential
     {
       public:
         static void declare_parameters(ParameterHandler &prm);
 
-        void parse_parameters(ParameterHandler &prm,
-                              const unsigned int min_degree,
-                              const unsigned int max_degree,
-                              const unsigned int dimension);
+        void configure_from_settings(const Settings &settings,
+                                     const unsigned int min_degree,
+                                     const unsigned int max_degree,
+                                     const unsigned int dimension);
 
         void add_to_coefficients(
           const Utilities::SphericalHarmonicTransform &sh_transform,
           const double radius_ratio,
+          const double time,
           std::vector<double> &surface_potential_cos_coeffs,
           std::vector<double> &surface_potential_sin_coeffs,
           std::vector<double> &cmb_potential_cos_coeffs,
@@ -65,11 +68,15 @@ namespace aspect
         bool enabled = false;
         unsigned int degree = 2;
         unsigned int order = 0;
-        double surface_height = 0.0;
-        double radial_exponent = 2.0;
-        double sign = 1.0;
+        double potential_height_amplitude = 0.0;
+        double potential_amplitude = 0.0;
+        double reference_gravity = 1.0;
         std::string coefficient_type = "cosine";
         std::string normalization = "geodesy 4pi";
+        std::string potential_quantity = "potential height";
+        std::string time_dependence = "none";
+        double angular_frequency = 0.0;
+        double phase = 0.0;
     };
   }
 }

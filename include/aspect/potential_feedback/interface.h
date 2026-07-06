@@ -25,6 +25,7 @@
 
 #include <deal.II/base/parameter_handler.h>
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -102,6 +103,10 @@ namespace aspect
 
       std::vector<std::string> self_gravity_source_interfaces;
       std::vector<std::string> self_gravity_apply_boundaries;
+      std::vector<std::string> self_gravity_boundary_indicators;
+      std::string external_load_source = "auto";
+      std::map<std::string, std::vector<std::string>>
+      selected_external_load_traction_indicators;
       unsigned int self_gravity_min_degree = 0;
       unsigned int self_gravity_max_degree = 0;
 
@@ -112,6 +117,23 @@ namespace aspect
       std::string include_internal_density_anomalies = "auto";
       double reference_density_for_internal_anomalies = 0.0;
       double internal_density_anomaly_tolerance = 0.0;
+      bool write_self_gravity_diagnostics = false;
+      bool write_coefficient_diagnostics = false;
+      double time_between_diagnostic_output = 0.0;
+      unsigned int time_steps_between_diagnostic_output = 0;
+
+      std::string tidal_model_name = "none";
+      unsigned int tidal_harmonic_degree = 2;
+      unsigned int tidal_harmonic_order = 0;
+      std::string tidal_coefficient_type = "cosine";
+      std::string tidal_potential_quantity = "potential height";
+      double tidal_potential_height_amplitude = 0.0;
+      double tidal_potential_amplitude = 0.0;
+      double tidal_reference_gravity = 1.0;
+      std::string tidal_normalization = "geodesy 4pi";
+      std::string tidal_time_dependence = "none";
+      double tidal_angular_frequency = 0.0;
+      double tidal_phase = 0.0;
 
       std::vector<std::string> rotational_inertia_source_interfaces;
       std::vector<std::string> rotational_apply_boundaries;
@@ -122,15 +144,14 @@ namespace aspect
       unsigned int maximum_iterations = 0;
       bool freeze_feedback_after_timestep_zero = false;
       bool iterate_with_stokes = true;
+      double potential_iteration_relaxation_factor = 1.0;
       // Stored in seconds after parsing, matching ASPECT's internal time units.
       double initial_displacement_timestep = 0.0;
 
+      std::string degree_one_reference_frame = "none";
       bool center_of_mass_correction = false;
       bool remove_pure_rotation_from_displacement = false;
       bool citcomsve_degree_one_load_compensation = false;
-      double citcomsve_degree_one_load_compensation_scale = 1.0;
-      bool citcomsve_degree_one_cmb_final_rhs_override = false;
-      double citcomsve_degree_one_cmb_final_rhs_value = 0.0;
 
       bool has_active_mechanisms() const;
 
