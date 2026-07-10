@@ -30,7 +30,6 @@
 #include <deal.II/fe/fe_values.h>
 
 #include <algorithm>
-#include <fstream>
 #include <iomanip>
 #include <tuple>
 #include <numeric>
@@ -49,21 +48,6 @@ namespace aspect
         return std::find(values.begin(), values.end(), name) != values.end();
       }
 
-
-      bool
-      selected_load_source_contains(
-        const std::map<std::string, std::vector<std::string>> &selection,
-        const std::string &boundary_name,
-        const std::string &plugin_name)
-      {
-        const auto boundary = selection.find(boundary_name);
-        if (boundary == selection.end())
-          return false;
-
-        return std::find(boundary->second.begin(),
-                         boundary->second.end(),
-                         plugin_name) != boundary->second.end();
-      }
 
       bool
       print_self_gravity_diagnostic_once(
@@ -102,8 +86,8 @@ namespace aspect
 
       if (configured_from_potential_feedback)
         {
-          enable_surface_potential_traction = true;
-          enable_cmb_potential_traction = true;
+          enable_surface_potential_traction = include_surface_contribution;
+          enable_cmb_potential_traction = include_cmb_contribution;
         }
 
       last_text_output_time = -1.0;
@@ -282,21 +266,16 @@ namespace aspect
       const auto &plugins = traction_manager.get_active_plugins();
       const auto &plugin_boundaries =
         traction_manager.get_active_plugin_boundary_indicators();
-      const auto &plugin_names = traction_manager.get_active_plugin_names();
 
       const auto load_traction_on_boundary =
         [&plugins,
          &plugin_boundaries,
-         &plugin_names,
          this]
         (const types::boundary_id boundary_id,
          const Point<dim> &position,
-         const Tensor<1,dim> &face_normal,
-         const std::string &boundary_name)
+         const Tensor<1,dim> &face_normal)
       {
         Tensor<1,dim> load_traction;
-        if (external_load_source == "none")
-          return load_traction;
 
         unsigned int plugin_index = 0;
         for (const auto &plugin : plugins)
@@ -310,17 +289,8 @@ namespace aspect
 
             bool use_plugin = false;
             if (plugin_on_boundary && !is_feedback_plugin)
-              {
-                if (external_load_source == "auto")
-                  use_plugin = plugin->is_potential_feedback_load_source();
-                else if (external_load_source == "selected")
-                  use_plugin = selected_load_source_contains(
-                                 selected_external_load_traction_indicators,
-                                 boundary_name,
-                                 plugin_names[plugin_index]);
-                else
-                  AssertThrow(false, ExcInternalError());
-              }
+              use_plugin = (configured_from_potential_feedback
+                            || plugin->is_potential_feedback_load_source());
 
             if (use_plugin)
               load_traction += plugin->boundary_traction(boundary_id,
@@ -419,8 +389,7 @@ namespace aspect
                           const Tensor<1,dim> load_traction =
                             load_traction_on_boundary(top_boundary_id,
                                                       position,
-                                                      face_normal,
-                                                      "surface");
+                                                      face_normal);
 
                           // Inward load traction (T·n < 0) → positive surface mass
                           // σ_load = -T_load·n / g,  h_load = σ_load / Δρ
@@ -459,8 +428,7 @@ namespace aspect
                           const Tensor<1,dim> load_traction =
                             load_traction_on_boundary(bottom_boundary_id,
                                                       position,
-                                                      face_normal,
-                                                      "CMB");
+                                                      face_normal);
 
                           const double g_magnitude =
                             this->get_gravity_model().gravity_vector(position).norm();
@@ -1051,120 +1019,6 @@ namespace aspect
                     .cmb_intermediate_compensation_rhs_10
                     + citcomsve_degree_one_load_replay_diagnostic
                     .cmb_potential_append_rhs_10;
-
-                  Utilities::create_directory(
-                    this->get_output_directory() + "self_gravity/",
-                    this->get_mpi_communicator(),
-                    /*silent=*/true);
-
-                  if (Utilities::MPI::this_mpi_process(
-                        this->get_mpi_communicator()) == 0)
-                    {
-                      const std::string filename =
-                        this->get_output_directory()
-                        + "self_gravity/"
-                        + "citcomsve_degree1_load_replay_diagnostic."
-                        + Utilities::int_to_string(this->get_timestep_number(), 5);
-                      std::ofstream output(filename);
-                      output << "# CitcomSVE incompressible l=1,m=0 "
-                             << "initial-load center-of-mass replay diagnostic\n";
-                      output << "# timestep: " << this->get_timestep_number()
-                             << "\n";
-                      output << "# potential_iteration: "
-                             << potential_iteration_number << "\n";
-                      output << "# include_current_velocity_increment: "
-                             << include_current_velocity_increment << "\n";
-                      output << "# deformation_topography_reference_frame: "
-                             << "solution-frame displacement before "
-                             << "degree-1 reference-frame potential "
-                             << "cancellation; surface excludes external load "
-                             << "height and CMB excludes non-self-gravity "
-                             << "CMB load height.\n";
-                      output
-                          << "original_surface_load_height_10 "
-                          << "phi_external_10_over_g "
-                          << "citcomsve_cm_z "
-                          << "citcomsve_h_comp_10 "
-                          << "corrected_surface_load_height_10 "
-                          << "corrected_cmb_load_height_10 "
-                          << "surface_kernel_l1 "
-                          << "cmb_kernel_l1 "
-                          << "net_degree1_phi_over_g_after_load_compensation "
-                          << "phi_cmb_pre_cancellation_over_g_10 "
-                          << "h_comp_10 "
-                          << "surface_deformation_topo_cos_10 "
-                          << "cmb_deformation_topo_cos_10 "
-                          << "surface_to_cmb_l1 "
-                          << "cmb_to_cmb_l1 "
-                          << "surface_deformation_to_cmb_phi_over_g_10 "
-                          << "cmb_deformation_to_cmb_phi_over_g_10 "
-                          << "original_surface_load_to_cmb_l1_times_height "
-                          << "surface_to_cmb_l1_times_h_comp "
-                          << "cmb_to_cmb_l1_times_h_comp "
-                          << "phi_cmb_deformation_pre_compensation_over_g_10 "
-                          << "phi_cmb_initial_load_pair_replay_over_g_10 "
-                          << "phi_cmb_replay_over_g_10 "
-                          << "cmb_intermediate_compensation_rhs_10 "
-                          << "cmb_potential_append_rhs_10 "
-                          << "cmb_final_rhs_10\n";
-                      output << std::setprecision(16)
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .original_surface_load_height_10 << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .phi_external_10_over_g << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .citcomsve_cm_z << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .citcomsve_h_comp_10 << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .corrected_surface_load_height_10 << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .corrected_cmb_load_height_10 << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .surface_kernel_l1 << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .cmb_kernel_l1 << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .net_degree1_phi_over_g_after_load_compensation
-                             << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .phi_cmb_pre_cancellation_over_g_10 << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .h_comp_10 << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .surface_deformation_topo_cos_10 << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .cmb_deformation_topo_cos_10 << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .surface_to_cmb_l1 << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .cmb_to_cmb_l1 << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .surface_deformation_to_cmb_phi_over_g_10 << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .cmb_deformation_to_cmb_phi_over_g_10 << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .original_surface_load_to_cmb_l1_times_height
-                             << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .surface_to_cmb_l1_times_h_comp << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .cmb_to_cmb_l1_times_h_comp << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .phi_cmb_deformation_pre_compensation_over_g_10
-                             << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .phi_cmb_initial_load_pair_replay_over_g_10 << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .phi_cmb_replay_over_g_10 << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .cmb_intermediate_compensation_rhs_10 << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .cmb_potential_append_rhs_10 << ' '
-                             << citcomsve_degree_one_load_replay_diagnostic
-                             .cmb_final_rhs_10
-                             << '\n';
-                    }
                 }
 
               std::vector<double> deformation_potential_cos =
@@ -1397,6 +1251,14 @@ namespace aspect
 
 
     template <int dim>
+    unsigned int
+    SelfGravitation<dim>::minimum_degree() const
+    {
+      return min_degree;
+    }
+
+
+    template <int dim>
     std::pair<double,double>
     SelfGravitation<dim>::surface_mass_potential_coefficient(
       const unsigned int degree,
@@ -1405,6 +1267,10 @@ namespace aspect
       AssertThrow(dim == 3,
                   ExcMessage("Spherical-harmonic coefficient access is only "
                              "available in 3D."));
+      if (degree < min_degree || degree > max_degree || order > degree
+          || surface_mass_potential_cos_coeffs.empty())
+        return {0.0, 0.0};
+
       const unsigned int index = sh_transform->index(degree, order);
       return {surface_mass_potential_cos_coeffs.at(index),
               surface_mass_potential_sin_coeffs.at(index)
@@ -1421,6 +1287,10 @@ namespace aspect
       AssertThrow(dim == 3,
                   ExcMessage("Spherical-harmonic coefficient access is only "
                              "available in 3D."));
+      if (degree < min_degree || degree > max_degree || order > degree
+          || external_load_surface_potential_cos_coeffs.empty())
+        return {0.0, 0.0};
+
       const unsigned int index = sh_transform->index(degree, order);
       return {external_load_surface_potential_cos_coeffs.at(index),
               external_load_surface_potential_sin_coeffs.at(index)
@@ -1437,6 +1307,10 @@ namespace aspect
       AssertThrow(dim == 3,
                   ExcMessage("Spherical-harmonic coefficient access is only "
                              "available in 3D."));
+      if (degree < min_degree || degree > max_degree || order > degree
+          || surface_deformation_mass_potential_cos_coeffs.empty())
+        return {0.0, 0.0};
+
       const unsigned int index = sh_transform->index(degree, order);
       return {surface_deformation_mass_potential_cos_coeffs.at(index),
               surface_deformation_mass_potential_sin_coeffs.at(index)
@@ -1453,6 +1327,10 @@ namespace aspect
       AssertThrow(dim == 3,
                   ExcMessage("Spherical-harmonic coefficient access is only "
                              "available in 3D."));
+      if (degree < min_degree || degree > max_degree || order > degree
+          || cmb_mass_potential_cos_coeffs.empty())
+        return {0.0, 0.0};
+
       const unsigned int index = sh_transform->index(degree, order);
       return {cmb_mass_potential_cos_coeffs.at(index),
               cmb_mass_potential_sin_coeffs.at(index)
@@ -1469,7 +1347,8 @@ namespace aspect
       AssertThrow(dim == 3,
                   ExcMessage("Spherical-harmonic coefficient access is only "
                              "available in 3D."));
-      if (tidal_surface_potential_cos_coeffs.empty())
+      if (degree < min_degree || degree > max_degree || order > degree
+          || tidal_surface_potential_cos_coeffs.empty())
         return {0.0, 0.0};
 
       const unsigned int index = sh_transform->index(degree, order);
@@ -1488,7 +1367,8 @@ namespace aspect
       AssertThrow(dim == 3,
                   ExcMessage("Spherical-harmonic coefficient access is only "
                              "available in 3D."));
-      if (reference_frame_surface_potential_cos_coeffs.empty())
+      if (degree < min_degree || degree > max_degree || order > degree
+          || reference_frame_surface_potential_cos_coeffs.empty())
         return {0.0, 0.0};
 
       const unsigned int index = sh_transform->index(degree, order);
@@ -1724,7 +1604,7 @@ namespace aspect
       const PotentialFeedback::Settings &settings)
     {
       max_degree = settings.self_gravity_max_degree;
-      min_degree = settings.self_gravity_min_degree;
+      min_degree = 1;
       density_above_surface =
         settings.interface_properties.surface.density_above;
       density_below_surface =
@@ -1736,11 +1616,9 @@ namespace aspect
       planet_mean_density = 0.0;
       planet_mass = 0.0;
       include_surface_contribution =
-        self_gravity_list_contains(settings.self_gravity_boundary_indicators,
-                                   "surface");
+        settings.include_surface_feedback;
       include_cmb_contribution =
-        self_gravity_list_contains(settings.self_gravity_boundary_indicators,
-                                   "CMB");
+        settings.include_cmb_feedback;
       self_gravity_mass_feedback_enabled =
         self_gravity_list_contains(settings.feedback_mechanisms,
                                    "self gravity");
@@ -1760,35 +1638,24 @@ namespace aspect
       center_of_mass_correction = settings.center_of_mass_correction;
       citcomsve_degree_one_load_compensation =
         settings.citcomsve_degree_one_load_compensation;
-      external_load_source = settings.external_load_source;
-      selected_external_load_traction_indicators =
-        settings.selected_external_load_traction_indicators;
       tidal_potential.configure_from_settings(settings,
                                               min_degree,
                                               max_degree,
                                               dim);
       configured_from_potential_feedback = true;
-      time_between_text_output =
-        (settings.write_self_gravity_diagnostics
-         || settings.write_coefficient_diagnostics
-         ? settings.time_between_diagnostic_output
-         : 0.0);
-      time_steps_between_text_output =
-        (settings.write_self_gravity_diagnostics
-         || settings.write_coefficient_diagnostics
-         ? settings.time_steps_between_diagnostic_output
-         : 0);
+      time_between_text_output = 0.0;
+      time_steps_between_text_output = 0;
       potential_relative_change = std::numeric_limits<double>::infinity();
       current_potential_iteration_step = (unsigned int)-1;
       potential_iteration_number = 0;
 
-      AssertThrow(min_degree <= max_degree,
-                  ExcMessage("Potential feedback/Self gravity/Minimum degree "
-                             "must not exceed Maximum degree."));
+      AssertThrow(max_degree >= min_degree,
+                  ExcMessage("Potential feedback/Self gravity/Maximum degree "
+                             "must be at least 1."));
       AssertThrow(include_surface_contribution || include_cmb_contribution,
-                  ExcMessage("Potential feedback/Self gravity/Boundary "
-                             "indicators must include at least one of the "
-                             "surface or CMB aliases."));
+                  ExcMessage("The `potential feedback' boundary traction model "
+                             "must be prescribed on at least the top/surface or "
+                             "bottom/CMB boundary."));
       AssertThrow(!citcomsve_degree_one_load_compensation
                   || (min_degree <= 1 && max_degree >= 1),
                   ExcMessage("CitcomSVE degree 1 load compensation requires "
@@ -1985,8 +1852,6 @@ namespace aspect
             degree_one_reference_frame = DegreeOneReferenceFrame::none;
           include_surface_contribution = true;
           self_gravity_mass_feedback_enabled = true;
-          external_load_source = "auto";
-          selected_external_load_traction_indicators.clear();
           potential_iteration_relaxation_factor = 1.0;
           include_internal_density_anomalies =
             prm.get("Include internal density anomalies");
@@ -2240,76 +2105,8 @@ namespace aspect
     template <int dim>
     void
     SelfGravitation<dim>::write_native_center_of_mass_diagnostic(
-      const bool include_current_velocity_increment) const
-    {
-      if (!native_center_of_mass_diagnostic.valid || !printing_this_step)
-        return;
-
-      Utilities::create_directory(this->get_output_directory() + "self_gravity/",
-                                  this->get_mpi_communicator(),
-                                  /*silent=*/true);
-
-      if (Utilities::MPI::this_mpi_process(this->get_mpi_communicator()) != 0)
-        return;
-
-      const std::string filename =
-        this->get_output_directory()
-        + "self_gravity/"
-        + "native_center_of_mass_diagnostic."
-        + Utilities::int_to_string(this->get_timestep_number(), 5);
-      std::ofstream output(filename);
-      output << "# ASPECT-native degree-1 center-of-mass reference-frame diagnostic\n";
-      output << "# timestep: " << this->get_timestep_number() << "\n";
-      output << "# potential_iteration: " << potential_iteration_number << "\n";
-      output << "# include_current_velocity_increment: "
-             << include_current_velocity_increment << "\n";
-      output << "# mass_dipole_post = mass_dipole_pre - total_mass * translation\n";
-      output
-          << "native_com_mass_dipole_pre_kg_m_x "
-          << "native_com_mass_dipole_pre_kg_m_y "
-          << "native_com_mass_dipole_pre_kg_m_z "
-          << "native_com_mass_dipole_post_kg_m_x "
-          << "native_com_mass_dipole_post_kg_m_y "
-          << "native_com_mass_dipole_post_kg_m_z "
-          << "native_com_translation_m_x "
-          << "native_com_translation_m_y "
-          << "native_com_translation_m_z "
-          << "native_com_internal_density_dipole_kg_m_x "
-          << "native_com_internal_density_dipole_kg_m_y "
-          << "native_com_internal_density_dipole_kg_m_z "
-          << "native_com_surface_interface_dipole_kg_m_x "
-          << "native_com_surface_interface_dipole_kg_m_y "
-          << "native_com_surface_interface_dipole_kg_m_z "
-          << "native_com_cmb_interface_dipole_kg_m_x "
-          << "native_com_cmb_interface_dipole_kg_m_y "
-          << "native_com_cmb_interface_dipole_kg_m_z "
-          << "native_com_external_load_dipole_kg_m_x "
-          << "native_com_external_load_dipole_kg_m_y "
-          << "native_com_external_load_dipole_kg_m_z "
-          << "native_com_total_mass_kg "
-          << "native_com_correctable_mass_kg\n";
-      output << std::setprecision(16);
-      for (unsigned int d = 0; d < 3; ++d)
-        output << native_center_of_mass_diagnostic.mass_dipole_pre[d] << ' ';
-      for (unsigned int d = 0; d < 3; ++d)
-        output << native_center_of_mass_diagnostic.mass_dipole_post[d] << ' ';
-      for (unsigned int d = 0; d < 3; ++d)
-        output << native_center_of_mass_diagnostic.translation[d] << ' ';
-      for (unsigned int d = 0; d < 3; ++d)
-        output << native_center_of_mass_diagnostic.internal_density_dipole[d]
-               << ' ';
-      for (unsigned int d = 0; d < 3; ++d)
-        output << native_center_of_mass_diagnostic.surface_interface_dipole[d]
-               << ' ';
-      for (unsigned int d = 0; d < 3; ++d)
-        output << native_center_of_mass_diagnostic.cmb_interface_dipole[d]
-               << ' ';
-      for (unsigned int d = 0; d < 3; ++d)
-        output << native_center_of_mass_diagnostic.external_load_dipole[d]
-               << ' ';
-      output << native_center_of_mass_diagnostic.total_mass << ' '
-             << native_center_of_mass_diagnostic.correctable_mass << '\n';
-    }
+      const bool /*include_current_velocity_increment*/) const
+    {}
 
 
     template <int dim>

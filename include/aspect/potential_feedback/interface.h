@@ -25,7 +25,7 @@
 
 #include <deal.II/base/parameter_handler.h>
 
-#include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -94,16 +94,13 @@ namespace aspect
     struct Settings
     {
       std::vector<std::string> feedback_mechanisms;
-      std::string interface_source;
 
       InterfaceProperties interface_properties;
 
-      std::vector<std::string> self_gravity_boundary_indicators;
-      std::string external_load_source = "auto";
-      std::map<std::string, std::vector<std::string>>
-      selected_external_load_traction_indicators;
-      unsigned int self_gravity_min_degree = 0;
-      unsigned int self_gravity_max_degree = 0;
+      std::set<types::boundary_id> active_feedback_boundary_indicators;
+      bool include_surface_feedback = false;
+      bool include_cmb_feedback = false;
+      unsigned int self_gravity_max_degree = 32;
 
       double self_gravity_density_above_surface = 0.0;
       double self_gravity_density_below_surface = 0.0;
@@ -112,10 +109,6 @@ namespace aspect
       std::string include_internal_density_anomalies = "auto";
       double reference_density_for_internal_anomalies = 0.0;
       double internal_density_anomaly_tolerance = 0.0;
-      bool write_self_gravity_diagnostics = false;
-      bool write_coefficient_diagnostics = false;
-      double time_between_diagnostic_output = 0.0;
-      unsigned int time_steps_between_diagnostic_output = 0;
 
       std::string tidal_model_name = "none";
       unsigned int tidal_harmonic_degree = 2;
@@ -130,8 +123,6 @@ namespace aspect
       double tidal_angular_frequency = 0.0;
       double tidal_phase = 0.0;
 
-      unsigned int rotational_min_degree = 0;
-      unsigned int rotational_max_degree = 0;
       double rotational_fluid_love_number = 1.0;
 
       double relative_tolerance = 0.0;

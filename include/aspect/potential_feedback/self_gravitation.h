@@ -28,7 +28,6 @@
 #include <aspect/utilities.h>
 
 #include <memory>
-#include <map>
 #include <string>
 #include <vector>
 
@@ -183,6 +182,8 @@ namespace aspect
 
         double potential_relative_change_value() const;
 
+        unsigned int minimum_degree() const;
+
         void configure_from_potential_feedback_settings(
           const PotentialFeedback::Settings &settings);
 
@@ -304,9 +305,6 @@ namespace aspect
         DegreeOneReferenceFrame degree_one_reference_frame;
         bool   center_of_mass_correction;
         bool   citcomsve_degree_one_load_compensation;
-        std::string external_load_source;
-        std::map<std::string, std::vector<std::string>>
-        selected_external_load_traction_indicators;
         TidalPotential tidal_potential;
 
         std::string include_internal_density_anomalies;

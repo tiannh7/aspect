@@ -39,6 +39,49 @@ namespace aspect
 
 
     template <int dim>
+    void
+    PotentialFeedbackTraction<dim>::
+    set_active_feedback_boundaries_from_traction_model()
+    {
+      settings.active_feedback_boundary_indicators.clear();
+      settings.include_surface_feedback = false;
+      settings.include_cmb_feedback = false;
+
+      const auto &traction_manager = this->get_boundary_traction_manager();
+      const auto &plugin_names = traction_manager.get_active_plugin_names();
+      const auto &plugin_boundaries =
+        traction_manager.get_active_plugin_boundary_indicators();
+
+      Assert(plugin_names.size() == plugin_boundaries.size(),
+             ExcInternalError());
+
+      for (unsigned int plugin_index = 0;
+           plugin_index < plugin_names.size();
+           ++plugin_index)
+        if (plugin_names[plugin_index] == "potential feedback")
+          settings.active_feedback_boundary_indicators.insert(
+            plugin_boundaries[plugin_index]);
+
+      const types::boundary_id top_boundary_id =
+        this->get_geometry_model().translate_symbolic_boundary_name_to_id("top");
+      const types::boundary_id bottom_boundary_id =
+        this->get_geometry_model().translate_symbolic_boundary_name_to_id("bottom");
+
+      settings.include_surface_feedback =
+        settings.active_feedback_boundary_indicators.count(top_boundary_id) > 0;
+      settings.include_cmb_feedback =
+        settings.active_feedback_boundary_indicators.count(bottom_boundary_id) > 0;
+
+      AssertThrow(settings.include_surface_feedback
+                  || settings.include_cmb_feedback,
+                  ExcMessage("The `potential feedback' boundary traction model "
+                             "must be prescribed on at least the top/surface or "
+                             "bottom/CMB boundary."));
+    }
+
+
+
+    template <int dim>
     PotentialFeedbackTraction<dim> &
     PotentialFeedbackTraction<dim>::primary_provider()
     {
@@ -340,6 +383,8 @@ namespace aspect
     PotentialFeedbackTraction<dim>::parse_parameters(ParameterHandler &prm)
     {
       settings.parse_parameters(prm);
+      set_active_feedback_boundaries_from_traction_model();
+
       self_gravity_active = mechanism_is_active("self gravity")
                             || mechanism_is_active("tidal potential");
       rotational_feedback_active =

@@ -49,24 +49,6 @@ namespace aspect
       }
 
       bool
-      rotational_feedback_boundary_list_contains_surface(
-        const std::vector<std::string> &values)
-      {
-        return rotational_feedback_list_contains(values, "surface")
-               || rotational_feedback_list_contains(values, "outer")
-               || rotational_feedback_list_contains(values, "top");
-      }
-
-      bool
-      rotational_feedback_boundary_list_contains_cmb(
-        const std::vector<std::string> &values)
-      {
-        return rotational_feedback_list_contains(values, "CMB")
-               || rotational_feedback_list_contains(values, "inner")
-               || rotational_feedback_list_contains(values, "bottom");
-      }
-
-      bool
       print_rotational_feedback_diagnostic_once(
         const std::string &name,
         const unsigned int timestep_number,
@@ -231,6 +213,40 @@ namespace aspect
       std::vector<double> cmb_mass_per_area;
       std::vector<Tensor<1,dim>> cmb_normals;
 
+      const auto &traction_manager = this->get_boundary_traction_manager();
+      const auto &plugins = traction_manager.get_active_plugins();
+      const auto &plugin_boundaries =
+        traction_manager.get_active_plugin_boundary_indicators();
+
+      const auto load_traction_on_boundary =
+        [&plugins,
+         &plugin_boundaries]
+        (const types::boundary_id boundary_id,
+         const Point<dim> &position,
+         const Tensor<1,dim> &face_normal)
+      {
+        Tensor<1,dim> load_traction;
+
+        unsigned int plugin_index = 0;
+        for (const auto &plugin : plugins)
+          {
+            const bool is_feedback_plugin =
+              (dynamic_cast<const SelfGravitation<dim> *>(plugin.get()) != nullptr
+               || dynamic_cast<const RotationalFeedback<dim> *>(plugin.get()) != nullptr
+               || dynamic_cast<const PotentialFeedback::BoundaryTractionMarker *>(plugin.get()) != nullptr);
+
+            if (plugin_boundaries[plugin_index] == boundary_id
+                && !is_feedback_plugin)
+              load_traction += plugin->boundary_traction(boundary_id,
+                                                         position,
+                                                         face_normal);
+
+            ++plugin_index;
+          }
+
+        return load_traction;
+      };
+
       auto mesh_cell = mesh_deformation_dof_handler.begin_active();
       for (const auto &cell : this->get_dof_handler().active_cell_iterators())
         {
@@ -297,29 +313,11 @@ namespace aspect
                           .height_above_reference_surface(position)
                           + predicted_radial_displacement;
 
-                        Tensor<1,dim> load_traction;
-                        const auto &traction_manager =
-                          this->get_boundary_traction_manager();
-                        const auto &plugins =
-                          traction_manager.get_active_plugins();
-                        const auto &plugin_boundaries =
-                          traction_manager.get_active_plugin_boundary_indicators();
-                        unsigned int plugin_index = 0;
-                        for (const auto &plugin : plugins)
-                          {
-                            const bool is_feedback_plugin =
-                              (dynamic_cast<const SelfGravitation<dim> *>(plugin.get()) != nullptr
-                               || dynamic_cast<const RotationalFeedback<dim> *>(plugin.get()) != nullptr
-                               || dynamic_cast<const PotentialFeedback::BoundaryTractionMarker *>(plugin.get()) != nullptr);
-
-                            if (plugin_boundaries[plugin_index] == top_boundary_id
-                                && !is_feedback_plugin)
-                              load_traction += plugin->boundary_traction(
-                                                 top_boundary_id,
-                                                 position,
-                                                 fe_face_values.normal_vector(q));
-                            ++plugin_index;
-                          }
+                        const Tensor<1,dim> load_traction =
+                          load_traction_on_boundary(
+                            top_boundary_id,
+                            position,
+                            fe_face_values.normal_vector(q));
 
                         const double g_norm =
                           this->get_gravity_model()
@@ -345,6 +343,19 @@ namespace aspect
                           (radius - geometry.inner_radius())
                           + predicted_radial_displacement;
                         sigma = delta_rho_cmb * h_cmb;
+
+                        const Tensor<1,dim> load_traction =
+                          load_traction_on_boundary(
+                            bottom_boundary_id,
+                            position,
+                            fe_face_values.normal_vector(q));
+                        const double g_norm =
+                          this->get_gravity_model()
+                          .gravity_vector(position).norm();
+                        if (g_norm > 0.0)
+                          sigma +=
+                            (load_traction * fe_face_values.normal_vector(q))
+                            / g_norm;
 
                         cmb_positions.push_back(position);
                         cmb_theta.push_back(theta);
@@ -656,8 +667,8 @@ namespace aspect
     {
       enabled = rotational_feedback_list_contains(settings.feedback_mechanisms,
                                                   "rotational feedback");
-      max_degree = settings.rotational_max_degree;
-      min_degree = settings.rotational_min_degree;
+      max_degree = 2;
+      min_degree = 0;
       density_above_surface =
         settings.interface_properties.surface.density_above;
       density_below_surface =
@@ -668,11 +679,9 @@ namespace aspect
         settings.interface_properties.cmb.density_below;
       fluid_love_number = settings.rotational_fluid_love_number;
       include_surface_contribution =
-        rotational_feedback_boundary_list_contains_surface(
-          settings.self_gravity_boundary_indicators);
+        settings.include_surface_feedback;
       include_cmb_contribution =
-        rotational_feedback_boundary_list_contains_cmb(
-          settings.self_gravity_boundary_indicators);
+        settings.include_cmb_feedback;
       apply_center_of_mass_correction =
         settings.center_of_mass_correction;
       iterate_with_stokes = settings.iterate_with_stokes;
@@ -681,11 +690,9 @@ namespace aspect
       potential_convergence_tolerance = settings.relative_tolerance;
       maximum_potential_iterations = settings.maximum_iterations;
       enable_surface_potential_traction =
-        rotational_feedback_boundary_list_contains_surface(
-          settings.self_gravity_boundary_indicators);
+        settings.include_surface_feedback;
       enable_cmb_potential_traction =
-        rotational_feedback_boundary_list_contains_cmb(
-          settings.self_gravity_boundary_indicators);
+        settings.include_cmb_feedback;
 
       potential_relative_change = std::numeric_limits<double>::infinity();
       current_potential_iteration_step = (unsigned int)-1;
@@ -699,22 +706,13 @@ namespace aspect
           AssertThrow(dim == 3,
                       ExcMessage("Rotational feedback is currently "
                                  "implemented only for 3D."));
-          AssertThrow(max_degree >= 2,
-                      ExcMessage("Rotational feedback requires Maximum degree "
-                                 "to be at least 2."));
-          AssertThrow(min_degree <= 2,
-                      ExcMessage("Rotational feedback must retain degree 2."));
-          AssertThrow(!apply_center_of_mass_correction || min_degree == 0,
-                      ExcMessage("Center of mass correction requires Minimum "
-                                 "degree = 0 so degree-1 mass can be "
-                                 "identified and removed."));
           AssertThrow(fluid_love_number > 0.0,
                       ExcMessage("Fluid Love number must be positive."));
           AssertThrow(include_surface_contribution || include_cmb_contribution,
-                      ExcMessage("Potential feedback/Self gravity/Boundary "
-                                 "indicators must include at least one of the "
-                                 "surface or CMB aliases when rotational "
-                                 "feedback is enabled."));
+                      ExcMessage("The `potential feedback' boundary traction "
+                                 "model must be prescribed on at least the "
+                                 "top/surface or bottom/CMB boundary when "
+                                 "rotational feedback is enabled."));
         }
     }
 

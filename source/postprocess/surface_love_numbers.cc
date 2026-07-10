@@ -794,6 +794,8 @@ namespace aspect
 
                       const bool use_boundary_potential =
                         use_self_gravity || potential_feedback != nullptr;
+                      const unsigned int self_gravity_coefficient_min_degree =
+                        self_gravity->minimum_degree();
 
                       // Compute density anomalies contribution using the helper
                       std::pair<std::vector<double>,std::vector<double>> SH_density_coes =
@@ -815,6 +817,29 @@ namespace aspect
                           SH_surface_topo_coes = SH_topo_coes.first;
                           SH_CMB_topo_coes = SH_topo_coes.second;
                         }
+                      const auto self_gravity_vector_coefficient =
+                        [self_gravity_coefficient_min_degree]
+                        (const std::pair<std::vector<double>, std::vector<double>> &coefficients,
+                         const unsigned int degree,
+                         const unsigned int order,
+                         const bool sine)
+                      {
+                        if (degree < self_gravity_coefficient_min_degree
+                            || order > degree)
+                          return 0.0;
+
+                        const unsigned int index =
+                          spherical_harmonic_coefficient_index(
+                            self_gravity_coefficient_min_degree,
+                            degree,
+                            order);
+                        const std::vector<double> &values =
+                          (sine ? coefficients.second : coefficients.first);
+                        if (index >= values.size())
+                          return 0.0;
+
+                        return values[index];
+                      };
 
                       const double surface_delta_rho = self_gravity->surface_density_jump();
                       const auto surface_mass_potential_coefficient =
@@ -976,10 +1001,6 @@ namespace aspect
                         && min_degree <= 1
                         && max_degree >= 1
                         && use_boundary_potential;
-                      const unsigned int degree_one_order_zero_index =
-                        (min_degree <= 1 && max_degree >= 1
-                         ? spherical_harmonic_coefficient_index(min_degree, 1, 0)
-                         : numbers::invalid_unsigned_int);
                       double degree_one_projection_phi_sensitivity = 0.0;
                       double degree_one_projection_radial_correction = 0.0;
                       double degree_one_projection_poloidal_correction = 0.0;
@@ -996,7 +1017,11 @@ namespace aspect
                           const double volume =
                             (4.0 * numbers::PI * constants::big_g
                              / (surface_gravity * 3.0))
-                            * SH_density_coes.first.at(degree_one_order_zero_index);
+                            * self_gravity_vector_coefficient(
+                              SH_density_coes,
+                              1,
+                              0,
+                              false);
 
                           degree_one_projection_phi_total_pre =
                             external_load.first
@@ -1147,9 +1172,11 @@ namespace aspect
                               component.volume =
                                 (4.0 * numbers::PI * constants::big_g
                                  / (surface_gravity * 3.0))
-                                * (component.sine
-                                   ? SH_density_coes.second.at(index)
-                                   : SH_density_coes.first.at(index));
+                                * self_gravity_vector_coefficient(
+                                  SH_density_coes,
+                                  1,
+                                  component.order,
+                                  component.sine);
                               component.total_pre =
                                 component.external_load
                                 + component.surface_deformation
@@ -1381,27 +1408,53 @@ namespace aspect
 
                             const double coecos_density_anomaly =
                               (4.0 * numbers::PI * G / (surface_gravity * (2.0 * degree + 1.0)))
-                              * SH_density_coes.first.at(coefficient_index);
+                              * self_gravity_vector_coefficient(
+                                SH_density_coes,
+                                degree,
+                                order,
+                                false);
                             const double coesin_density_anomaly =
                               (4.0 * numbers::PI * G / (surface_gravity * (2.0 * degree + 1.0)))
-                              * SH_density_coes.second.at(coefficient_index);
+                              * self_gravity_vector_coefficient(
+                                SH_density_coes,
+                                degree,
+                                order,
+                                true);
 
                             const double coecos_surface_topo =
                               (use_boundary_potential
                                ? self_gravity_surface.first
                                : (4.0 * numbers::PI * G / (surface_gravity * (2.0 * degree + 1.0)))
-                               * surface_delta_rho * SH_surface_topo_coes.second.first.at(coefficient_index) * surface_radius);
+                               * surface_delta_rho
+                               * self_gravity_vector_coefficient(
+                                 SH_surface_topo_coes.second,
+                                 degree,
+                                 order,
+                                 false)
+                               * surface_radius);
                             const double coesin_surface_topo =
                               (use_boundary_potential
                                ? self_gravity_surface.second
                                : (4.0 * numbers::PI * G / (surface_gravity * (2.0 * degree + 1.0)))
-                               * surface_delta_rho * SH_surface_topo_coes.second.second.at(coefficient_index) * surface_radius);
+                               * surface_delta_rho
+                               * self_gravity_vector_coefficient(
+                                 SH_surface_topo_coes.second,
+                                 degree,
+                                 order,
+                                 true)
+                               * surface_radius);
 
                             const double coecos_CMB_topo =
                               (use_boundary_potential
                                ? self_gravity_cmb.first
                                : (4.0 * numbers::PI * G / (surface_gravity * (2.0 * degree + 1.0)))
-                               * CMB_delta_rho * SH_CMB_topo_coes.second.first.at(coefficient_index) * inner_radius
+                               * CMB_delta_rho
+                               * self_gravity_vector_coefficient(
+                                 SH_CMB_topo_coes.second,
+                                 degree,
+                                 order,
+                                 false)
+                               * inner_radius
 #if DEAL_II_VERSION_GTE(9,6,0)
                                * Utilities::pow(inner_radius / surface_radius, degree + 1));
 #else
@@ -1411,7 +1464,13 @@ namespace aspect
                               (use_boundary_potential
                                ? self_gravity_cmb.second
                                : (4.0 * numbers::PI * G / (surface_gravity * (2.0 * degree + 1.0)))
-                               * CMB_delta_rho * SH_CMB_topo_coes.second.second.at(coefficient_index) * inner_radius
+                               * CMB_delta_rho
+                               * self_gravity_vector_coefficient(
+                                 SH_CMB_topo_coes.second,
+                                 degree,
+                                 order,
+                                 true)
+                               * inner_radius
 #if DEAL_II_VERSION_GTE(9,6,0)
                                * Utilities::pow(inner_radius / surface_radius, degree + 1));
 #else
@@ -1650,7 +1709,7 @@ namespace aspect
                             Patterns::Integer(0),
                             "Maximum spherical-harmonic degree for the tangential "
                             "surface-displacement projection.");
-          prm.declare_entry("Minimum degree", "1",
+          prm.declare_entry("Minimum degree", "0",
                             Patterns::Integer(0),
                             "Minimum spherical-harmonic degree for the tangential "
                             "surface-displacement projection.");

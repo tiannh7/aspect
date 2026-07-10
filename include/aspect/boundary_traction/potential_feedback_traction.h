@@ -117,6 +117,8 @@ namespace aspect
       private:
         bool mechanism_is_active(const std::string &name) const;
 
+        void set_active_feedback_boundaries_from_traction_model();
+
         PotentialFeedbackTraction<dim> &
         primary_provider();
 
