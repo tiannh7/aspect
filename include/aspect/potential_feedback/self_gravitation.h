@@ -75,7 +75,6 @@ namespace aspect
      *     set Density below surface     = 3500   # crust
      *     set Density above CMB         = 3800   # lower mantle
      *     set Density below CMB         = 6200   # core
-     *     set Planet mean density       = 3390   # Mars
      *     set Include CMB contribution  = true
      *   end
      * end
@@ -276,6 +275,9 @@ namespace aspect
         write_native_center_of_mass_diagnostic(
           const bool include_current_velocity_increment) const;
 
+        void
+        update_derived_planetary_constants();
+
         unsigned int max_degree;
         unsigned int min_degree;
 
@@ -283,8 +285,8 @@ namespace aspect
         double density_below_surface;
         double density_above_cmb;
         double density_below_cmb;
-        double planet_mean_density;
-        double planet_mass;
+        double planet_mean_density = 0.0;
+        double planet_mass = 0.0;
         bool   include_cmb_contribution;
         bool   include_surface_contribution;
         bool   self_gravity_mass_feedback_enabled;

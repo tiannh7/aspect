@@ -19,6 +19,7 @@ choosing-a-formulation/index.md
 advection-stabilization/index.md
 freesurface/index.md
 melt-transport.md
+potential-feedback.md
 nullspace-removal.md
 particles.md
 stokes-solver/solver.md

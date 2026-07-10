@@ -85,21 +85,6 @@ namespace aspect
 
 
     /**
-     * Shared planetary constants used by potential-feedback mechanisms.
-     */
-    struct PlanetaryConstants
-    {
-      std::string model_name;
-      double planet_mass = 0.0;
-      double planet_mean_density = 0.0;
-      double polar_moment_of_inertia = 0.0;
-      double equatorial_moment_of_inertia = 0.0;
-      double rotation_rate = 0.0;
-    };
-
-
-
-    /**
      * Parsed settings for the top-level Potential feedback hierarchy.
      *
      * This structure is intentionally limited to shared configuration. The
@@ -112,10 +97,7 @@ namespace aspect
       std::string interface_source;
 
       InterfaceProperties interface_properties;
-      PlanetaryConstants planet;
 
-      std::vector<std::string> self_gravity_source_interfaces;
-      std::vector<std::string> self_gravity_apply_boundaries;
       std::vector<std::string> self_gravity_boundary_indicators;
       std::string external_load_source = "auto";
       std::map<std::string, std::vector<std::string>>
@@ -148,10 +130,9 @@ namespace aspect
       double tidal_angular_frequency = 0.0;
       double tidal_phase = 0.0;
 
-      std::vector<std::string> rotational_inertia_source_interfaces;
-      std::vector<std::string> rotational_apply_boundaries;
       unsigned int rotational_min_degree = 0;
       unsigned int rotational_max_degree = 0;
+      double rotational_fluid_love_number = 1.0;
 
       double relative_tolerance = 0.0;
       unsigned int maximum_iterations = 0;

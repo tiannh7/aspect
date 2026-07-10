@@ -872,6 +872,16 @@ namespace aspect
                           return potential_feedback->tidal_surface_potential_coefficient(degree, order);
                         return self_gravity->tidal_surface_potential_coefficient(degree, order);
                       };
+                      const auto rotational_surface_potential_coefficient =
+                        [potential_feedback, use_boundary_potential]
+                        (const unsigned int degree,
+                         const unsigned int order)
+                      {
+                        if (!use_boundary_potential || potential_feedback == nullptr)
+                          return std::pair<double,double> {0.0, 0.0};
+                        return potential_feedback->rotational_surface_potential_coefficient(
+                                 degree, order);
+                      };
                       const auto reference_frame_surface_potential_coefficient =
                         [self_gravity, use_boundary_potential]
                         (const unsigned int degree,
@@ -1362,6 +1372,10 @@ namespace aspect
                             const std::pair<double,double> self_gravity_tidal =
                               tidal_surface_potential_coefficient(degree, order);
 
+                            const std::pair<double,double> rotational_potential =
+                              rotational_surface_potential_coefficient(degree,
+                                                                       order);
+
                             const std::pair<double,double> self_gravity_reference_frame =
                               reference_frame_surface_potential_coefficient(degree, order);
 
@@ -1412,6 +1426,14 @@ namespace aspect
                               (use_boundary_potential
                                ? self_gravity_tidal.second
                                : 0.0);
+                            const double coecos_rotational =
+                              (use_boundary_potential
+                               ? rotational_potential.first
+                               : 0.0);
+                            const double coesin_rotational =
+                              (use_boundary_potential
+                               ? rotational_potential.second
+                               : 0.0);
                             const double coecos_reference_frame =
                               (use_boundary_potential
                                ? self_gravity_reference_frame.first
@@ -1422,8 +1444,18 @@ namespace aspect
                                : 0.0);
 
                             const std::pair<double,double> geoid_coefficient =
-                              std::make_pair(coecos_density_anomaly + coecos_surface_topo + coecos_CMB_topo + coecos_tidal + coecos_reference_frame,
-                                             coesin_density_anomaly + coesin_surface_topo + coesin_CMB_topo + coesin_tidal + coesin_reference_frame);
+                              std::make_pair(coecos_density_anomaly
+                                             + coecos_surface_topo
+                                             + coecos_CMB_topo
+                                             + coecos_tidal
+                                             + coecos_rotational
+                                             + coecos_reference_frame,
+                                             coesin_density_anomaly
+                                             + coesin_surface_topo
+                                             + coesin_CMB_topo
+                                             + coesin_tidal
+                                             + coesin_rotational
+                                             + coesin_reference_frame);
 
                             const std::pair<double,double> surface_coefficient =
                               std::make_pair(coecos_surface_topo, coesin_surface_topo);

@@ -144,37 +144,6 @@ namespace aspect
     void
     Settings::declare_parameters(ParameterHandler &prm)
     {
-      prm.enter_subsection("Planet model");
-      {
-        prm.declare_entry("Model name", "earth benchmark",
-                          Patterns::Anything(),
-                          "Name of the planet model used by shared planetary "
-                          "constants. The first potential-feedback migration "
-                          "supports the `Custom' subsection for benchmark "
-                          "constants.");
-
-        prm.enter_subsection("Custom");
-        {
-          prm.declare_entry("Planet mass", "5.9722e24",
-                            Patterns::Double(0),
-                            "Planet mass in kg.");
-          prm.declare_entry("Planet mean density", "5502.9914",
-                            Patterns::Double(0),
-                            "Mean density of the planet in kg/m^3.");
-          prm.declare_entry("Polar moment of inertia", "8.034e37",
-                            Patterns::Double(0),
-                            "Polar moment of inertia in kg m^2.");
-          prm.declare_entry("Equatorial moment of inertia", "8.010e37",
-                            Patterns::Double(0),
-                            "Equatorial moment of inertia in kg m^2.");
-          prm.declare_entry("Rotation rate", "7.292115e-5",
-                            Patterns::Double(0),
-                            "Reference rotation rate in rad/s.");
-        }
-        prm.leave_subsection();
-      }
-      prm.leave_subsection();
-
       prm.enter_subsection("Potential feedback");
       {
         prm.declare_entry("List of feedback mechanisms", "",
@@ -274,15 +243,6 @@ namespace aspect
 
         prm.enter_subsection("Rotational feedback");
         {
-          prm.declare_entry("Inertia source interfaces", "surface",
-                            Patterns::List(Patterns::Selection("surface|CMB")),
-                            "Density interfaces used to compute inertia-tensor "
-                            "perturbations for rotational feedback.");
-          prm.declare_entry("Apply to boundary indicators", "outer",
-                            Patterns::List(Patterns::Anything()),
-                            "Boundary indicators that receive rotational "
-                            "potential-feedback traction through the "
-                            "`potential feedback traction' adapter.");
           prm.declare_entry("Minimum degree", "0",
                             Patterns::Integer(0),
                             "Minimum spherical harmonic degree retained for "
@@ -291,6 +251,11 @@ namespace aspect
                             Patterns::Integer(0),
                             "Maximum spherical harmonic degree retained for "
                             "rotational-feedback diagnostics.");
+          prm.declare_entry("Fluid Love number", "1.0",
+                            Patterns::Double(0),
+                            "Fluid degree-2 Love number k_f used in the "
+                            "linearized polar-wander relation. This is the "
+                            "same quantity as CitcomSVE's polar_wander_kf.");
         }
         prm.leave_subsection();
 
@@ -386,24 +351,6 @@ namespace aspect
     void
     Settings::parse_parameters(ParameterHandler &prm)
     {
-      prm.enter_subsection("Planet model");
-      {
-        planet.model_name = prm.get("Model name");
-
-        prm.enter_subsection("Custom");
-        {
-          planet.planet_mass = prm.get_double("Planet mass");
-          planet.planet_mean_density = prm.get_double("Planet mean density");
-          planet.polar_moment_of_inertia =
-            prm.get_double("Polar moment of inertia");
-          planet.equatorial_moment_of_inertia =
-            prm.get_double("Equatorial moment of inertia");
-          planet.rotation_rate = prm.get_double("Rotation rate");
-        }
-        prm.leave_subsection();
-      }
-      prm.leave_subsection();
-
       prm.enter_subsection("Potential feedback");
       {
         feedback_mechanisms =
@@ -414,8 +361,6 @@ namespace aspect
         {
           self_gravity_boundary_indicators =
             normalize_interface_list(prm.get("Boundary indicators"));
-          self_gravity_source_interfaces = self_gravity_boundary_indicators;
-          self_gravity_apply_boundaries = self_gravity_boundary_indicators;
           external_load_source = prm.get("External load source");
           selected_external_load_traction_indicators =
             parse_selected_external_load_traction_indicators(
@@ -465,12 +410,9 @@ namespace aspect
 
         prm.enter_subsection("Rotational feedback");
         {
-          rotational_inertia_source_interfaces =
-            Utilities::split_string_list(prm.get("Inertia source interfaces"));
-          rotational_apply_boundaries =
-            Utilities::split_string_list(prm.get("Apply to boundary indicators"));
           rotational_min_degree = prm.get_integer("Minimum degree");
           rotational_max_degree = prm.get_integer("Maximum degree");
+          rotational_fluid_love_number = prm.get_double("Fluid Love number");
         }
         prm.leave_subsection();
 

@@ -52,7 +52,8 @@ namespace aspect
       rotational_feedback_boundary_list_contains_surface(
         const std::vector<std::string> &values)
       {
-        return rotational_feedback_list_contains(values, "outer")
+        return rotational_feedback_list_contains(values, "surface")
+               || rotational_feedback_list_contains(values, "outer")
                || rotational_feedback_list_contains(values, "top");
       }
 
@@ -60,7 +61,8 @@ namespace aspect
       rotational_feedback_boundary_list_contains_cmb(
         const std::vector<std::string> &values)
       {
-        return rotational_feedback_list_contains(values, "inner")
+        return rotational_feedback_list_contains(values, "CMB")
+               || rotational_feedback_list_contains(values, "inner")
                || rotational_feedback_list_contains(values, "bottom");
       }
 
@@ -242,7 +244,8 @@ namespace aspect
                   continue;
 
                 const types::boundary_id bid = cell->face(f)->boundary_id();
-                const bool is_surface = (bid == top_boundary_id);
+                const bool is_surface = (bid == top_boundary_id) &&
+                                        include_surface_contribution;
                 const bool is_cmb = (bid == bottom_boundary_id) &&
                                     include_cmb_contribution;
                 if (!is_surface && !is_cmb)
@@ -357,12 +360,11 @@ namespace aspect
       Assert(mesh_cell == mesh_deformation_dof_handler.end(),
              ExcInternalError());
 
-      Tensor<1,3> local_first_moment;
       double local_delta_ixz = 0.0;
       double local_delta_iyz = 0.0;
 
       auto accumulate_moments =
-        [&local_first_moment, &local_delta_ixz, &local_delta_iyz]
+        [&local_delta_ixz, &local_delta_iyz]
         (const std::vector<Point<dim>> &positions,
          const std::vector<double> &weights,
          const std::vector<double> &sigma_values,
@@ -377,9 +379,6 @@ namespace aspect
             const double y = positions[i][1];
             const double z = positions[i][2];
 
-            local_first_moment[0] += dm * x;
-            local_first_moment[1] += dm * y;
-            local_first_moment[2] += dm * z;
             local_delta_ixz -= dm * x * z;
             local_delta_iyz -= dm * y * z;
           }
@@ -434,19 +433,12 @@ namespace aspect
                                       this->get_mpi_communicator());
       delta_iyz = Utilities::MPI::sum(local_delta_iyz,
                                       this->get_mpi_communicator());
-      for (unsigned int d = 0; d < 3; ++d)
-        center_of_mass_shift[d] =
-          Utilities::MPI::sum(local_first_moment[d],
-                              this->get_mpi_communicator())
-          / planet_mass;
 
-      const double inertia_contrast =
-        polar_moment_of_inertia - equatorial_moment_of_inertia;
-      rotation_vector_perturbation = Tensor<1,3>();
-      rotation_vector_perturbation[0] =
-        rotation_rate * delta_ixz / inertia_contrast;
-      rotation_vector_perturbation[1] =
-        rotation_rate * delta_iyz / inertia_contrast;
+      const double outer_radius_to_the_fifth =
+        outer_radius * outer_radius * outer_radius * outer_radius * outer_radius;
+      rotational_potential_prefactor =
+        3.0 * constants::big_g
+        / (fluid_love_number * outer_radius_to_the_fifth);
 
       const unsigned int n_coefficients = sh_transform->n_coefficients();
       surface_potential_cos_coeffs.assign(n_coefficients, 0.0);
@@ -467,10 +459,12 @@ namespace aspect
               this->get_gravity_model().gravity_vector(positions[i]);
             const double g_norm = gravity.norm();
             if (g_norm > 0.0)
+              // The centrifugal-potential perturbation is
+              // -3G/(kf R^5) * (dIxz x + dIyz y) z.
               potential_height[i] =
-                rotation_rate
-                * (rotation_vector_perturbation[0] * positions[i][0]
-                   + rotation_vector_perturbation[1] * positions[i][1])
+                -rotational_potential_prefactor
+                * (delta_ixz * positions[i][0]
+                   + delta_iyz * positions[i][1])
                 * positions[i][2]
                 / g_norm;
           }
@@ -552,9 +546,9 @@ namespace aspect
               << potential_relative_change
               << ", dIxz=" << delta_ixz
               << ", dIyz=" << delta_iyz
-              << ", domega=("
-              << rotation_vector_perturbation[0] << ", "
-              << rotation_vector_perturbation[1] << ", 0)"
+              << ", kf=" << fluid_love_number
+              << ", rotational potential prefactor="
+              << rotational_potential_prefactor
               << std::defaultfloat << std::endl;
 
           if (potential_relative_change > potential_convergence_tolerance
@@ -635,6 +629,27 @@ namespace aspect
 
 
     template <int dim>
+    std::pair<double,double>
+    RotationalFeedback<dim>::surface_potential_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      AssertThrow(dim == 3,
+                  ExcMessage("Spherical-harmonic coefficient access is only "
+                             "available in 3D."));
+      if (!enabled || surface_potential_cos_coeffs.empty()
+          || degree < min_degree || degree > max_degree)
+        return {0.0, 0.0};
+
+      const unsigned int index = sh_transform->index(degree, order);
+      return {surface_potential_cos_coeffs.at(index),
+              surface_potential_sin_coeffs.at(index)
+             };
+    }
+
+
+
+    template <int dim>
     void
     RotationalFeedback<dim>::configure_from_potential_feedback_settings(
       const PotentialFeedback::Settings &settings)
@@ -651,15 +666,13 @@ namespace aspect
         settings.interface_properties.cmb.density_above;
       density_below_cmb =
         settings.interface_properties.cmb.density_below;
-      planet_mass = settings.planet.planet_mass;
-      polar_moment_of_inertia =
-        settings.planet.polar_moment_of_inertia;
-      equatorial_moment_of_inertia =
-        settings.planet.equatorial_moment_of_inertia;
-      rotation_rate = settings.planet.rotation_rate;
+      fluid_love_number = settings.rotational_fluid_love_number;
+      include_surface_contribution =
+        rotational_feedback_boundary_list_contains_surface(
+          settings.self_gravity_boundary_indicators);
       include_cmb_contribution =
-        rotational_feedback_list_contains(
-          settings.rotational_inertia_source_interfaces, "CMB");
+        rotational_feedback_boundary_list_contains_cmb(
+          settings.self_gravity_boundary_indicators);
       apply_center_of_mass_correction =
         settings.center_of_mass_correction;
       iterate_with_stokes = settings.iterate_with_stokes;
@@ -669,18 +682,17 @@ namespace aspect
       maximum_potential_iterations = settings.maximum_iterations;
       enable_surface_potential_traction =
         rotational_feedback_boundary_list_contains_surface(
-          settings.rotational_apply_boundaries);
+          settings.self_gravity_boundary_indicators);
       enable_cmb_potential_traction =
         rotational_feedback_boundary_list_contains_cmb(
-          settings.rotational_apply_boundaries);
+          settings.self_gravity_boundary_indicators);
 
       potential_relative_change = std::numeric_limits<double>::infinity();
       current_potential_iteration_step = (unsigned int)-1;
       potential_iteration_number = 0;
       delta_ixz = 0.0;
       delta_iyz = 0.0;
-      center_of_mass_shift = Tensor<1,3>();
-      rotation_vector_perturbation = Tensor<1,3>();
+      rotational_potential_prefactor = 0.0;
 
       if (enabled)
         {
@@ -696,13 +708,13 @@ namespace aspect
                       ExcMessage("Center of mass correction requires Minimum "
                                  "degree = 0 so degree-1 mass can be "
                                  "identified and removed."));
-          AssertThrow(planet_mass > 0.0,
-                      ExcMessage("Planet mass must be positive."));
-          AssertThrow(polar_moment_of_inertia >
-                      equatorial_moment_of_inertia,
-                      ExcMessage("Polar moment of inertia must be larger than "
-                                 "the equatorial moment of inertia for the "
-                                 "linearized polar-wander relation."));
+          AssertThrow(fluid_love_number > 0.0,
+                      ExcMessage("Fluid Love number must be positive."));
+          AssertThrow(include_surface_contribution || include_cmb_contribution,
+                      ExcMessage("Potential feedback/Self gravity/Boundary "
+                                 "indicators must include at least one of the "
+                                 "surface or CMB aliases when rotational "
+                                 "feedback is enabled."));
         }
     }
 
@@ -746,19 +758,11 @@ namespace aspect
           prm.declare_entry("Density below CMB", "9900",
                             Patterns::Double(0),
                             "Density immediately below the CMB in kg/m^3.");
-          prm.declare_entry("Planet mass", "5.9722e24",
+          prm.declare_entry("Fluid Love number", "1.0",
                             Patterns::Double(0),
-                            "Planet mass in kg, used only to report the "
-                            "apparent center-of-mass shift.");
-          prm.declare_entry("Polar moment of inertia", "8.034e37",
-                            Patterns::Double(0),
-                            "Polar moment of inertia C in kg m^2.");
-          prm.declare_entry("Equatorial moment of inertia", "8.010e37",
-                            Patterns::Double(0),
-                            "Equatorial moment of inertia A in kg m^2.");
-          prm.declare_entry("Rotation rate", "7.292115e-5",
-                            Patterns::Double(0),
-                            "Unperturbed angular rotation rate in rad/s.");
+                            "Fluid degree-2 Love number k_f used in the "
+                            "linearized polar-wander relation. This is the "
+                            "same quantity as CitcomSVE's polar_wander_kf.");
           prm.declare_entry("Include CMB contribution", "false",
                             Patterns::Bool(),
                             "Whether CMB topography contributes to the "
@@ -821,14 +825,10 @@ namespace aspect
           density_below_surface = prm.get_double("Density below surface");
           density_above_cmb = prm.get_double("Density above CMB");
           density_below_cmb = prm.get_double("Density below CMB");
-          planet_mass = prm.get_double("Planet mass");
-          polar_moment_of_inertia =
-            prm.get_double("Polar moment of inertia");
-          equatorial_moment_of_inertia =
-            prm.get_double("Equatorial moment of inertia");
-          rotation_rate = prm.get_double("Rotation rate");
+          fluid_love_number = prm.get_double("Fluid Love number");
           include_cmb_contribution =
             prm.get_bool("Include CMB contribution");
+          include_surface_contribution = true;
           apply_center_of_mass_correction =
             prm.get_bool("Apply center of mass correction");
           iterate_with_stokes = prm.get_bool("Iterate with Stokes");
@@ -855,8 +855,7 @@ namespace aspect
       potential_iteration_number = 0;
       delta_ixz = 0.0;
       delta_iyz = 0.0;
-      center_of_mass_shift = Tensor<1,3>();
-      rotation_vector_perturbation = Tensor<1,3>();
+      rotational_potential_prefactor = 0.0;
 
       if (enabled)
         {
@@ -872,13 +871,8 @@ namespace aspect
                       ExcMessage("Center of mass correction requires Minimum "
                                  "degree = 0 so degree-1 mass can be "
                                  "identified and removed."));
-          AssertThrow(planet_mass > 0.0,
-                      ExcMessage("Planet mass must be positive."));
-          AssertThrow(polar_moment_of_inertia >
-                      equatorial_moment_of_inertia,
-                      ExcMessage("Polar moment of inertia must be larger than "
-                                 "the equatorial moment of inertia for the "
-                                 "linearized polar-wander relation."));
+          AssertThrow(fluid_love_number > 0.0,
+                      ExcMessage("Fluid Love number must be positive."));
         }
     }
   }

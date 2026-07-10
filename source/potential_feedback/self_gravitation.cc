@@ -93,6 +93,8 @@ namespace aspect
       bottom_boundary_id =
         this->get_geometry_model().translate_symbolic_boundary_name_to_id("bottom");
 
+      update_derived_planetary_constants();
+
       const double mm_initial_elastic_dt =
         this->get_material_model().initial_elastic_time_step();
       if (mm_initial_elastic_dt > 0.0 && initial_displacement_timestep == 0.0)
@@ -133,6 +135,46 @@ namespace aspect
         this->compute_self_gravity_correction(false);
       });
     }
+
+
+
+    template <int dim>
+    void
+    SelfGravitation<dim>::update_derived_planetary_constants()
+    {
+      AssertThrow(Plugins::plugin_type_matches<const GeometryModel::SphericalShell<dim>>(
+                    this->get_geometry_model()),
+                  ExcMessage("Self-gravitation requires a spherical shell geometry."));
+
+      const GeometryModel::SphericalShell<dim> &geometry =
+        Plugins::get_plugin_as_type<const GeometryModel::SphericalShell<dim>>(
+          this->get_geometry_model());
+
+      const double outer_radius = geometry.outer_radius();
+      const double surface_gravity =
+        this->get_gravity_model()
+        .gravity_vector(geometry.representative_point(0.0)).norm();
+
+      AssertThrow(outer_radius > 0.0,
+                  ExcMessage("Self-gravitation requires a positive outer "
+                             "radius to derive planetary constants."));
+      AssertThrow(surface_gravity > 0.0,
+                  ExcMessage("Self-gravitation requires a positive surface "
+                             "gravity magnitude to derive planetary constants."));
+
+      planet_mass =
+        surface_gravity * outer_radius * outer_radius / constants::big_g;
+      planet_mean_density =
+        3.0 * planet_mass
+        / (4.0 * numbers::PI
+           * outer_radius * outer_radius * outer_radius);
+
+      AssertThrow(planet_mass > 0.0,
+                  ExcMessage("Derived planet mass must be positive."));
+      AssertThrow(planet_mean_density > 0.0,
+                  ExcMessage("Derived planet mean density must be positive."));
+    }
+
 
 
     template <int dim>
@@ -1691,8 +1733,8 @@ namespace aspect
         settings.interface_properties.cmb.density_above;
       density_below_cmb =
         settings.interface_properties.cmb.density_below;
-      planet_mean_density = settings.planet.planet_mean_density;
-      planet_mass = settings.planet.planet_mass;
+      planet_mean_density = 0.0;
+      planet_mass = 0.0;
       include_surface_contribution =
         self_gravity_list_contains(settings.self_gravity_boundary_indicators,
                                    "surface");
@@ -1743,8 +1785,6 @@ namespace aspect
       AssertThrow(min_degree <= max_degree,
                   ExcMessage("Potential feedback/Self gravity/Minimum degree "
                              "must not exceed Maximum degree."));
-      AssertThrow(planet_mean_density > 0.0,
-                  ExcMessage("Planet mean density must be positive."));
       AssertThrow(include_surface_contribution || include_cmb_contribution,
                   ExcMessage("Potential feedback/Self gravity/Boundary "
                              "indicators must include at least one of the "
@@ -1812,11 +1852,6 @@ namespace aspect
                             Patterns::Double(0),
                             "Density immediately below the CMB (outer core side) "
                             "in kg/m^3. Earth: ~9900, Mars: ~6200.");
-
-          prm.declare_entry("Planet mean density", "5515",
-                            Patterns::Double(0),
-                            "Mean density of the planet in kg/m^3. "
-                            "Earth: 5515, Mars: 3390.");
 
           prm.declare_entry("Include CMB contribution", "true",
                             Patterns::Bool(),
@@ -1920,7 +1955,7 @@ namespace aspect
           density_below_surface = prm.get_double("Density below surface");
           density_above_cmb = prm.get_double("Density above CMB");
           density_below_cmb = prm.get_double("Density below CMB");
-          planet_mean_density = prm.get_double("Planet mean density");
+          planet_mean_density = 0.0;
           planet_mass = 0.0;
           include_cmb_contribution = prm.get_bool("Include CMB contribution");
           iterate_with_stokes = prm.get_bool("Iterate with Stokes");
@@ -1977,8 +2012,6 @@ namespace aspect
 
       AssertThrow(min_degree <= max_degree,
                   ExcMessage("Minimum degree must not exceed Maximum degree."));
-      AssertThrow(planet_mean_density > 0.0,
-                  ExcMessage("Planet mean density must be positive."));
       AssertThrow(!citcomsve_degree_one_load_compensation
                   || (min_degree <= 1 && max_degree >= 1),
                   ExcMessage("Boundary traction model/Self gravitation/"

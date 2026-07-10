@@ -68,6 +68,10 @@ namespace aspect
 
         double potential_relative_change_value() const;
 
+        std::pair<double,double>
+        surface_potential_coefficient(const unsigned int degree,
+                                      const unsigned int order) const;
+
         void configure_from_potential_feedback_settings(
           const PotentialFeedback::Settings &settings);
 
@@ -80,6 +84,7 @@ namespace aspect
         void update_after_stokes_solve();
 
         bool enabled;
+        bool include_surface_contribution;
         bool include_cmb_contribution;
         bool iterate_with_stokes;
         bool enable_surface_potential_traction;
@@ -93,10 +98,7 @@ namespace aspect
         double density_below_surface;
         double density_above_cmb;
         double density_below_cmb;
-        double planet_mass;
-        double polar_moment_of_inertia;
-        double equatorial_moment_of_inertia;
-        double rotation_rate;
+        double fluid_love_number;
         double initial_displacement_timestep;
         double potential_convergence_tolerance;
         double potential_relative_change;
@@ -106,8 +108,7 @@ namespace aspect
 
         mutable double delta_ixz;
         mutable double delta_iyz;
-        mutable Tensor<1,3> center_of_mass_shift;
-        mutable Tensor<1,3> rotation_vector_perturbation;
+        mutable double rotational_potential_prefactor;
 
         types::boundary_id top_boundary_id;
         types::boundary_id bottom_boundary_id;

@@ -247,6 +247,24 @@ namespace aspect
 
 
     template <int dim>
+    std::pair<double,double>
+    PotentialFeedbackTraction<dim>::rotational_surface_potential_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().rotational_surface_potential_coefficient(
+                 degree, order);
+
+      if (!rotational_feedback_active)
+        return {0.0, 0.0};
+
+      return rotational_feedback.surface_potential_coefficient(degree, order);
+    }
+
+
+
+    template <int dim>
     Tensor<1,dim>
     PotentialFeedbackTraction<dim>::reference_frame_body_force(
       const Point<dim> &position) const
@@ -357,9 +375,9 @@ namespace aspect
       PotentialFeedbackTraction,
       "potential feedback",
       "Unified boundary traction model for potential-feedback-derived normal "
-      "traction. The model is configured through the shared ``Planet model'' "
-      "and ``Potential feedback'' parameter hierarchies and dispatches the "
-      "active self-gravity and rotational-feedback mechanisms without "
-      "requiring legacy per-plugin parameter blocks.")
+      "traction. The model is configured through the shared ``Potential "
+      "feedback'' parameter hierarchy and dispatches the active self-gravity "
+      "and rotational-feedback mechanisms without requiring legacy per-plugin "
+      "parameter blocks.")
   }
 }

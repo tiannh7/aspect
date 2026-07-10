@@ -81,6 +81,10 @@ namespace aspect
         tidal_surface_potential_coefficient(const unsigned int degree,
                                             const unsigned int order) const;
 
+        std::pair<double,double>
+        rotational_surface_potential_coefficient(const unsigned int degree,
+                                                 const unsigned int order) const;
+
         Tensor<1,dim>
         reference_frame_body_force(const Point<dim> &position) const;
 
