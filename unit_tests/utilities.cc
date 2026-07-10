@@ -21,6 +21,189 @@
 #include "common.h"
 #include <aspect/utilities.h>
 
+#include <deal.II/base/mpi.h>
+
+#include <cmath>
+
+namespace
+{
+  std::vector<std::vector<double>>
+  make_spherical_harmonic_test_fields(const std::vector<double> &theta,
+                                      const std::vector<double> &phi)
+  {
+    std::vector<std::vector<double>> fields(3,
+                                            std::vector<double>(theta.size()));
+
+    for (unsigned int i = 0; i < theta.size(); ++i)
+      {
+        fields[0][i] = std::sin(theta[i]) + 0.25 * std::cos(phi[i]);
+        fields[1][i] = std::cos(2.0 * theta[i]) * std::sin(phi[i])
+                       + 0.1 * static_cast<double>(i + 1);
+        fields[2][i] = 1.0 + 0.1 * theta[i] - 0.05 * phi[i]
+                       + std::sin(3.0 * phi[i]) * std::cos(theta[i]);
+      }
+
+    return fields;
+  }
+
+
+
+  void
+  compare_spherical_harmonic_coefficients(
+    const std::pair<std::vector<double>, std::vector<double>> &computed,
+    const std::pair<std::vector<double>, std::vector<double>> &expected)
+  {
+    REQUIRE(computed.first.size() == expected.first.size());
+    REQUIRE(computed.second.size() == expected.second.size());
+
+    for (unsigned int i = 0; i < expected.first.size(); ++i)
+      {
+        INFO("cosine coefficient index i=" << i);
+        REQUIRE(computed.first[i] == Approx(expected.first[i]).margin(1e-12));
+      }
+    for (unsigned int i = 0; i < expected.second.size(); ++i)
+      {
+        INFO("sine coefficient index i=" << i);
+        REQUIRE(computed.second[i] == Approx(expected.second[i]).margin(1e-12));
+      }
+  }
+
+
+
+  std::pair<std::vector<double>, std::vector<double>>
+  reference_spherical_harmonic_analysis(
+    const aspect::Utilities::SphericalHarmonicTransform &transform,
+    const unsigned int max_degree,
+    const std::vector<double> &theta,
+    const std::vector<double> &phi,
+    const std::vector<double> &weights,
+    const std::vector<double> &values,
+    const MPI_Comm mpi_comm)
+  {
+    const unsigned int n_coefficients = transform.n_coefficients();
+    std::vector<double> local_cos_coefficients(n_coefficients, 0.0);
+    std::vector<double> local_sin_coefficients(n_coefficients, 0.0);
+
+    for (unsigned int point_index = 0; point_index < theta.size(); ++point_index)
+      {
+        const double value_times_weight =
+          values[point_index] * weights[point_index];
+        for (unsigned int degree = 0; degree <= max_degree; ++degree)
+          for (unsigned int order = 0; order <= degree; ++order)
+            {
+              const std::pair<double, double> ylm =
+                aspect::Utilities::real_spherical_harmonic(degree,
+                                                           order,
+                                                           theta[point_index],
+                                                           phi[point_index]);
+              const unsigned int coefficient_index =
+                transform.index(degree, order);
+              local_cos_coefficients[coefficient_index] +=
+                value_times_weight * ylm.first;
+              local_sin_coefficients[coefficient_index] +=
+                value_times_weight * ylm.second;
+            }
+      }
+
+    std::vector<double> cos_coefficients(n_coefficients);
+    std::vector<double> sin_coefficients(n_coefficients);
+    dealii::Utilities::MPI::sum(local_cos_coefficients,
+                                mpi_comm,
+                                cos_coefficients);
+    dealii::Utilities::MPI::sum(local_sin_coefficients,
+                                mpi_comm,
+                                sin_coefficients);
+
+    return std::make_pair(cos_coefficients, sin_coefficients);
+  }
+
+
+
+  void
+  check_spherical_harmonic_analyze_multiple(
+    const unsigned int max_degree,
+    const MPI_Comm mpi_comm,
+    const bool leave_some_ranks_empty)
+  {
+    const unsigned int rank = dealii::Utilities::MPI::this_mpi_process(mpi_comm);
+    const unsigned int n_ranks = dealii::Utilities::MPI::n_mpi_processes(mpi_comm);
+
+    const std::vector<double> global_theta =
+    {
+      0.17, 0.41, 0.73, 1.02, 1.37, 1.61, 1.94,
+      2.18, 2.46, 2.73, 0.89, 1.79, 2.91
+    };
+    const std::vector<double> global_phi =
+    {
+      0.11, 0.59, 1.24, 1.83, 2.51, 3.06, 3.77,
+      4.18, 4.86, 5.47, 2.22, 3.39, 5.92
+    };
+    const std::vector<double> global_weights =
+    {
+      0.08, 0.11, 0.09, 0.13, 0.10, 0.12, 0.07,
+      0.14, 0.06, 0.15, 0.05, 0.16, 0.04
+    };
+    const std::vector<std::vector<double>> global_fields =
+      make_spherical_harmonic_test_fields(global_theta, global_phi);
+
+    std::vector<double> theta;
+    std::vector<double> phi;
+    std::vector<double> weights;
+    std::vector<std::vector<double>> fields(global_fields.size());
+
+    for (unsigned int i = 0; i < global_theta.size(); ++i)
+      {
+        const bool keep_point =
+          leave_some_ranks_empty ? rank == 0 : (i % n_ranks == rank);
+        if (keep_point)
+          {
+            theta.push_back(global_theta[i]);
+            phi.push_back(global_phi[i]);
+            weights.push_back(global_weights[i]);
+            for (unsigned int field_index = 0;
+                 field_index < global_fields.size();
+                 ++field_index)
+              fields[field_index].push_back(global_fields[field_index][i]);
+          }
+      }
+
+    const aspect::Utilities::SphericalHarmonicTransform transform(max_degree,
+                                                                  0);
+    const std::vector<std::pair<std::vector<double>, std::vector<double>>>
+    multi_coefficients =
+      transform.analyze_multiple(theta, phi, weights, fields, mpi_comm);
+
+    REQUIRE(multi_coefficients.size() == fields.size());
+    for (unsigned int field_index = 0; field_index < fields.size(); ++field_index)
+      {
+        INFO("max_degree=" << max_degree
+             << " field_index=" << field_index
+             << " leave_some_ranks_empty=" << leave_some_ranks_empty);
+        const std::pair<std::vector<double>, std::vector<double>>
+        single_coefficients =
+          transform.analyze(theta,
+                            phi,
+                            weights,
+                            fields[field_index],
+                            mpi_comm);
+        compare_spherical_harmonic_coefficients(multi_coefficients[field_index],
+                                                single_coefficients);
+
+        const std::pair<std::vector<double>, std::vector<double>>
+        reference_coefficients =
+          reference_spherical_harmonic_analysis(transform,
+                                                max_degree,
+                                                theta,
+                                                phi,
+                                                weights,
+                                                fields[field_index],
+                                                mpi_comm);
+        compare_spherical_harmonic_coefficients(multi_coefficients[field_index],
+                                                reference_coefficients);
+      }
+  }
+}
+
 TEST_CASE("Utilities::weighted_p_norm_average")
 {
   std::vector<double> weights = {1,1,2,2,3,3};
@@ -150,6 +333,34 @@ TEST_CASE("Utilities::AsciiDataLookup manual dim=2 equid")
 
   REQUIRE(lookup.get_data(Point<2>(1.0,6.0),0) == Approx(5.0));
   REQUIRE(lookup.get_data(Point<2>(1.5,6.0),0) == Approx(5.5));
+}
+
+TEST_CASE("Utilities::SphericalHarmonicTransform analyze_multiple MPI_SELF")
+{
+  for (const unsigned int max_degree : {2u, 8u, 16u, 32u})
+    check_spherical_harmonic_analyze_multiple(max_degree,
+                                              MPI_COMM_SELF,
+                                              false);
+}
+
+
+
+TEST_CASE("Utilities::SphericalHarmonicTransform analyze_multiple MPI_WORLD")
+{
+  for (const unsigned int max_degree : {2u, 8u, 16u, 32u})
+    check_spherical_harmonic_analyze_multiple(max_degree,
+                                              MPI_COMM_WORLD,
+                                              false);
+}
+
+
+
+TEST_CASE("Utilities::SphericalHarmonicTransform analyze_multiple empty local points")
+{
+  for (const unsigned int max_degree : {2u, 8u, 16u, 32u})
+    check_spherical_harmonic_analyze_multiple(max_degree,
+                                              MPI_COMM_WORLD,
+                                              true);
 }
 
 TEST_CASE("Random draw volume weighted average rotation matrix")

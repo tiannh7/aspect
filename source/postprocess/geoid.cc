@@ -983,7 +983,22 @@ namespace aspect
               use_free_CMB_topography = mesh_deformation_boundaries.find(bottom_id) != mesh_deformation_boundaries.end();
             }
         }
-      self_gravity_helper.initialize();
+
+      const auto &traction_manager = this->get_boundary_traction_manager();
+      const bool use_self_gravity =
+        traction_manager.template has_matching_active_plugin<
+        PotentialFeedback::SelfGravitation<dim>>();
+      bool use_potential_feedback = false;
+      if (traction_manager.template has_matching_active_plugin<
+          BoundaryTraction::PotentialFeedbackTraction<dim>>())
+        {
+          const auto &pf = traction_manager.template get_matching_active_plugin<
+                           BoundaryTraction::PotentialFeedbackTraction<dim>>();
+          use_potential_feedback = pf.has_self_gravity_feedback();
+        }
+
+      if (!use_self_gravity && !use_potential_feedback)
+        self_gravity_helper.initialize();
     }
 
   }

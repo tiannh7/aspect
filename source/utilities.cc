@@ -29,6 +29,7 @@
 #include <Array.h>
 #endif
 
+#include <algorithm>
 #include <array>
 #include <deal.II/base/point.h>
 
@@ -1360,17 +1361,60 @@ namespace aspect
       const std::vector<double> &values,
       const MPI_Comm &mpi_comm) const
     {
+      const std::vector<std::pair<std::vector<double>, std::vector<double>>> result =
+        analyze_multiple(theta,
+                         phi,
+                         weights,
+                         std::vector<std::vector<double>>(1, values),
+                         mpi_comm);
+
+      AssertDimension(result.size(), 1);
+      return result[0];
+    }
+
+
+    std::vector<std::pair<std::vector<double>, std::vector<double>>>
+    SphericalHarmonicTransform::analyze_multiple(
+      const std::vector<double> &theta,
+      const std::vector<double> &phi,
+      const std::vector<double> &weights,
+      const std::vector<std::vector<double>> &values,
+      const MPI_Comm &mpi_comm) const
+    {
       const unsigned int n_pts = theta.size();
       const unsigned int n_coeff = n_coefficients();
+      const unsigned int n_fields = values.size();
 
-      std::vector<double> local_cos_coeffs(n_coeff, 0.0);
-      std::vector<double> local_sin_coeffs(n_coeff, 0.0);
+      AssertDimension(phi.size(), n_pts);
+      AssertDimension(weights.size(), n_pts);
+      for (const std::vector<double> &field_values : values)
+        AssertDimension(field_values.size(), n_pts);
+
+      if (n_fields == 0)
+        return {};
+
+      const auto cos_offset =
+        [n_coeff](const unsigned int field_index)
+      {
+        return 2 * field_index * n_coeff;
+      };
+      const auto sin_offset =
+        [n_coeff](const unsigned int field_index)
+      {
+        return (2 * field_index + 1) * n_coeff;
+      };
+
+      std::vector<double> local_coeffs(2 * n_fields * n_coeff, 0.0);
 
       for (unsigned int p = 0; p < n_pts; ++p)
         {
           const double th = theta[p];
           const double ph = phi[p];
-          const double f_times_w = values[p] * weights[p];
+          std::vector<double> weighted_values(n_fields);
+          for (unsigned int field_index = 0;
+               field_index < n_fields;
+               ++field_index)
+            weighted_values[field_index] = values[field_index][p] * weights[p];
 
           for (unsigned int l = lmin; l <= lmax; ++l)
             {
@@ -1380,18 +1424,38 @@ namespace aspect
                     real_spherical_harmonic(l, m, th, ph);
 
                   const unsigned int idx = index(l, m);
-                  local_cos_coeffs[idx] += f_times_w * ylm.first;
-                  local_sin_coeffs[idx] += f_times_w * ylm.second;
+                  for (unsigned int field_index = 0;
+                       field_index < n_fields;
+                       ++field_index)
+                    {
+                      local_coeffs[cos_offset(field_index) + idx] +=
+                        weighted_values[field_index] * ylm.first;
+                      local_coeffs[sin_offset(field_index) + idx] +=
+                        weighted_values[field_index] * ylm.second;
+                    }
                 }
             }
         }
 
-      std::vector<double> cos_coeffs(n_coeff);
-      std::vector<double> sin_coeffs(n_coeff);
-      dealii::Utilities::MPI::sum(local_cos_coeffs, mpi_comm, cos_coeffs);
-      dealii::Utilities::MPI::sum(local_sin_coeffs, mpi_comm, sin_coeffs);
+      std::vector<double> global_coeffs(local_coeffs.size());
+      dealii::Utilities::MPI::sum(local_coeffs, mpi_comm, global_coeffs);
 
-      return std::make_pair(cos_coeffs, sin_coeffs);
+      std::vector<std::pair<std::vector<double>, std::vector<double>>> result;
+      result.reserve(n_fields);
+      for (unsigned int field_index = 0; field_index < n_fields; ++field_index)
+        {
+          std::vector<double> cos_coeffs(n_coeff);
+          std::vector<double> sin_coeffs(n_coeff);
+          std::copy(global_coeffs.begin() + cos_offset(field_index),
+                    global_coeffs.begin() + cos_offset(field_index) + n_coeff,
+                    cos_coeffs.begin());
+          std::copy(global_coeffs.begin() + sin_offset(field_index),
+                    global_coeffs.begin() + sin_offset(field_index) + n_coeff,
+                    sin_coeffs.begin());
+          result.emplace_back(std::move(cos_coeffs), std::move(sin_coeffs));
+        }
+
+      return result;
     }
 
 

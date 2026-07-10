@@ -642,6 +642,31 @@ namespace aspect
                 const MPI_Comm &mpi_comm) const;
 
         /**
+         * Compute spherical harmonic coefficients for several scalar fields
+         * defined on the same spherical surface point set.
+         *
+         * This is equivalent to calling analyze() once for each entry in
+         * values, but evaluates the real spherical harmonic basis only once
+         * for each point/coefficient pair and packs all local coefficients
+         * into one MPI reduction.
+         *
+         * @param theta   Colatitude values (0 = north pole, pi = south pole)
+         * @param phi     Longitude values (0 to 2*pi)
+         * @param weights Quadrature weights (= sin(theta)*dtheta*dphi for unit sphere)
+         * @param values  Function values for each field at each point
+         * @param mpi_comm MPI communicator for parallel summation
+         *
+         * @return one pair of vectors per input field: (cosine coefficients,
+         *         sine coefficients), using the same ordering as analyze().
+         */
+        std::vector<std::pair<std::vector<double>, std::vector<double>>>
+        analyze_multiple(const std::vector<double> &theta,
+                         const std::vector<double> &phi,
+                         const std::vector<double> &weights,
+                         const std::vector<std::vector<double>> &values,
+                         const MPI_Comm &mpi_comm) const;
+
+        /**
          * Evaluate the spherical harmonic expansion at given points.
          * This is the SH synthesis operation: {C_lm, S_lm} -> f(theta,phi)
          *

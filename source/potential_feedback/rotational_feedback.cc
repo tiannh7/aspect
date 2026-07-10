@@ -134,6 +134,9 @@ namespace aspect
     RotationalFeedback<dim>::compute_rotational_feedback(
       const bool include_current_velocity_increment)
     {
+      TimerOutput::Scope update_timer(this->get_computing_timer(),
+                                      "Potential feedback: rotational update");
+
       const std::vector<double> old_surface_cos =
         surface_potential_cos_coeffs;
       const std::vector<double> old_surface_sin =
@@ -374,76 +377,80 @@ namespace aspect
       double local_delta_ixz = 0.0;
       double local_delta_iyz = 0.0;
 
-      auto accumulate_moments =
-        [&local_delta_ixz, &local_delta_iyz]
-        (const std::vector<Point<dim>> &positions,
-         const std::vector<double> &weights,
-         const std::vector<double> &sigma_values,
-         const double reference_radius)
       {
-        for (unsigned int i = 0; i < positions.size(); ++i)
-          {
-            const double dA =
-              weights[i] * reference_radius * reference_radius;
-            const double dm = sigma_values[i] * dA;
-            const double x = positions[i][0];
-            const double y = positions[i][1];
-            const double z = positions[i][2];
-
-            local_delta_ixz -= dm * x * z;
-            local_delta_iyz -= dm * y * z;
-          }
-      };
-
-      if (apply_center_of_mass_correction && delta_rho_surface != 0.0)
+        TimerOutput::Scope moments_timer(this->get_computing_timer(),
+                                         "Potential feedback: rotational moments");
+        auto accumulate_moments =
+          [&local_delta_ixz, &local_delta_iyz]
+          (const std::vector<Point<dim>> &positions,
+           const std::vector<double> &weights,
+           const std::vector<double> &sigma_values,
+           const double reference_radius)
         {
-          std::vector<double> effective_height(surface_mass_per_area.size());
-          for (unsigned int i = 0; i < surface_mass_per_area.size(); ++i)
-            effective_height[i] = surface_mass_per_area[i] / delta_rho_surface;
-
-          const auto height_coefficients =
-            sh_transform->analyze(surface_theta,
-                                  surface_phi,
-                                  surface_weights,
-                                  effective_height,
-                                  this->get_mpi_communicator());
-
-          std::vector<double> degree_one_cos(sh_transform->n_coefficients(),
-                                             0.0);
-          std::vector<double> degree_one_sin(sh_transform->n_coefficients(),
-                                             0.0);
-          for (unsigned int m = 0; m <= 1; ++m)
+          for (unsigned int i = 0; i < positions.size(); ++i)
             {
-              const unsigned int index = sh_transform->index(1, m);
-              degree_one_cos[index] = height_coefficients.first[index];
-              degree_one_sin[index] = height_coefficients.second[index];
+              const double dA =
+                weights[i] * reference_radius * reference_radius;
+              const double dm = sigma_values[i] * dA;
+              const double x = positions[i][0];
+              const double y = positions[i][1];
+              const double z = positions[i][2];
+
+              local_delta_ixz -= dm * x * z;
+              local_delta_iyz -= dm * y * z;
             }
+        };
 
-          const std::vector<double> degree_one_height =
-            sh_transform->synthesize(degree_one_cos,
-                                     degree_one_sin,
-                                     surface_theta,
-                                     surface_phi);
+        if (apply_center_of_mass_correction && delta_rho_surface != 0.0)
+          {
+            std::vector<double> effective_height(surface_mass_per_area.size());
+            for (unsigned int i = 0; i < surface_mass_per_area.size(); ++i)
+              effective_height[i] = surface_mass_per_area[i] / delta_rho_surface;
 
-          for (unsigned int i = 0; i < surface_mass_per_area.size(); ++i)
-            surface_mass_per_area[i] -=
-              delta_rho_surface * degree_one_height[i];
-        }
+            const auto height_coefficients =
+              sh_transform->analyze(surface_theta,
+                                    surface_phi,
+                                    surface_weights,
+                                    effective_height,
+                                    this->get_mpi_communicator());
 
-      accumulate_moments(surface_positions,
-                         surface_weights,
-                         surface_mass_per_area,
-                         outer_radius);
-      if (include_cmb_contribution)
-        accumulate_moments(cmb_positions,
-                           cmb_weights,
-                           cmb_mass_per_area,
-                           geometry.inner_radius());
+            std::vector<double> degree_one_cos(sh_transform->n_coefficients(),
+                                               0.0);
+            std::vector<double> degree_one_sin(sh_transform->n_coefficients(),
+                                               0.0);
+            for (unsigned int m = 0; m <= 1; ++m)
+              {
+                const unsigned int index = sh_transform->index(1, m);
+                degree_one_cos[index] = height_coefficients.first[index];
+                degree_one_sin[index] = height_coefficients.second[index];
+              }
 
-      delta_ixz = Utilities::MPI::sum(local_delta_ixz,
-                                      this->get_mpi_communicator());
-      delta_iyz = Utilities::MPI::sum(local_delta_iyz,
-                                      this->get_mpi_communicator());
+            const std::vector<double> degree_one_height =
+              sh_transform->synthesize(degree_one_cos,
+                                       degree_one_sin,
+                                       surface_theta,
+                                       surface_phi);
+
+            for (unsigned int i = 0; i < surface_mass_per_area.size(); ++i)
+              surface_mass_per_area[i] -=
+                delta_rho_surface * degree_one_height[i];
+          }
+
+        accumulate_moments(surface_positions,
+                           surface_weights,
+                           surface_mass_per_area,
+                           outer_radius);
+        if (include_cmb_contribution)
+          accumulate_moments(cmb_positions,
+                             cmb_weights,
+                             cmb_mass_per_area,
+                             geometry.inner_radius());
+
+        delta_ixz = Utilities::MPI::sum(local_delta_ixz,
+                                        this->get_mpi_communicator());
+        delta_iyz = Utilities::MPI::sum(local_delta_iyz,
+                                        this->get_mpi_communicator());
+      }
 
       const double outer_radius_to_the_fifth =
         outer_radius * outer_radius * outer_radius * outer_radius * outer_radius;
@@ -463,6 +470,8 @@ namespace aspect
                const std::vector<double> &phi,
                const std::vector<double> &weights)
       {
+        TimerOutput::Scope timer(this->get_computing_timer(),
+                                 "Potential feedback: rotational SH analysis");
         std::vector<double> potential_height(positions.size(), 0.0);
         for (unsigned int i = 0; i < positions.size(); ++i)
           {

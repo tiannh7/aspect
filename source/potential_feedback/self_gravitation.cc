@@ -30,6 +30,7 @@
 #include <deal.II/fe/fe_values.h>
 
 #include <algorithm>
+#include <chrono>
 #include <iomanip>
 #include <tuple>
 #include <numeric>
@@ -64,6 +65,27 @@ namespace aspect
                                        iteration_number))
                .second;
       }
+
+
+      class ScopedPerformanceTimer
+      {
+        public:
+          ScopedPerformanceTimer(double &elapsed_seconds)
+            :
+            elapsed_seconds(elapsed_seconds),
+            start_time(std::chrono::steady_clock::now())
+          {}
+
+          ~ScopedPerformanceTimer()
+          {
+            elapsed_seconds += std::chrono::duration<double>(
+                                 std::chrono::steady_clock::now() - start_time).count();
+          }
+
+        private:
+          double &elapsed_seconds;
+          const std::chrono::steady_clock::time_point start_time;
+      };
     }
 
 
@@ -162,6 +184,164 @@ namespace aspect
 
 
     template <int dim>
+    std::pair<std::vector<double>, std::vector<double>>
+    SelfGravitation<dim>::timed_spherical_harmonic_analysis(
+      const std::vector<double> &theta,
+      const std::vector<double> &phi,
+      const std::vector<double> &weights,
+      const std::vector<double> &values,
+      const MPI_Comm &mpi_comm) const
+    {
+      const std::vector<std::pair<std::vector<double>, std::vector<double>>> result =
+        timed_spherical_harmonic_analysis_multiple(theta,
+                                                   phi,
+                                                   weights,
+                                                   std::vector<std::vector<double>>(1, values),
+                                                   mpi_comm);
+
+      AssertDimension(result.size(), 1);
+      return result[0];
+    }
+
+
+
+    template <int dim>
+    std::vector<std::pair<std::vector<double>, std::vector<double>>>
+    SelfGravitation<dim>::timed_spherical_harmonic_analysis_multiple(
+      const std::vector<double> &theta,
+      const std::vector<double> &phi,
+      const std::vector<double> &weights,
+      const std::vector<std::vector<double>> &values,
+      const MPI_Comm &mpi_comm) const
+    {
+      ScopedPerformanceTimer timer(performance_sh_analysis_seconds);
+
+      const unsigned int n_fields = values.size();
+      const unsigned long long point_count =
+        static_cast<unsigned long long>(theta.size());
+      const unsigned long long coefficient_count =
+        static_cast<unsigned long long>(sh_transform->n_coefficients());
+      const bool mpi_rank_zero =
+        dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0;
+
+      if (mpi_rank_zero)
+        {
+          ++performance_sh_analysis_calls;
+          if (n_fields > 0)
+            ++performance_sh_analysis_mpi_collectives;
+        }
+      performance_sh_analysis_points += theta.size();
+      performance_sh_analysis_basis_evaluations +=
+        point_count * coefficient_count;
+      performance_sh_analysis_rhs_accumulations +=
+        point_count *
+        coefficient_count *
+        static_cast<unsigned long long>(n_fields);
+
+      return sh_transform->analyze_multiple(theta, phi, weights, values, mpi_comm);
+    }
+
+
+
+    template <int dim>
+    std::vector<double>
+    SelfGravitation<dim>::timed_spherical_harmonic_synthesis(
+      const std::vector<double> &cos_coeffs,
+      const std::vector<double> &sin_coeffs,
+      const std::vector<double> &theta,
+      const std::vector<double> &phi) const
+    {
+      ScopedPerformanceTimer timer(performance_sh_synthesis_seconds);
+
+      ++performance_sh_synthesis_calls;
+      performance_sh_synthesis_points += theta.size();
+      performance_sh_synthesis_basis_evaluations +=
+        static_cast<unsigned long long>(theta.size()) *
+        static_cast<unsigned long long>(sh_transform->n_coefficients());
+
+      return sh_transform->synthesize(cos_coeffs, sin_coeffs, theta, phi);
+    }
+
+
+
+    template <int dim>
+    void
+    SelfGravitation<dim>::print_and_reset_performance_counters() const
+    {
+      std::vector<double> local_counters =
+      {
+        static_cast<double>(performance_update_calls),
+        static_cast<double>(performance_boundary_sample_points),
+        static_cast<double>(performance_cmb_sample_points),
+        static_cast<double>(performance_sh_analysis_calls),
+        static_cast<double>(performance_sh_analysis_points),
+        static_cast<double>(performance_sh_analysis_basis_evaluations),
+        static_cast<double>(performance_sh_analysis_rhs_accumulations),
+        static_cast<double>(performance_sh_analysis_mpi_collectives),
+        static_cast<double>(performance_sh_synthesis_calls),
+        static_cast<double>(performance_sh_synthesis_points),
+        static_cast<double>(performance_sh_synthesis_basis_evaluations),
+        static_cast<double>(performance_boundary_traction_calls),
+        performance_sh_analysis_seconds,
+        performance_sh_synthesis_seconds,
+        performance_boundary_traction_seconds
+      };
+
+      std::vector<double> global_counters(local_counters.size(), 0.0);
+      dealii::Utilities::MPI::sum(local_counters,
+                                  this->get_mpi_communicator(),
+                                  global_counters);
+
+      this->get_pcout()
+          << "      Self-gravity performance counters:"
+          << " step=" << this->get_timestep_number()
+          << ", potential_iteration=" << potential_iteration_number
+          << ","
+          << " updates=" << global_counters[0]
+          << ", surface_q=" << global_counters[1]
+          << ", cmb_q=" << global_counters[2]
+          << ", SH_analyze_calls=" << global_counters[3]
+          << ", SH_analyze_q=" << global_counters[4]
+          << ", SH_analyze_basis_evals=" << std::scientific
+          << std::setprecision(6) << global_counters[5]
+          << std::defaultfloat
+          << ", SH_analyze_rhs_accumulations=" << std::scientific
+          << std::setprecision(6) << global_counters[6]
+          << std::defaultfloat
+          << ", SH_analyze_mpi_collectives=" << global_counters[7]
+          << ", SH_synthesize_calls=" << global_counters[8]
+          << ", SH_synthesize_q=" << global_counters[9]
+          << ", SH_synthesize_basis_evals=" << std::scientific
+          << std::setprecision(6) << global_counters[10]
+          << std::defaultfloat
+          << ", boundary_traction_calls=" << global_counters[11]
+          << ", SH_analyze_seconds=" << std::scientific
+          << std::setprecision(6) << global_counters[12]
+          << ", SH_synthesize_seconds=" << global_counters[13]
+          << ", boundary_traction_seconds=" << global_counters[14]
+          << std::defaultfloat
+          << std::endl;
+
+      performance_update_calls = 0;
+      performance_boundary_sample_points = 0;
+      performance_cmb_sample_points = 0;
+      performance_sh_analysis_calls = 0;
+      performance_sh_analysis_points = 0;
+      performance_sh_analysis_basis_evaluations = 0;
+      performance_sh_analysis_rhs_accumulations = 0;
+      performance_sh_analysis_mpi_collectives = 0;
+      performance_sh_synthesis_calls = 0;
+      performance_sh_synthesis_points = 0;
+      performance_sh_synthesis_basis_evaluations = 0;
+      performance_boundary_traction_calls = 0;
+      performance_sh_analysis_seconds = 0.0;
+      performance_sh_synthesis_seconds = 0.0;
+      performance_boundary_traction_seconds = 0.0;
+    }
+
+
+
+    template <int dim>
     void
     SelfGravitation<dim>::update()
     {
@@ -185,6 +365,10 @@ namespace aspect
       if (freeze_potential_after_timestep_zero &&
           this->get_timestep_number() > 0)
         return;
+
+      TimerOutput::Scope update_timer(this->get_computing_timer(),
+                                      "Potential feedback: self-gravity update");
+      ++performance_update_calls;
 
       const std::vector<double> old_surface_potential_cos =
         surface_potential_cos_coeffs;
@@ -320,148 +504,149 @@ namespace aspect
       std::vector<double> cmb_committed_topo_pts;
       std::vector<double> cmb_external_load_topo_pts;
 
-      auto mesh_cell = mesh_deformation_dof_handler.begin_active();
-      for (const auto &cell : this->get_dof_handler().active_cell_iterators())
-        {
-          const auto current_mesh_cell = mesh_cell;
-          ++mesh_cell;
-          if (cell->is_locally_owned() && cell->at_boundary())
-            {
-              for (const unsigned int f : cell->face_indices())
-                {
-                  if (!cell->at_boundary(f))
-                    continue;
+      {
+        TimerOutput::Scope sample_timer(this->get_computing_timer(),
+                                        "Potential feedback: collect boundary samples");
+        auto mesh_cell = mesh_deformation_dof_handler.begin_active();
+        for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+          {
+            const auto current_mesh_cell = mesh_cell;
+            ++mesh_cell;
+            if (cell->is_locally_owned() && cell->at_boundary())
+              {
+                for (const unsigned int f : cell->face_indices())
+                  {
+                    if (!cell->at_boundary(f))
+                      continue;
 
-                  const types::boundary_id bid = cell->face(f)->boundary_id();
-                  const bool is_top    = (bid == top_boundary_id)
-                                         && include_surface_contribution;
-                  const bool is_bottom = (bid == bottom_boundary_id) && include_cmb_contribution;
+                    const types::boundary_id bid = cell->face(f)->boundary_id();
+                    const bool is_top    = (bid == top_boundary_id)
+                                           && include_surface_contribution;
+                    const bool is_bottom = (bid == bottom_boundary_id) && include_cmb_contribution;
 
-                  if (!is_top && !is_bottom)
-                    continue;
+                    if (!is_top && !is_bottom)
+                      continue;
 
-                  fe_face_values.reinit(cell, f);
+                    fe_face_values.reinit(cell, f);
 
-                  if (include_current_velocity_increment)
-                    {
-                      mesh_face_values.reinit(current_mesh_cell, f);
-                      mesh_face_values[mesh_velocity_extractor]
-                      .get_function_values(*projected_mesh_velocity,
-                                           projected_mesh_velocity_values);
-                    }
+                    if (include_current_velocity_increment)
+                      {
+                        mesh_face_values.reinit(current_mesh_cell, f);
+                        mesh_face_values[mesh_velocity_extractor]
+                        .get_function_values(*projected_mesh_velocity,
+                                             projected_mesh_velocity_values);
+                      }
 
-                  for (unsigned int q = 0;
-                       q < fe_face_values.n_quadrature_points;
-                       ++q)
-                    {
-                      const Point<dim> position =
-                        fe_face_values.quadrature_point(q);
+                    for (unsigned int q = 0;
+                         q < fe_face_values.n_quadrature_points;
+                         ++q)
+                      {
+                        const Point<dim> position =
+                          fe_face_values.quadrature_point(q);
 
-                      const std::array<double, dim> scoord =
-                        aspect::Utilities::Coordinates::
-                        cartesian_to_spherical_coordinates(position);
+                        const std::array<double, dim> scoord =
+                          aspect::Utilities::Coordinates::
+                          cartesian_to_spherical_coordinates(position);
 
-                      // scoord: 2D = {r, phi}, 3D = {r, phi, theta}
-                      const double ph = scoord[1]; // longitude / azimuthal angle
-                      const Tensor<1,dim> radial_unit = position / scoord[0];
-                      const double predicted_radial_displacement =
-                        (include_current_velocity_increment
-                         ? displacement_timestep
-                         * (projected_mesh_velocity_values[q] * radial_unit)
-                         : 0.0);
+                        // scoord: 2D = {r, phi}, 3D = {r, phi, theta}
+                        const double ph = scoord[1]; // longitude / azimuthal angle
+                        const Tensor<1,dim> radial_unit = position / scoord[0];
+                        const double predicted_radial_displacement =
+                          (include_current_velocity_increment
+                           ? displacement_timestep
+                           * (projected_mesh_velocity_values[q] * radial_unit)
+                           : 0.0);
 
-                      if (is_top)
-                        {
-                          const double h_rock =
-                            this->get_geometry_model()
-                            .height_above_reference_surface(position)
-                            + predicted_radial_displacement;
+                        if (is_top)
+                          {
+                            const double h_rock =
+                              this->get_geometry_model()
+                              .height_above_reference_surface(position)
+                              + predicted_radial_displacement;
 
-                          // Compute the external load's equivalent height. A
-                          // stateful traction plugin is instantiated once for
-                          // every boundary entry in ASPECT's manager. Therefore
-                          // subtracting only `this` instance from the manager's
-                          // total traction is incorrect when self gravitation is
-                          // active on both surface and CMB. Sum only non-self-
-                          // gravity plugins assigned to the surface instead.
-                          const Tensor<1,dim> face_normal =
-                            fe_face_values.normal_vector(q);
-                          const Tensor<1,dim> load_traction =
-                            load_traction_on_boundary(top_boundary_id,
-                                                      position,
-                                                      face_normal);
+                            // Compute the external load's equivalent height.
+                            const Tensor<1,dim> face_normal =
+                              fe_face_values.normal_vector(q);
+                            const Tensor<1,dim> load_traction =
+                              load_traction_on_boundary(top_boundary_id,
+                                                        position,
+                                                        face_normal);
 
-                          // Inward load traction (T·n < 0) → positive surface mass
-                          // σ_load = -T_load·n / g,  h_load = σ_load / Δρ
-                          const double g_magnitude =
-                            this->get_gravity_model().gravity_vector(position).norm();
+                            // Inward load traction (T·n < 0) → positive surface mass
+                            // σ_load = -T_load·n / g,  h_load = σ_load / Δρ
+                            const double g_magnitude =
+                              this->get_gravity_model().gravity_vector(position).norm();
 
-                          double h_load = 0.0;
-                          if (g_magnitude > 0 && delta_rho_surf > 0)
-                            h_load = -(load_traction * face_normal) /
-                                     (delta_rho_surf * g_magnitude);
+                            double h_load = 0.0;
+                            if (g_magnitude > 0 && delta_rho_surf > 0)
+                              h_load = -(load_traction * face_normal) /
+                                       (delta_rho_surf * g_magnitude);
 
-                          const double h_effective = h_rock + h_load;
+                            const double h_effective = h_rock + h_load;
 
-                          const double ref_radius = outer_radius;
-                          const double w =
-                            fe_face_values.JxW(q) /
-                            (dim == 3 ? ref_radius *ref_radius : ref_radius);
+                            const double ref_radius = outer_radius;
+                            const double w =
+                              fe_face_values.JxW(q) /
+                              (dim == 3 ? ref_radius *ref_radius : ref_radius);
 
-                          phi_pts.push_back(ph);
-                          if (dim == 3)
-                            theta_pts.push_back(scoord[2]);
-                          weight_pts.push_back(w);
-                          topo_pts.push_back(h_effective);
-                          surface_deformation_topo_pts.push_back(h_rock);
-                          external_load_topo_pts.push_back(h_load);
-                        }
-                      else // is_bottom
-                        {
-                          const double r = scoord[0];
-                          const double committed_cmb_topography = r - inner_radius;
-                          const double cmb_topography =
-                            committed_cmb_topography + predicted_radial_displacement;
+                            phi_pts.push_back(ph);
+                            if (dim == 3)
+                              theta_pts.push_back(scoord[2]);
+                            weight_pts.push_back(w);
+                            topo_pts.push_back(h_effective);
+                            surface_deformation_topo_pts.push_back(h_rock);
+                            external_load_topo_pts.push_back(h_load);
+                          }
+                        else // is_bottom
+                          {
+                            const double r = scoord[0];
+                            const double committed_cmb_topography = r - inner_radius;
+                            const double cmb_topography =
+                              committed_cmb_topography + predicted_radial_displacement;
 
-                          const Tensor<1,dim> face_normal =
-                            fe_face_values.normal_vector(q);
-                          const Tensor<1,dim> load_traction =
-                            load_traction_on_boundary(bottom_boundary_id,
-                                                      position,
-                                                      face_normal);
+                            const Tensor<1,dim> face_normal =
+                              fe_face_values.normal_vector(q);
+                            const Tensor<1,dim> load_traction =
+                              load_traction_on_boundary(bottom_boundary_id,
+                                                        position,
+                                                        face_normal);
 
-                          const double g_magnitude =
-                            this->get_gravity_model().gravity_vector(position).norm();
+                            const double g_magnitude =
+                              this->get_gravity_model().gravity_vector(position).norm();
 
-                          double h_cmb_load = 0.0;
-                          if (g_magnitude > 0 && delta_rho_cmb > 0)
-                            h_cmb_load = (load_traction * face_normal) /
-                                         (delta_rho_cmb * g_magnitude);
+                            double h_cmb_load = 0.0;
+                            if (g_magnitude > 0 && delta_rho_cmb > 0)
+                              h_cmb_load = (load_traction * face_normal) /
+                                           (delta_rho_cmb * g_magnitude);
 
-                          const double cmb_effective_topography =
-                            cmb_topography + h_cmb_load;
-                          const double ref_radius = inner_radius;
-                          const double w =
-                            fe_face_values.JxW(q) /
-                            (dim == 3 ? ref_radius *ref_radius : ref_radius);
+                            const double cmb_effective_topography =
+                              cmb_topography + h_cmb_load;
+                            const double ref_radius = inner_radius;
+                            const double w =
+                              fe_face_values.JxW(q) /
+                              (dim == 3 ? ref_radius *ref_radius : ref_radius);
 
-                          cmb_phi_pts.push_back(ph);
-                          if (dim == 3)
-                            cmb_theta_pts.push_back(scoord[2]);
-                          cmb_weight_pts.push_back(w);
-                          cmb_topo_pts.push_back(cmb_effective_topography);
-                          cmb_deformation_topo_pts.push_back(cmb_topography);
-                          cmb_committed_topo_pts.push_back(
-                            committed_cmb_topography);
-                          cmb_external_load_topo_pts.push_back(h_cmb_load);
-                        }
-                    }
-                }
-            }
-        }
+                            cmb_phi_pts.push_back(ph);
+                            if (dim == 3)
+                              cmb_theta_pts.push_back(scoord[2]);
+                            cmb_weight_pts.push_back(w);
+                            cmb_topo_pts.push_back(cmb_effective_topography);
+                            cmb_deformation_topo_pts.push_back(cmb_topography);
+                            cmb_committed_topo_pts.push_back(
+                              committed_cmb_topography);
+                            cmb_external_load_topo_pts.push_back(h_cmb_load);
+                          }
+                      }
+                  }
+              }
+          }
 
-      Assert(mesh_cell == mesh_deformation_dof_handler.end(),
-             ExcInternalError());
+        Assert(mesh_cell == mesh_deformation_dof_handler.end(),
+               ExcInternalError());
+      }
+
+      performance_boundary_sample_points += phi_pts.size();
+      performance_cmb_sample_points += cmb_phi_pts.size();
 
       // Step 2 & 3: SH/Fourier analysis + self-gravity kernel
       //
@@ -473,22 +658,24 @@ namespace aspect
 
       if (dim == 3)
         {
-          auto [cos_topo, sin_topo] = sh_transform->analyze(
-                                        theta_pts, phi_pts, weight_pts, topo_pts,
-                                        this->get_mpi_communicator());
+          const std::vector<std::pair<std::vector<double>, std::vector<double>>>
+          surface_coefficients =
+            timed_spherical_harmonic_analysis_multiple(
+              theta_pts,
+              phi_pts,
+              weight_pts,
+              {topo_pts,
+               surface_deformation_topo_pts,
+               external_load_topo_pts},
+              this->get_mpi_communicator());
+          AssertDimension(surface_coefficients.size(), 3);
+
+          auto [cos_topo, sin_topo] = surface_coefficients[0];
           const unsigned int n_coeff = sh_transform->n_coefficients();
           auto [cos_surface_deformation, sin_surface_deformation] =
-            sh_transform->analyze(theta_pts,
-                                  phi_pts,
-                                  weight_pts,
-                                  surface_deformation_topo_pts,
-                                  this->get_mpi_communicator());
+            surface_coefficients[1];
           auto [cos_external_load, sin_external_load] =
-            sh_transform->analyze(theta_pts,
-                                  phi_pts,
-                                  weight_pts,
-                                  external_load_topo_pts,
-                                  this->get_mpi_communicator());
+            surface_coefficients[2];
 
           std::vector<double> cos_cmb(n_coeff, 0.0);
           std::vector<double> sin_cmb(n_coeff, 0.0);
@@ -501,27 +688,27 @@ namespace aspect
           // which correctly produce a zero local contribution.
           if (include_cmb_contribution)
             {
-              std::tie(cos_cmb, sin_cmb) = sh_transform->analyze(
-                                             cmb_theta_pts, cmb_phi_pts,
-                                             cmb_weight_pts, cmb_topo_pts,
-                                             this->get_mpi_communicator());
+              const std::vector<std::pair<std::vector<double>, std::vector<double>>>
+              cmb_coefficients =
+                timed_spherical_harmonic_analysis_multiple(
+                  cmb_theta_pts,
+                  cmb_phi_pts,
+                  cmb_weight_pts,
+                  {cmb_topo_pts,
+                   cmb_deformation_topo_pts,
+                   cmb_committed_topo_pts,
+                   cmb_external_load_topo_pts},
+                  this->get_mpi_communicator());
+              AssertDimension(cmb_coefficients.size(), 4);
+
+              std::tie(cos_cmb, sin_cmb) = cmb_coefficients[0];
               std::tie(cos_cmb_deformation, sin_cmb_deformation) =
-                sh_transform->analyze(cmb_theta_pts,
-                                      cmb_phi_pts,
-                                      cmb_weight_pts,
-                                      cmb_deformation_topo_pts,
-                                      this->get_mpi_communicator());
+                cmb_coefficients[1];
               std::tie(cmb_committed_topography_cos_coeffs,
                        cmb_committed_topography_sin_coeffs) =
-                         sh_transform->analyze(
-                           cmb_theta_pts, cmb_phi_pts, cmb_weight_pts,
-                           cmb_committed_topo_pts, this->get_mpi_communicator());
+                         cmb_coefficients[2];
               std::tie(cos_cmb_external_load, sin_cmb_external_load) =
-                sh_transform->analyze(cmb_theta_pts,
-                                      cmb_phi_pts,
-                                      cmb_weight_pts,
-                                      cmb_external_load_topo_pts,
-                                      this->get_mpi_communicator());
+                cmb_coefficients[3];
             }
 
           if (!self_gravity_mass_feedback_enabled)
@@ -834,7 +1021,7 @@ namespace aspect
                                                0.0
                                               };
               const std::vector<double> height =
-                sh_transform->synthesize(
+                timed_spherical_harmonic_synthesis(
                   reference_frame_surface_potential_cos_coeffs,
                   reference_frame_surface_potential_sin_coeffs,
                   theta,
@@ -1068,7 +1255,7 @@ namespace aspect
                                                0.0
                                               };
               const std::vector<double> height =
-                sh_transform->synthesize(
+                timed_spherical_harmonic_synthesis(
                   reference_frame_surface_potential_cos_coeffs,
                   reference_frame_surface_potential_sin_coeffs,
                   theta,
@@ -1230,6 +1417,8 @@ namespace aspect
                     << "        status=maximum iterations reached" << std::endl;
             }
         }
+
+      print_and_reset_performance_counters();
     }
 
 
@@ -1485,6 +1674,9 @@ namespace aspect
       const Point<dim> &position,
       const Tensor<1, dim> &normal_vector) const
     {
+      ScopedPerformanceTimer timer(performance_boundary_traction_seconds);
+      ++performance_boundary_traction_calls;
+
       // Convert position to spherical coordinates
       const std::array<double, dim> scoord =
         aspect::Utilities::Coordinates::cartesian_to_spherical_coordinates(
@@ -1514,33 +1706,38 @@ namespace aspect
           const std::vector<double> th_vec = {th};
           const std::vector<double> ph_vec = {ph};
           const std::vector<double> potential =
-            sh_transform->synthesize(potential_cos,
-                                     potential_sin,
-                                     th_vec, ph_vec);
+            timed_spherical_harmonic_synthesis(
+              potential_cos,
+              potential_sin,
+              th_vec,
+              ph_vec);
           potential_height = potential[0];
 
           if (is_cmb && include_cmb_contribution)
-            cmb_topography = sh_transform->synthesize(
+            cmb_topography = timed_spherical_harmonic_synthesis(
                                cmb_committed_topography_cos_coeffs,
                                cmb_committed_topography_sin_coeffs,
-                               th_vec, ph_vec)[0];
+                               th_vec,
+                               ph_vec)[0];
 
           if (citcomsve_degree_one_load_compensation
               && !degree_one_load_compensation_cos_coeffs.empty())
             degree_one_load_compensation_topography =
-              sh_transform->synthesize(
+              timed_spherical_harmonic_synthesis(
                 degree_one_load_compensation_cos_coeffs,
                 degree_one_load_compensation_sin_coeffs,
-                th_vec, ph_vec)[0];
+                th_vec,
+                ph_vec)[0];
 
           if (is_cmb
               && citcomsve_degree_one_load_compensation
               && !degree_one_load_replay_cmb_potential_cos_coeffs.empty())
             degree_one_load_replay_cmb_potential_height =
-              sh_transform->synthesize(
+              timed_spherical_harmonic_synthesis(
                 degree_one_load_replay_cmb_potential_cos_coeffs,
                 degree_one_load_replay_cmb_potential_sin_coeffs,
-                th_vec, ph_vec)[0];
+                th_vec,
+                ph_vec)[0];
 
         }
       else
