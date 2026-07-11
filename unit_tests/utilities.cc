@@ -32,7 +32,7 @@ namespace
                                       const std::vector<double> &phi)
   {
     std::vector<std::vector<double>> fields(3,
-                                            std::vector<double>(theta.size()));
+                                             std::vector<double>(theta.size()));
 
     for (unsigned int i = 0; i < theta.size(); ++i)
       {
@@ -120,25 +120,120 @@ namespace
 
 
   void
+  check_spherical_harmonic_basis_cache(
+    const aspect::Utilities::SphericalHarmonicTransform &transform,
+    const std::vector<double> &theta,
+    const std::vector<double> &phi)
+  {
+    aspect::Utilities::SphericalHarmonicBasisCache cache;
+    aspect::Utilities::SphericalHarmonicBasisCacheStatus status;
+
+    const aspect::Utilities::SphericalHarmonicBasisTable &first_basis =
+      transform.get_or_build_basis(theta, phi, cache, &status);
+    REQUIRE_FALSE(status.hit);
+    REQUIRE(status.rebuilt);
+    REQUIRE(cache.valid);
+    REQUIRE(cache.theta == theta);
+    REQUIRE(cache.phi == phi);
+    REQUIRE(first_basis.n_points == theta.size());
+    REQUIRE(first_basis.n_coefficients == transform.n_coefficients());
+    REQUIRE(first_basis.cosine.size() ==
+            theta.size() * transform.n_coefficients());
+    REQUIRE(first_basis.sine.size() ==
+            theta.size() * transform.n_coefficients());
+
+    status = aspect::Utilities::SphericalHarmonicBasisCacheStatus();
+    const aspect::Utilities::SphericalHarmonicBasisTable &second_basis =
+      transform.get_or_build_basis(theta, phi, cache, &status);
+    REQUIRE(status.hit);
+    REQUIRE_FALSE(status.rebuilt);
+    REQUIRE(&second_basis == &cache.basis);
+
+    if (!theta.empty())
+      {
+        std::vector<double> changed_theta = theta;
+        changed_theta[0] = std::nextafter(changed_theta[0],
+                                          changed_theta[0] + 1.0);
+
+        status = aspect::Utilities::SphericalHarmonicBasisCacheStatus();
+        transform.get_or_build_basis(changed_theta, phi, cache, &status);
+        REQUIRE_FALSE(status.hit);
+        REQUIRE(status.rebuilt);
+
+        status = aspect::Utilities::SphericalHarmonicBasisCacheStatus();
+        transform.get_or_build_basis(theta, phi, cache, &status);
+        REQUIRE_FALSE(status.hit);
+        REQUIRE(status.rebuilt);
+      }
+    else
+      {
+        status = aspect::Utilities::SphericalHarmonicBasisCacheStatus();
+        transform.get_or_build_basis(theta, phi, cache, &status);
+        REQUIRE(status.hit);
+        REQUIRE_FALSE(status.rebuilt);
+      }
+
+    if (theta.size() > 1)
+      {
+        std::vector<double> reordered_theta = theta;
+        std::vector<double> reordered_phi = phi;
+        std::swap(reordered_theta[0], reordered_theta[1]);
+        std::swap(reordered_phi[0], reordered_phi[1]);
+
+        status = aspect::Utilities::SphericalHarmonicBasisCacheStatus();
+        transform.get_or_build_basis(reordered_theta,
+                                     reordered_phi,
+                                     cache,
+                                     &status);
+        REQUIRE_FALSE(status.hit);
+        REQUIRE(status.rebuilt);
+      }
+  }
+
+
+
+  void
   check_spherical_harmonic_analyze_multiple(
     const unsigned int max_degree,
     const MPI_Comm mpi_comm,
-    const bool leave_some_ranks_empty)
+    const bool leave_some_ranks_empty,
+    const bool use_cmb_like_points)
   {
     const unsigned int rank = dealii::Utilities::MPI::this_mpi_process(mpi_comm);
     const unsigned int n_ranks = dealii::Utilities::MPI::n_mpi_processes(mpi_comm);
 
     const std::vector<double> global_theta =
+      use_cmb_like_points ?
+      std::vector<double>
+    {
+      2.97, 2.62, 2.39, 2.04, 1.82, 1.49, 1.18,
+      0.93, 0.68, 0.35, 2.21, 1.31, 0.52
+  } :
+    std::vector<double>
     {
       0.17, 0.41, 0.73, 1.02, 1.37, 1.61, 1.94,
       2.18, 2.46, 2.73, 0.89, 1.79, 2.91
     };
     const std::vector<double> global_phi =
+      use_cmb_like_points ?
+      std::vector<double>
+    {
+      5.83, 5.16, 4.71, 4.02, 3.64, 2.96, 2.41,
+      1.74, 1.19, 0.44, 3.08, 2.17, 0.93
+  } :
+    std::vector<double>
     {
       0.11, 0.59, 1.24, 1.83, 2.51, 3.06, 3.77,
       4.18, 4.86, 5.47, 2.22, 3.39, 5.92
     };
     const std::vector<double> global_weights =
+      use_cmb_like_points ?
+      std::vector<double>
+    {
+      0.06, 0.10, 0.08, 0.12, 0.07, 0.11, 0.09,
+      0.13, 0.05, 0.14, 0.04, 0.15, 0.16
+  } :
+    std::vector<double>
     {
       0.08, 0.11, 0.09, 0.13, 0.10, 0.12, 0.07,
       0.14, 0.06, 0.15, 0.05, 0.16, 0.04
@@ -173,12 +268,31 @@ namespace
     multi_coefficients =
       transform.analyze_multiple(theta, phi, weights, fields, mpi_comm);
 
+    const aspect::Utilities::SphericalHarmonicBasisTable basis =
+      transform.build_basis(theta, phi);
+    REQUIRE(basis.n_points == theta.size());
+    REQUIRE(basis.n_coefficients == transform.n_coefficients());
+
+    const std::vector<std::pair<std::vector<double>, std::vector<double>>>
+    basis_coefficients =
+      transform.analyze_multiple_with_basis(basis,
+                                            weights,
+                                            fields,
+                                            mpi_comm);
+
     REQUIRE(multi_coefficients.size() == fields.size());
+    REQUIRE(basis_coefficients.size() == fields.size());
+    check_spherical_harmonic_basis_cache(transform, theta, phi);
+
     for (unsigned int field_index = 0; field_index < fields.size(); ++field_index)
       {
         INFO("max_degree=" << max_degree
              << " field_index=" << field_index
-             << " leave_some_ranks_empty=" << leave_some_ranks_empty);
+             << " leave_some_ranks_empty=" << leave_some_ranks_empty
+             << " use_cmb_like_points=" << use_cmb_like_points);
+        compare_spherical_harmonic_coefficients(basis_coefficients[field_index],
+                                                multi_coefficients[field_index]);
+
         const std::pair<std::vector<double>, std::vector<double>>
         single_coefficients =
           transform.analyze(theta,
@@ -187,6 +301,17 @@ namespace
                             fields[field_index],
                             mpi_comm);
         compare_spherical_harmonic_coefficients(multi_coefficients[field_index],
+                                                single_coefficients);
+
+        const std::vector<std::pair<std::vector<double>, std::vector<double>>>
+        single_basis_coefficients =
+          transform.analyze_multiple_with_basis(
+            basis,
+            weights,
+            std::vector<std::vector<double>>(1, fields[field_index]),
+            mpi_comm);
+        REQUIRE(single_basis_coefficients.size() == 1);
+        compare_spherical_harmonic_coefficients(single_basis_coefficients[0],
                                                 single_coefficients);
 
         const std::pair<std::vector<double>, std::vector<double>>
@@ -337,30 +462,54 @@ TEST_CASE("Utilities::AsciiDataLookup manual dim=2 equid")
 
 TEST_CASE("Utilities::SphericalHarmonicTransform analyze_multiple MPI_SELF")
 {
-  for (const unsigned int max_degree : {2u, 8u, 16u, 32u})
-    check_spherical_harmonic_analyze_multiple(max_degree,
-                                              MPI_COMM_SELF,
-                                              false);
+  for (const unsigned int max_degree :
+  {
+    2u, 8u, 16u, 32u
+  })
+  for (const bool use_cmb_like_points :
+  {
+    false, true
+  })
+  check_spherical_harmonic_analyze_multiple(max_degree,
+                                            MPI_COMM_SELF,
+                                            false,
+                                            use_cmb_like_points);
 }
 
 
 
 TEST_CASE("Utilities::SphericalHarmonicTransform analyze_multiple MPI_WORLD")
 {
-  for (const unsigned int max_degree : {2u, 8u, 16u, 32u})
-    check_spherical_harmonic_analyze_multiple(max_degree,
-                                              MPI_COMM_WORLD,
-                                              false);
+  for (const unsigned int max_degree :
+  {
+    2u, 8u, 16u, 32u
+  })
+  for (const bool use_cmb_like_points :
+  {
+    false, true
+  })
+  check_spherical_harmonic_analyze_multiple(max_degree,
+                                            MPI_COMM_WORLD,
+                                            false,
+                                            use_cmb_like_points);
 }
 
 
 
 TEST_CASE("Utilities::SphericalHarmonicTransform analyze_multiple empty local points")
 {
-  for (const unsigned int max_degree : {2u, 8u, 16u, 32u})
-    check_spherical_harmonic_analyze_multiple(max_degree,
-                                              MPI_COMM_WORLD,
-                                              true);
+  for (const unsigned int max_degree :
+  {
+    2u, 8u, 16u, 32u
+  })
+  for (const bool use_cmb_like_points :
+  {
+    false, true
+  })
+  check_spherical_harmonic_analyze_multiple(max_degree,
+                                            MPI_COMM_WORLD,
+                                            true,
+                                            use_cmb_like_points);
 }
 
 TEST_CASE("Random draw volume weighted average rotation matrix")

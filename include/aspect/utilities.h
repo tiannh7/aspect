@@ -25,6 +25,7 @@
 #include <aspect/global.h>
 
 #include <array>
+#include <cstddef>
 #include <random>
 #include <deal.II/base/point.h>
 #include <deal.II/base/conditional_ostream.h>
@@ -596,6 +597,45 @@ namespace aspect
                                                       double phi );   // longitude (radians)
 
     /**
+     * Contiguous point-major table of real spherical harmonic basis values.
+     * The entry for point p and coefficient c is stored at
+     * p*n_coefficients+c in both @p cosine and @p sine.
+     */
+    struct SphericalHarmonicBasisTable
+    {
+      unsigned int n_points = 0;
+      unsigned int n_coefficients = 0;
+
+      std::vector<double> cosine;
+      std::vector<double> sine;
+    };
+
+    /**
+     * Rank-local cache for a spherical harmonic basis table. A cache entry is
+     * valid only for the exact same transform degree range and the exact same
+     * theta/phi vectors in the same order.
+     */
+    struct SphericalHarmonicBasisCache
+    {
+      bool valid = false;
+      unsigned int min_degree = 0;
+      unsigned int max_degree = 0;
+      std::vector<double> theta;
+      std::vector<double> phi;
+      SphericalHarmonicBasisTable basis;
+    };
+
+    /**
+     * Describes whether a call to get_or_build_basis() reused or rebuilt the
+     * cached basis table.
+     */
+    struct SphericalHarmonicBasisCacheStatus
+    {
+      bool hit = false;
+      bool rebuilt = false;
+    };
+
+    /**
      * A class that provides efficient spherical harmonic analysis and synthesis
      * for fields defined on a spherical surface. This is optimized compared to
      * the brute-force approach used in the geoid postprocessor by:
@@ -665,6 +705,38 @@ namespace aspect
                          const std::vector<double> &weights,
                          const std::vector<std::vector<double>> &values,
                          const MPI_Comm &mpi_comm) const;
+
+        /**
+         * Build a reusable table of real spherical harmonic basis values for
+         * the point set @p theta/@p phi.
+         */
+        SphericalHarmonicBasisTable
+        build_basis(const std::vector<double> &theta,
+                    const std::vector<double> &phi) const;
+
+        /**
+         * Return a cached basis table for @p theta/@p phi, rebuilding @p cache
+         * when the transform degree range, point coordinates, or point ordering
+         * differ exactly from the cached metadata.
+         */
+        const SphericalHarmonicBasisTable &
+        get_or_build_basis(
+          const std::vector<double> &theta,
+          const std::vector<double> &phi,
+          SphericalHarmonicBasisCache &cache,
+          SphericalHarmonicBasisCacheStatus *status = nullptr) const;
+
+        /**
+         * Compute spherical harmonic coefficients using a precomputed basis
+         * table. The coefficient ordering and MPI reduction layout are
+         * identical to analyze_multiple().
+         */
+        std::vector<std::pair<std::vector<double>, std::vector<double>>>
+        analyze_multiple_with_basis(
+          const SphericalHarmonicBasisTable &basis,
+          const std::vector<double> &weights,
+          const std::vector<std::vector<double>> &values,
+          const MPI_Comm &mpi_comm) const;
 
         /**
          * Evaluate the spherical harmonic expansion at given points.

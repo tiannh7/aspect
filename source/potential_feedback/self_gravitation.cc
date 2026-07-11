@@ -30,7 +30,6 @@
 #include <deal.II/fe/fe_values.h>
 
 #include <algorithm>
-#include <chrono>
 #include <iomanip>
 #include <tuple>
 #include <numeric>
@@ -66,26 +65,6 @@ namespace aspect
                .second;
       }
 
-
-      class ScopedPerformanceTimer
-      {
-        public:
-          ScopedPerformanceTimer(double &elapsed_seconds)
-            :
-            elapsed_seconds(elapsed_seconds),
-            start_time(std::chrono::steady_clock::now())
-          {}
-
-          ~ScopedPerformanceTimer()
-          {
-            elapsed_seconds += std::chrono::duration<double>(
-                                 std::chrono::steady_clock::now() - start_time).count();
-          }
-
-        private:
-          double &elapsed_seconds;
-          const std::chrono::steady_clock::time_point start_time;
-      };
     }
 
 
@@ -184,61 +163,38 @@ namespace aspect
 
 
     template <int dim>
-    std::pair<std::vector<double>, std::vector<double>>
-    SelfGravitation<dim>::timed_spherical_harmonic_analysis(
-      const std::vector<double> &theta,
-      const std::vector<double> &phi,
-      const std::vector<double> &weights,
-      const std::vector<double> &values,
-      const MPI_Comm &mpi_comm) const
-    {
-      const std::vector<std::pair<std::vector<double>, std::vector<double>>> result =
-        timed_spherical_harmonic_analysis_multiple(theta,
-                                                   phi,
-                                                   weights,
-                                                   std::vector<std::vector<double>>(1, values),
-                                                   mpi_comm);
-
-      AssertDimension(result.size(), 1);
-      return result[0];
-    }
-
-
-
-    template <int dim>
     std::vector<std::pair<std::vector<double>, std::vector<double>>>
     SelfGravitation<dim>::timed_spherical_harmonic_analysis_multiple(
       const std::vector<double> &theta,
       const std::vector<double> &phi,
       const std::vector<double> &weights,
       const std::vector<std::vector<double>> &values,
-      const MPI_Comm &mpi_comm) const
+      const MPI_Comm &mpi_comm,
+      const AnalysisBoundary analysis_boundary) const
     {
-      ScopedPerformanceTimer timer(performance_sh_analysis_seconds);
-
       const unsigned int n_fields = values.size();
-      const unsigned long long point_count =
-        static_cast<unsigned long long>(theta.size());
-      const unsigned long long coefficient_count =
-        static_cast<unsigned long long>(sh_transform->n_coefficients());
-      const bool mpi_rank_zero =
-        dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0;
 
-      if (mpi_rank_zero)
-        {
-          ++performance_sh_analysis_calls;
-          if (n_fields > 0)
-            ++performance_sh_analysis_mpi_collectives;
-        }
-      performance_sh_analysis_points += theta.size();
-      performance_sh_analysis_basis_evaluations +=
-        point_count * coefficient_count;
-      performance_sh_analysis_rhs_accumulations +=
-        point_count *
-        coefficient_count *
-        static_cast<unsigned long long>(n_fields);
+      Utilities::SphericalHarmonicBasisCache &cache =
+        (analysis_boundary == AnalysisBoundary::surface
+         ? surface_analysis_basis_cache
+         : cmb_analysis_basis_cache);
 
-      return sh_transform->analyze_multiple(theta, phi, weights, values, mpi_comm);
+      if (n_fields == 0)
+        return sh_transform->analyze_multiple(theta,
+                                              phi,
+                                              weights,
+                                              values,
+                                              mpi_comm);
+
+      const Utilities::SphericalHarmonicBasisTable &basis =
+        sh_transform->get_or_build_basis(theta,
+                                         phi,
+                                         cache);
+
+      return sh_transform->analyze_multiple_with_basis(basis,
+                                                       weights,
+                                                       values,
+                                                       mpi_comm);
     }
 
 
@@ -251,92 +207,7 @@ namespace aspect
       const std::vector<double> &theta,
       const std::vector<double> &phi) const
     {
-      ScopedPerformanceTimer timer(performance_sh_synthesis_seconds);
-
-      ++performance_sh_synthesis_calls;
-      performance_sh_synthesis_points += theta.size();
-      performance_sh_synthesis_basis_evaluations +=
-        static_cast<unsigned long long>(theta.size()) *
-        static_cast<unsigned long long>(sh_transform->n_coefficients());
-
       return sh_transform->synthesize(cos_coeffs, sin_coeffs, theta, phi);
-    }
-
-
-
-    template <int dim>
-    void
-    SelfGravitation<dim>::print_and_reset_performance_counters() const
-    {
-      std::vector<double> local_counters =
-      {
-        static_cast<double>(performance_update_calls),
-        static_cast<double>(performance_boundary_sample_points),
-        static_cast<double>(performance_cmb_sample_points),
-        static_cast<double>(performance_sh_analysis_calls),
-        static_cast<double>(performance_sh_analysis_points),
-        static_cast<double>(performance_sh_analysis_basis_evaluations),
-        static_cast<double>(performance_sh_analysis_rhs_accumulations),
-        static_cast<double>(performance_sh_analysis_mpi_collectives),
-        static_cast<double>(performance_sh_synthesis_calls),
-        static_cast<double>(performance_sh_synthesis_points),
-        static_cast<double>(performance_sh_synthesis_basis_evaluations),
-        static_cast<double>(performance_boundary_traction_calls),
-        performance_sh_analysis_seconds,
-        performance_sh_synthesis_seconds,
-        performance_boundary_traction_seconds
-      };
-
-      std::vector<double> global_counters(local_counters.size(), 0.0);
-      dealii::Utilities::MPI::sum(local_counters,
-                                  this->get_mpi_communicator(),
-                                  global_counters);
-
-      this->get_pcout()
-          << "      Self-gravity performance counters:"
-          << " step=" << this->get_timestep_number()
-          << ", potential_iteration=" << potential_iteration_number
-          << ","
-          << " updates=" << global_counters[0]
-          << ", surface_q=" << global_counters[1]
-          << ", cmb_q=" << global_counters[2]
-          << ", SH_analyze_calls=" << global_counters[3]
-          << ", SH_analyze_q=" << global_counters[4]
-          << ", SH_analyze_basis_evals=" << std::scientific
-          << std::setprecision(6) << global_counters[5]
-          << std::defaultfloat
-          << ", SH_analyze_rhs_accumulations=" << std::scientific
-          << std::setprecision(6) << global_counters[6]
-          << std::defaultfloat
-          << ", SH_analyze_mpi_collectives=" << global_counters[7]
-          << ", SH_synthesize_calls=" << global_counters[8]
-          << ", SH_synthesize_q=" << global_counters[9]
-          << ", SH_synthesize_basis_evals=" << std::scientific
-          << std::setprecision(6) << global_counters[10]
-          << std::defaultfloat
-          << ", boundary_traction_calls=" << global_counters[11]
-          << ", SH_analyze_seconds=" << std::scientific
-          << std::setprecision(6) << global_counters[12]
-          << ", SH_synthesize_seconds=" << global_counters[13]
-          << ", boundary_traction_seconds=" << global_counters[14]
-          << std::defaultfloat
-          << std::endl;
-
-      performance_update_calls = 0;
-      performance_boundary_sample_points = 0;
-      performance_cmb_sample_points = 0;
-      performance_sh_analysis_calls = 0;
-      performance_sh_analysis_points = 0;
-      performance_sh_analysis_basis_evaluations = 0;
-      performance_sh_analysis_rhs_accumulations = 0;
-      performance_sh_analysis_mpi_collectives = 0;
-      performance_sh_synthesis_calls = 0;
-      performance_sh_synthesis_points = 0;
-      performance_sh_synthesis_basis_evaluations = 0;
-      performance_boundary_traction_calls = 0;
-      performance_sh_analysis_seconds = 0.0;
-      performance_sh_synthesis_seconds = 0.0;
-      performance_boundary_traction_seconds = 0.0;
     }
 
 
@@ -368,7 +239,6 @@ namespace aspect
 
       TimerOutput::Scope update_timer(this->get_computing_timer(),
                                       "Potential feedback: self-gravity update");
-      ++performance_update_calls;
 
       const std::vector<double> old_surface_potential_cos =
         surface_potential_cos_coeffs;
@@ -645,9 +515,6 @@ namespace aspect
                ExcInternalError());
       }
 
-      performance_boundary_sample_points += phi_pts.size();
-      performance_cmb_sample_points += cmb_phi_pts.size();
-
       // Step 2 & 3: SH/Fourier analysis + self-gravity kernel
       //
       // 3D self-gravity ratio: Rsg(l) = 3*delta_rho / ((2l+1)*rho_mean)
@@ -664,10 +531,13 @@ namespace aspect
               theta_pts,
               phi_pts,
               weight_pts,
-              {topo_pts,
-               surface_deformation_topo_pts,
-               external_load_topo_pts},
-              this->get_mpi_communicator());
+          {
+            topo_pts,
+            surface_deformation_topo_pts,
+            external_load_topo_pts
+          },
+          this->get_mpi_communicator(),
+          AnalysisBoundary::surface);
           AssertDimension(surface_coefficients.size(), 3);
 
           auto [cos_topo, sin_topo] = surface_coefficients[0];
@@ -694,11 +564,14 @@ namespace aspect
                   cmb_theta_pts,
                   cmb_phi_pts,
                   cmb_weight_pts,
-                  {cmb_topo_pts,
-                   cmb_deformation_topo_pts,
-                   cmb_committed_topo_pts,
-                   cmb_external_load_topo_pts},
-                  this->get_mpi_communicator());
+              {
+                cmb_topo_pts,
+                cmb_deformation_topo_pts,
+                cmb_committed_topo_pts,
+                cmb_external_load_topo_pts
+              },
+              this->get_mpi_communicator(),
+              AnalysisBoundary::cmb);
               AssertDimension(cmb_coefficients.size(), 4);
 
               std::tie(cos_cmb, sin_cmb) = cmb_coefficients[0];
@@ -1418,7 +1291,6 @@ namespace aspect
             }
         }
 
-      print_and_reset_performance_counters();
     }
 
 
@@ -1674,9 +1546,6 @@ namespace aspect
       const Point<dim> &position,
       const Tensor<1, dim> &normal_vector) const
     {
-      ScopedPerformanceTimer timer(performance_boundary_traction_seconds);
-      ++performance_boundary_traction_calls;
-
       // Convert position to spherical coordinates
       const std::array<double, dim> scoord =
         aspect::Utilities::Coordinates::cartesian_to_spherical_coordinates(

@@ -47,6 +47,7 @@
 #include <string>
 #include <sys/stat.h>
 #include <iostream>
+#include <limits>
 #include <regex>
 #include <random>
 
@@ -1382,7 +1383,6 @@ namespace aspect
       const MPI_Comm &mpi_comm) const
     {
       const unsigned int n_pts = theta.size();
-      const unsigned int n_coeff = n_coefficients();
       const unsigned int n_fields = values.size();
 
       AssertDimension(phi.size(), n_pts);
@@ -1393,46 +1393,189 @@ namespace aspect
       if (n_fields == 0)
         return {};
 
-      const auto cos_offset =
-        [n_coeff](const unsigned int field_index)
-      {
-        return 2 * field_index * n_coeff;
-      };
-      const auto sin_offset =
-        [n_coeff](const unsigned int field_index)
-      {
-        return (2 * field_index + 1) * n_coeff;
-      };
+      const SphericalHarmonicBasisTable basis = build_basis(theta, phi);
 
-      std::vector<double> local_coeffs(2 * n_fields * n_coeff, 0.0);
+      return analyze_multiple_with_basis(basis, weights, values, mpi_comm);
+    }
 
-      for (unsigned int p = 0; p < n_pts; ++p)
+
+    SphericalHarmonicBasisTable
+    SphericalHarmonicTransform::build_basis(
+      const std::vector<double> &theta,
+      const std::vector<double> &phi) const
+    {
+      AssertDimension(phi.size(), theta.size());
+
+      AssertThrow(theta.size() <=
+                  static_cast<std::size_t>(std::numeric_limits<unsigned int>::max()),
+                  ExcMessage("The spherical harmonic basis table stores the "
+                             "number of points as an unsigned int, but the "
+                             "input point set is larger than that."));
+
+      const std::size_t n_pts = theta.size();
+      const std::size_t n_coeff = n_coefficients();
+      AssertThrow(n_coeff == 0 ||
+                  n_pts <= std::numeric_limits<std::size_t>::max() / n_coeff,
+                  ExcMessage("Overflow while computing the spherical "
+                             "harmonic basis table size."));
+      const std::size_t n_entries = n_pts * n_coeff;
+      AssertThrow(n_entries <=
+                  std::numeric_limits<std::size_t>::max() / (2 * sizeof(double)),
+                  ExcMessage("Overflow while computing the spherical "
+                             "harmonic basis table allocation size."));
+
+      SphericalHarmonicBasisTable basis;
+      basis.n_points = static_cast<unsigned int>(n_pts);
+      basis.n_coefficients = static_cast<unsigned int>(n_coeff);
+      basis.cosine.resize(n_entries);
+      basis.sine.resize(n_entries);
+
+      for (unsigned int p = 0; p < basis.n_points; ++p)
         {
           const double th = theta[p];
           const double ph = phi[p];
-          std::vector<double> weighted_values(n_fields);
+          const std::size_t point_offset =
+            static_cast<std::size_t>(p) * n_coeff;
+          unsigned int coefficient_index = 0;
+
+          for (unsigned int l = lmin; l <= lmax; ++l)
+            for (unsigned int m = 0; m <= l; ++m, ++coefficient_index)
+              {
+                const std::pair<double, double> ylm =
+                  real_spherical_harmonic(l, m, th, ph);
+                basis.cosine[point_offset + coefficient_index] = ylm.first;
+                basis.sine[point_offset + coefficient_index] = ylm.second;
+              }
+
+          AssertDimension(coefficient_index, basis.n_coefficients);
+        }
+
+      return basis;
+    }
+
+
+    const SphericalHarmonicBasisTable &
+    SphericalHarmonicTransform::get_or_build_basis(
+      const std::vector<double> &theta,
+      const std::vector<double> &phi,
+      SphericalHarmonicBasisCache &cache,
+      SphericalHarmonicBasisCacheStatus *status) const
+    {
+      AssertDimension(phi.size(), theta.size());
+
+      SphericalHarmonicBasisCacheStatus local_status;
+      bool cache_matches =
+        cache.valid
+        && cache.min_degree == lmin
+        && cache.max_degree == lmax
+        && cache.theta.size() == theta.size()
+        && cache.phi.size() == phi.size();
+
+      if (cache_matches)
+        {
+          for (std::size_t i = 0; i < theta.size() && cache_matches; ++i)
+            {
+              cache_matches = (cache.theta[i] == theta[i]);
+            }
+        }
+
+      if (cache_matches)
+        {
+          for (std::size_t i = 0; i < phi.size() && cache_matches; ++i)
+            {
+              cache_matches = (cache.phi[i] == phi[i]);
+            }
+        }
+
+      if (cache_matches)
+        local_status.hit = true;
+      else
+        {
+          cache.theta = theta;
+          cache.phi = phi;
+          cache.basis = build_basis(theta, phi);
+          cache.min_degree = lmin;
+          cache.max_degree = lmax;
+          cache.valid = true;
+          local_status.rebuilt = true;
+        }
+
+      if (status != nullptr)
+        *status = local_status;
+
+      return cache.basis;
+    }
+
+
+    std::vector<std::pair<std::vector<double>, std::vector<double>>>
+    SphericalHarmonicTransform::analyze_multiple_with_basis(
+      const SphericalHarmonicBasisTable &basis,
+      const std::vector<double> &weights,
+      const std::vector<std::vector<double>> &values,
+      const MPI_Comm &mpi_comm) const
+    {
+      const unsigned int n_pts = basis.n_points;
+      const unsigned int n_coeff = n_coefficients();
+      const unsigned int n_fields = values.size();
+
+      AssertDimension(basis.n_coefficients, n_coeff);
+      AssertDimension(basis.cosine.size(),
+                      static_cast<std::size_t>(n_pts) * n_coeff);
+      AssertDimension(basis.sine.size(),
+                      static_cast<std::size_t>(n_pts) * n_coeff);
+      AssertDimension(weights.size(), n_pts);
+      for (const std::vector<double> &field_values : values)
+        AssertDimension(field_values.size(), n_pts);
+
+      if (n_fields == 0)
+        return {};
+
+      AssertThrow(n_coeff > 0,
+                  ExcMessage("A spherical harmonic transform must have at "
+                             "least one coefficient."));
+      AssertThrow(n_fields <=
+                  std::numeric_limits<std::size_t>::max()
+                  / (2 * static_cast<std::size_t>(n_coeff)),
+                  ExcMessage("Overflow while computing the packed spherical "
+                             "harmonic coefficient vector size."));
+      const std::size_t packed_coefficient_count =
+        2 * static_cast<std::size_t>(n_fields) * n_coeff;
+
+      const auto cos_offset =
+        [n_coeff](const unsigned int field_index) -> std::size_t
+      {
+        return 2 * static_cast<std::size_t>(field_index) * n_coeff;
+      };
+      const auto sin_offset =
+        [n_coeff](const unsigned int field_index) -> std::size_t
+      {
+        return (2 * static_cast<std::size_t>(field_index) + 1) * n_coeff;
+      };
+
+      std::vector<double> local_coeffs(packed_coefficient_count, 0.0);
+      std::vector<double> weighted_values(n_fields);
+
+      for (unsigned int p = 0; p < n_pts; ++p)
+        {
           for (unsigned int field_index = 0;
                field_index < n_fields;
                ++field_index)
             weighted_values[field_index] = values[field_index][p] * weights[p];
 
-          for (unsigned int l = lmin; l <= lmax; ++l)
+          const std::size_t point_offset =
+            static_cast<std::size_t>(p) * n_coeff;
+          for (unsigned int idx = 0; idx < n_coeff; ++idx)
             {
-              for (unsigned int m = 0; m <= l; ++m)
+              const double ylm_cos = basis.cosine[point_offset + idx];
+              const double ylm_sin = basis.sine[point_offset + idx];
+              for (unsigned int field_index = 0;
+                   field_index < n_fields;
+                   ++field_index)
                 {
-                  const std::pair<double, double> ylm =
-                    real_spherical_harmonic(l, m, th, ph);
-
-                  const unsigned int idx = index(l, m);
-                  for (unsigned int field_index = 0;
-                       field_index < n_fields;
-                       ++field_index)
-                    {
-                      local_coeffs[cos_offset(field_index) + idx] +=
-                        weighted_values[field_index] * ylm.first;
-                      local_coeffs[sin_offset(field_index) + idx] +=
-                        weighted_values[field_index] * ylm.second;
-                    }
+                  local_coeffs[cos_offset(field_index) + idx] +=
+                    weighted_values[field_index] * ylm_cos;
+                  local_coeffs[sin_offset(field_index) + idx] +=
+                    weighted_values[field_index] * ylm_sin;
                 }
             }
         }

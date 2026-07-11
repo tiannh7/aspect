@@ -201,6 +201,12 @@ namespace aspect
         double get_internal_density_anomaly_tolerance() const;
 
       private:
+        enum class AnalysisBoundary
+        {
+          surface,
+          cmb
+        };
+
         struct CitcomSVEDegreeOneLoadReplayDiagnostic
         {
           bool valid = false;
@@ -252,7 +258,9 @@ namespace aspect
          * analysis, applies the self-gravity kernel, and synthesizes the
          * correction field. Stores results for use by boundary_traction().
          */
-        void compute_self_gravity_correction(const bool include_current_velocity_increment);
+        void
+        compute_self_gravity_correction(
+          const bool include_current_velocity_increment);
 
         /** Update the non-local boundary operator after a Stokes solve so
          * that the next nonlinear iteration uses the current displacement
@@ -262,21 +270,14 @@ namespace aspect
         std::pair<std::vector<double>, std::vector<double>>
         to_spherical_harmonic_coefficients(const std::vector<std::vector<double>> &spherical_function) const;
 
-        std::pair<std::vector<double>, std::vector<double>>
-        timed_spherical_harmonic_analysis(
-          const std::vector<double> &theta,
-          const std::vector<double> &phi,
-          const std::vector<double> &weights,
-          const std::vector<double> &values,
-          const MPI_Comm &mpi_comm) const;
-
         std::vector<std::pair<std::vector<double>, std::vector<double>>>
         timed_spherical_harmonic_analysis_multiple(
           const std::vector<double> &theta,
           const std::vector<double> &phi,
           const std::vector<double> &weights,
           const std::vector<std::vector<double>> &values,
-          const MPI_Comm &mpi_comm) const;
+          const MPI_Comm &mpi_comm,
+          const AnalysisBoundary analysis_boundary) const;
 
         std::vector<double>
         timed_spherical_harmonic_synthesis(
@@ -284,9 +285,6 @@ namespace aspect
           const std::vector<double> &sin_coeffs,
           const std::vector<double> &theta,
           const std::vector<double> &phi) const;
-
-        void
-        print_and_reset_performance_counters() const;
 
         Tensor<1,3>
         degree_one_mass_dipole_from_height_coefficients(
@@ -344,21 +342,6 @@ namespace aspect
         mutable unsigned int last_text_output_step;
         mutable unsigned int current_tracked_step;
         mutable bool printing_this_step;
-        mutable unsigned long long performance_update_calls = 0;
-        mutable unsigned long long performance_boundary_sample_points = 0;
-        mutable unsigned long long performance_cmb_sample_points = 0;
-        mutable unsigned long long performance_sh_analysis_calls = 0;
-        mutable unsigned long long performance_sh_analysis_points = 0;
-        mutable unsigned long long performance_sh_analysis_basis_evaluations = 0;
-        mutable unsigned long long performance_sh_analysis_rhs_accumulations = 0;
-        mutable unsigned long long performance_sh_analysis_mpi_collectives = 0;
-        mutable unsigned long long performance_sh_synthesis_calls = 0;
-        mutable unsigned long long performance_sh_synthesis_points = 0;
-        mutable unsigned long long performance_sh_synthesis_basis_evaluations = 0;
-        mutable unsigned long long performance_boundary_traction_calls = 0;
-        mutable double performance_sh_analysis_seconds = 0.0;
-        mutable double performance_sh_synthesis_seconds = 0.0;
-        mutable double performance_boundary_traction_seconds = 0.0;
 
         types::boundary_id top_boundary_id;
         types::boundary_id bottom_boundary_id;
@@ -370,6 +353,8 @@ namespace aspect
          */
         std::unique_ptr<Utilities::SphericalHarmonicTransform> sh_transform;
         std::unique_ptr<Utilities::FourierTransform> fourier_transform;
+        mutable Utilities::SphericalHarmonicBasisCache surface_analysis_basis_cache;
+        mutable Utilities::SphericalHarmonicBasisCache cmb_analysis_basis_cache;
 
         // Coefficients of Phi/g evaluated at each boundary.
         std::vector<double> surface_potential_cos_coeffs;
