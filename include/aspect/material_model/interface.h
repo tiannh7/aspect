@@ -568,7 +568,9 @@ namespace aspect
         std::vector<double> viscosities;
 
         /**
-         * Density values at the given positions.
+         * Physical material density values at the given positions. Reference
+         * states and perturbation source laws are applied by consumers and do
+         * not change the meaning of this output.
          */
         std::vector<double> densities;
 

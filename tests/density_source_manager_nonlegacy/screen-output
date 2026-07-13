@@ -1,0 +1,24 @@
+
+Loading shared library <./libdensity_source_manager_nonlegacy.release.so>
+
+Number of active cells: 16 (on 3 levels)
+Number of degrees of freedom: 349 (162+25+81+81)
+
+Frozen initial reference-density profile: 4 geometric-depth bins, integral(rho-rho_ref)dV=-2.27374e-12, ||rho-rho_ref||_L2=28.8675, max|rho-rho_ref|=44.7169, max depth-bin lateral mean residual=2.27374e-12
+*** Timestep 0:  t=0 seconds, dt=0 seconds
+   Skipping temperature solve because RHS is zero.
+   Solving density_anomaly system ... 0 iterations.
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... 10+0 iterations.
+
+   Postprocessing:
+     Density source manager nonlegacy:  physical 3.302818e+03 / 3.397182e+03, reference 3.350000e+03 / 3.350000e+03, max source 4.718246e+01, mismatch 0.000000e+00, initializations 1, initial mass -2.273737e-12, lateral residual 2.273737e-12
+     Velocity statistics (min/max/rms): x    : -1.349 / 1.349 / 0.6539 m/s
+                                        y    : -1.349 / 1.349 / 0.6539 m/s
+                                        total: 0 / 1.349 / 0.9248 m/s
+                                        
+
+Termination requested by criterion: end time
+
+
+

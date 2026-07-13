@@ -2059,6 +2059,12 @@ namespace aspect
     SelfGravitation<3>::compute_internal_density_mass_dipole() const
     {
       Tensor<1,3> global_dipole;
+      const auto density_source_law =
+        this->get_parameters().density_source_law;
+
+      if (density_source_law
+          == Parameters<3>::Formulation::DensitySourceLaw::zero_volume_perturbation)
+        return global_dipole;
 
       bool actual_include_internal = false;
       if (include_internal_density_anomalies == "true")
@@ -2067,9 +2073,13 @@ namespace aspect
         actual_include_internal = false;
       else if (include_internal_density_anomalies == "auto")
         {
-          actual_include_internal =
-            (this->introspection().n_compositional_fields > 0 ||
-             this->introspection().variable_exists("temperature"));
+          if (density_source_law
+              == Parameters<3>::Formulation::DensitySourceLaw::legacy)
+            actual_include_internal =
+              (this->introspection().n_compositional_fields > 0 ||
+               this->introspection().variable_exists("temperature"));
+          else
+            actual_include_internal = true;
         }
 
       if (!actual_include_internal)
@@ -2097,7 +2107,12 @@ namespace aspect
         (internal_density_anomaly_tolerance > 0.0
          ? internal_density_anomaly_tolerance
          : 1e-12 * std::max(1.0,
-                            std::abs(reference_density_for_internal_anomalies)));
+                            (density_source_law
+                             == Parameters<3>::Formulation::DensitySourceLaw::legacy
+                             ?
+                             std::abs(reference_density_for_internal_anomalies)
+                             :
+                             this->get_density_source_manager().get_reference_density_scale())));
 
       if (include_internal_density_anomalies == "auto")
         {
@@ -2202,6 +2217,12 @@ namespace aspect
 
       std::vector<double> SH_density_coecos(n_coefficients, 0.0);
       std::vector<double> SH_density_coesin(n_coefficients, 0.0);
+      const auto density_source_law =
+        this->get_parameters().density_source_law;
+
+      if (density_source_law
+          == Parameters<3>::Formulation::DensitySourceLaw::zero_volume_perturbation)
+        return std::make_pair(SH_density_coecos, SH_density_coesin);
 
       // Map "auto" to either true or false depending on whether there are temperature or compositional fields
       bool actual_include_internal = false;
@@ -2211,8 +2232,12 @@ namespace aspect
         actual_include_internal = false;
       else if (include_internal_density_anomalies == "auto")
         {
-          actual_include_internal = (this->introspection().n_compositional_fields > 0 ||
-                                     this->introspection().variable_exists("temperature"));
+          if (density_source_law
+              == Parameters<3>::Formulation::DensitySourceLaw::legacy)
+            actual_include_internal = (this->introspection().n_compositional_fields > 0 ||
+                                       this->introspection().variable_exists("temperature"));
+          else
+            actual_include_internal = true;
         }
 
       if (!actual_include_internal)
@@ -2240,7 +2265,13 @@ namespace aspect
       const double effective_tolerance =
         (internal_density_anomaly_tolerance > 0.0
          ? internal_density_anomaly_tolerance
-         : 1e-12 * std::max(1.0, std::abs(reference_density_for_internal_anomalies)));
+         : 1e-12 * std::max(1.0,
+                            (density_source_law
+                             == Parameters<3>::Formulation::DensitySourceLaw::legacy
+                             ?
+                             std::abs(reference_density_for_internal_anomalies)
+                             :
+                             this->get_density_source_manager().get_reference_density_scale())));
 
       if (include_internal_density_anomalies == "auto")
         {

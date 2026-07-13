@@ -315,6 +315,68 @@ namespace aspect
       {
         bool use_old_stress_fields;
       };
+
+      /**
+       * Available central reference-density models for perturbation sources.
+       */
+      struct ReferenceDensityModel
+      {
+        enum Kind
+        {
+          none,
+          constant,
+          frozen_initial_lateral_average
+        };
+
+        static
+        Kind
+        parse(const std::string &input)
+        {
+          if (input == "none")
+            return ReferenceDensityModel::none;
+          else if (input == "constant")
+            return ReferenceDensityModel::constant;
+          else if (input == "frozen initial lateral average")
+            return ReferenceDensityModel::frozen_initial_lateral_average;
+          else
+            AssertThrow(false, ExcNotImplemented());
+
+          return ReferenceDensityModel::Kind();
+        }
+      };
+
+      /**
+       * Available laws that convert physical and reference density into a
+       * volume-density source.
+       */
+      struct DensitySourceLaw
+      {
+        enum Kind
+        {
+          legacy,
+          material_density,
+          material_minus_reference,
+          zero_volume_perturbation
+        };
+
+        static
+        Kind
+        parse(const std::string &input)
+        {
+          if (input == "legacy")
+            return DensitySourceLaw::legacy;
+          else if (input == "material density")
+            return DensitySourceLaw::material_density;
+          else if (input == "material minus reference")
+            return DensitySourceLaw::material_minus_reference;
+          else if (input == "zero volume perturbation")
+            return DensitySourceLaw::zero_volume_perturbation;
+          else
+            AssertThrow(false, ExcNotImplemented());
+
+          return DensitySourceLaw::Kind();
+        }
+      };
     };
 
     /**
@@ -686,6 +748,24 @@ namespace aspect
     bool                           include_melt_transport;
     bool                           enable_additional_stokes_rhs;
     bool                           enable_prescribed_dilation;
+
+    /**
+     * Central reference-density model used by non-legacy volume-density
+     * source laws.
+     */
+    typename Formulation::ReferenceDensityModel::Kind reference_density_model;
+
+    /**
+     * Law used to select volume-density sources for Stokes and internal
+     * self-gravity consumers.
+     */
+    typename Formulation::DensitySourceLaw::Kind density_source_law;
+
+    /** Constant central reference density. Units: kg/m^3. */
+    double                         constant_reference_density;
+
+    /** Number of depth bins in a frozen initial reference profile. */
+    unsigned int                   frozen_reference_density_profile_slices;
 
     /**
      * Whether the Stokes pressure formulation uses dynamic (perturbation)

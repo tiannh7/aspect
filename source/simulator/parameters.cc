@@ -862,6 +862,41 @@ namespace aspect
                          "the Stokes equation to set a given compression term specified in the "
                          "MaterialModel output PrescribedPlasticDilation.");
 
+      prm.enter_subsection ("Density sources");
+      {
+        prm.declare_entry ("Reference density model", "none",
+                           Patterns::Selection ("none|constant|frozen initial lateral average"),
+                           "Select the central reference-density model used by non-legacy "
+                           "volume-density source laws. `none' defines a zero reference, "
+                           "`constant' uses the configured constant value, and `frozen "
+                           "initial lateral average' computes one quadrature-weighted "
+                           "initial lateral average in geometric-depth bins and freezes it "
+                           "for the run. Analytical and tabulated radial models are planned "
+                           "but are not implemented.");
+        prm.declare_entry ("Density source law", "legacy",
+                           Patterns::Selection ("legacy|material density|material minus reference|zero volume perturbation"),
+                           "Select the volume-density source consumed by Stokes momentum, "
+                           "internal self-gravity, and centre-of-mass/degree-1 integrals. "
+                           "`legacy' preserves each consumer's historical behavior. "
+                           "`material density' uses physical material density, `material "
+                           "minus reference' subtracts the selected central reference, and "
+                           "`zero volume perturbation' suppresses volume-density sources "
+                           "without changing explicit surface or CMB sheet and restoring "
+                           "terms. Linearized mass conservation and material-provided laws "
+                           "are planned but are not implemented.");
+        prm.declare_entry ("Constant reference density", "0",
+                           Patterns::Double (0.),
+                           "Constant central reference density used when `Reference density "
+                           "model' is `constant'. Units: kg/m^3.");
+        prm.declare_entry ("Frozen reference density profile slices", "100",
+                           Patterns::Integer (1),
+                           "Number of finite geometric-depth bins in the frozen initial "
+                           "lateral-average reference-density profile. Values are stored at "
+                           "bin centers and linearly interpolated with endpoint clamping. "
+                           "Units: none.");
+      }
+      prm.leave_subsection();
+
       prm.enter_subsection ("Elasticity");
       {
         prm.declare_entry ("Use old stress fields", "true",
@@ -2016,6 +2051,42 @@ namespace aspect
       enable_elasticity = prm.get_bool("Enable elasticity");
       enable_prescribed_dilation = prm.get_bool("Enable prescribed dilation");
 
+      prm.enter_subsection ("Density sources");
+      {
+        reference_density_model =
+          Formulation::ReferenceDensityModel::parse(prm.get("Reference density model"));
+        density_source_law =
+          Formulation::DensitySourceLaw::parse(prm.get("Density source law"));
+        constant_reference_density = prm.get_double("Constant reference density");
+        frozen_reference_density_profile_slices =
+          prm.get_integer("Frozen reference density profile slices");
+      }
+      prm.leave_subsection();
+
+      if (density_source_law == Formulation::DensitySourceLaw::material_minus_reference
+          && reference_density_model == Formulation::ReferenceDensityModel::none)
+        AssertThrow(false,
+                    ExcMessage("<Formulation/Density sources/Density source law> is "
+                               "`material minus reference', but <Reference density model> "
+                               "is `none'. Select `constant' or `frozen initial lateral "
+                               "average'."));
+
+      if (reference_density_model == Formulation::ReferenceDensityModel::frozen_initial_lateral_average
+          && resume_computation)
+        AssertThrow(false,
+                    ExcMessage("The frozen initial reference-density model does not yet "
+                               "support checkpoint/restart. Restart must restore the original "
+                               "frozen profile instead of recomputing it from an evolved state."));
+
+      if (reference_density_model == Formulation::ReferenceDensityModel::frozen_initial_lateral_average
+          && initial_adaptive_refinement > 0
+          && (!skip_solvers_on_initial_refinement || run_postprocessors_on_initial_refinement))
+        AssertThrow(false,
+                    ExcMessage("The frozen initial reference-density model currently requires "
+                               "initial adaptive-refinement cycles to skip solvers and "
+                               "postprocessors so the profile is initialized exactly once on "
+                               "the final initial mesh."));
+
       prm.enter_subsection ("Elasticity");
       {
         elasticity.use_old_stress_fields = prm.get_bool("Use old stress fields");
@@ -2034,6 +2105,14 @@ namespace aspect
                                         "the reference-density body force is applied through the "
                                         "additional Stokes RHS."));
 
+        if (density_source_law != Formulation::DensitySourceLaw::legacy
+            && stokes_pressure_formulation_is_dynamic)
+          AssertThrow(false,
+                      ExcMessage("A non-legacy <Formulation/Density sources/Density source "
+                                 "law> is incompatible with the existing dynamic-pressure "
+                                 "Stokes reference-density subtraction because that would "
+                                 "apply two independent density corrections."));
+
         if (!stokes_pressure_formulation_is_dynamic && stokes_pressure_reference_density > 0.0)
           {
             dealii::ConditionalOStream pcout(std::cout, dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0);
@@ -2049,6 +2128,13 @@ namespace aspect
     prm.enter_subsection ("Melt settings");
     {
       include_melt_transport = prm.get_bool ("Include melt transport");
+
+      if (include_melt_transport
+          && density_source_law != Formulation::DensitySourceLaw::legacy)
+        AssertThrow(false,
+                    ExcMessage("Non-legacy central density-source laws are not yet supported "
+                               "with melt transport because the coupled solid/fluid momentum "
+                               "body-force paths have not been centralized in this phase."));
     }
     prm.leave_subsection();
 

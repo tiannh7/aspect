@@ -227,6 +227,8 @@ The main risks and controls are:
   a thermodynamic pressure policy exists;
 - restart corruption: reject non-legacy restart until reference state is
   serialized;
+- incomplete coupled momentum ownership: reject non-legacy laws with melt
+  transport until both solid and fluid body-force paths are centralized;
 - interface double counting: document and test the volume-versus-sheet
   ownership rule;
 - accidental energy changes: do not route energy/heating/timestep consumers.

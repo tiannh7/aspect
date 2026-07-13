@@ -9,6 +9,7 @@ basic-equations/index.md
 coefficients/index.md
 dimensionalize/index.md
 pressure-static-dyn.md
+volume-density-sources.md
 pressure-norm.md
 initial-conditions.md
 compositional-fields.md

@@ -1,0 +1,11 @@
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/density_source_manager_nonlegacy.prm
+
+subsection Formulation
+  subsection Density sources
+    set Reference density model    = constant
+    set Constant reference density = 3300
+    set Density source law         = zero volume perturbation
+  end
+end

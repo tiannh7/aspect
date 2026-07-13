@@ -1,0 +1,23 @@
+
+Loading shared library <./libdensity_source_manager_zero.release.so>
+
+Number of active cells: 16 (on 3 levels)
+Number of degrees of freedom: 349 (162+25+81+81)
+
+*** Timestep 0:  t=0 seconds, dt=0 seconds
+   Skipping temperature solve because RHS is zero.
+   Solving density_anomaly system ... 0 iterations.
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... 3+0 iterations.
+
+   Postprocessing:
+     Density source manager nonlegacy:  physical 3.302818e+03 / 3.397182e+03, reference 3.300000e+03 / 3.300000e+03, max source 0.000000e+00, mismatch 0.000000e+00, initializations 0
+     Velocity statistics (min/max/rms): x    : -5.499e-11 / 5.498e-11 / 2.657e-11 m/s
+                                        y    : 0 / 7.888e-10 / 2.977e-10 m/s
+                                        total: 0 / 7.888e-10 / 2.989e-10 m/s
+                                        
+
+Termination requested by criterion: end time
+
+
+

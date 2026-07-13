@@ -1,0 +1,18 @@
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/geoid_no_topo.prm
+
+subsection Formulation
+  subsection Density sources
+    set Reference density model                 = frozen initial lateral average
+    set Density source law                      = material minus reference
+    set Frozen reference density profile slices = 4
+  end
+end
+
+subsection Postprocess
+  subsection Geoid
+    set Maximum degree = 2
+    set Minimum degree = 0
+  end
+end

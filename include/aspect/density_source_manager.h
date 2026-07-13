@@ -32,13 +32,28 @@ namespace aspect
    * changing the physical-density contract of material model outputs.
    *
    * Typed accessors preserve the different historical meanings of Stokes and
-   * internal self-gravity density sources. This initial implementation only
-   * centralizes legacy behavior.
+   * internal self-gravity density sources while allowing non-legacy consumers
+   * to share one explicit source law.
    */
   template <int dim>
   class DensitySourceManager : public SimulatorAccess<dim>
   {
     public:
+      struct Diagnostics
+      {
+        double integrated_mass = 0.0;
+        double l2_norm = 0.0;
+        double max_abs = 0.0;
+        double max_lateral_average_residual = 0.0;
+      };
+
+      /**
+       * Compute and store a frozen initial lateral-average reference-density
+       * profile when that reference model is selected.
+       */
+      void
+      initialize_reference_density();
+
       /**
        * Return the physical density produced by the material model.
        */
@@ -48,8 +63,8 @@ namespace aspect
         const unsigned int q) const;
 
       /**
-       * Return the selected reference density. Legacy mode has no central
-       * reference-density model and therefore returns zero.
+       * Return the selected central reference density. The default `none'
+       * reference-density model returns zero.
        */
       double
       reference_density(const Point<dim> &position) const;
@@ -75,6 +90,47 @@ namespace aspect
         const MaterialModel::MaterialModelOutputs<dim> &outputs,
         const unsigned int q,
         const double legacy_reference_density) const;
+
+      /** Return whether a frozen reference profile has been initialized. */
+      bool
+      has_initialized_reference_density() const;
+
+      /** Return stored frozen-profile depth coordinates. */
+      const std::vector<double> &
+      get_depth_samples() const;
+
+      /** Return stored frozen reference-density values. */
+      const std::vector<double> &
+      get_reference_density_values() const;
+
+      /** Return diagnostics evaluated immediately after initialization. */
+      const Diagnostics &
+      get_initial_diagnostics() const;
+
+      /** Return how many times the frozen profile was initialized. */
+      unsigned int
+      get_initialization_count() const;
+
+      /** Return a scale used for source auto-detection tolerances. */
+      double
+      get_reference_density_scale() const;
+
+    private:
+      /** Compute diagnostics for the stored frozen profile. */
+      Diagnostics
+      compute_initial_diagnostics() const;
+
+      /** Return the depth-bin index that contains @p depth. */
+      unsigned int
+      depth_bin_index(const double depth) const;
+
+      std::vector<double> depth_bounds;
+      std::vector<double> depth_samples;
+      std::vector<double> reference_density_values;
+      Diagnostics initial_diagnostics;
+      bool initialized = false;
+      unsigned int initialization_count = 0;
+      double reference_density_scale = 0.0;
   };
 }
 

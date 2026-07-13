@@ -2260,6 +2260,9 @@ namespace aspect
             set_initial_temperature_and_compositional_fields ();
             compute_initial_pressure_field ();
 
+            if (pre_refinement_step == parameters.initial_adaptive_refinement)
+              density_source_manager.initialize_reference_density();
+
             signals.post_set_initial_state (*this);
           }
 
