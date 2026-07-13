@@ -433,7 +433,11 @@ namespace aspect
           const Tensor<1,dim>
           gravity = this->get_gravity_model().gravity_vector (scratch.finite_element_values.quadrature_point(q));
 
-          const double density = scratch.material_model_outputs.densities[q];
+          const double density =
+            this->get_density_source_manager().stokes_source_density(
+              scratch.material_model_inputs,
+              scratch.material_model_outputs,
+              q);
           const double JxW = scratch.finite_element_values.JxW(q);
 
           for (unsigned int i=0; i<stokes_dofs_per_cell; ++i)

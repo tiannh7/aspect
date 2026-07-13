@@ -512,6 +512,7 @@ namespace aspect
     time_stepping_manager.parse_parameters (prm);
 
     lateral_averaging.initialize_simulator (*this);
+    density_source_manager.initialize_simulator (*this);
 
     geometry_model->create_coarse_mesh (triangulation);
     Assert (triangulation.all_reference_cells_are_hyper_cube(),

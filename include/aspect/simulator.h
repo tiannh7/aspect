@@ -46,6 +46,7 @@ DEAL_II_ENABLE_EXTRA_DIAGNOSTICS
 #include <aspect/linear_algebra_types.h>
 #include <aspect/simulator_access.h>
 #include <aspect/lateral_averaging.h>
+#include <aspect/density_source_manager.h>
 #include <aspect/simulator_signals.h>
 #include <aspect/material_model/interface.h>
 #include <aspect/heating_model/interface.h>
@@ -1958,6 +1959,7 @@ namespace aspect
        * @{
        */
       LateralAveraging<dim>                                     lateral_averaging;
+      DensitySourceManager<dim>                                 density_source_manager;
       /**
        * @}
        */

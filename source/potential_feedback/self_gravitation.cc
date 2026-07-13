@@ -2116,8 +2116,12 @@ namespace aspect
                 for (unsigned int q = 0; q < quadrature_formula.size(); ++q)
                   local_max_density_anomaly =
                     std::max(local_max_density_anomaly,
-                             std::abs(out.densities[q]
-                                      - reference_density_for_internal_anomalies));
+                             std::abs(this->get_density_source_manager()
+                                      .self_gravity_source_density(
+                                        in,
+                                        out,
+                                        q,
+                                        reference_density_for_internal_anomalies)));
               }
 
           const double global_max_density_anomaly =
@@ -2142,7 +2146,12 @@ namespace aspect
             for (unsigned int q = 0; q < quadrature_formula.size(); ++q)
               {
                 const double density_anomaly =
-                  out.densities[q] - reference_density_for_internal_anomalies;
+                  this->get_density_source_manager()
+                  .self_gravity_source_density(
+                    in,
+                    out,
+                    q,
+                    reference_density_for_internal_anomalies);
 
                 if (density_anomaly == 0.0)
                   continue;
@@ -2247,7 +2256,12 @@ namespace aspect
                 for (unsigned int q = 0; q < quadrature_formula.size(); ++q)
                   local_max_density_anomaly =
                     std::max(local_max_density_anomaly,
-                             std::abs(out.densities[q] - reference_density_for_internal_anomalies));
+                             std::abs(this->get_density_source_manager()
+                                      .self_gravity_source_density(
+                                        in,
+                                        out,
+                                        q,
+                                        reference_density_for_internal_anomalies)));
               }
 
           const double global_max_density_anomaly =
@@ -2270,7 +2284,13 @@ namespace aspect
 
             for (unsigned int q = 0; q < quadrature_formula.size(); ++q)
               {
-                const double density_anomaly = out.densities[q] - reference_density_for_internal_anomalies;
+                const double density_anomaly =
+                  this->get_density_source_manager()
+                  .self_gravity_source_density(
+                    in,
+                    out,
+                    q,
+                    reference_density_for_internal_anomalies);
 
                 if (density_anomaly == 0.0)
                   continue;

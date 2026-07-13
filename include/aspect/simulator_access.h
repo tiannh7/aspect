@@ -46,6 +46,7 @@ namespace aspect
   template <int dim> class Simulator;
   template <int dim> struct SimulatorSignals;
   template <int dim> class LateralAveraging;
+  template <int dim> class DensitySourceManager;
   template <int dim> struct RotationProperties;
 
   namespace GravityModel
@@ -892,6 +893,12 @@ namespace aspect
        */
       const LateralAveraging<dim> &
       get_lateral_averaging () const;
+
+      /**
+       * Return the simulator-owned density-source manager.
+       */
+      const DensitySourceManager<dim> &
+      get_density_source_manager () const;
 
       /**
        * Return a pointer to the object that describes the DoF

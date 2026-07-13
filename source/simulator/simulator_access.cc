@@ -806,6 +806,15 @@ namespace aspect
     return simulator->lateral_averaging;
   }
 
+
+
+  template <int dim>
+  const DensitySourceManager<dim> &
+  SimulatorAccess<dim>::get_density_source_manager () const
+  {
+    return simulator->density_source_manager;
+  }
+
   template <int dim>
   const AffineConstraints<double> &
   SimulatorAccess<dim>::get_current_constraints() const
