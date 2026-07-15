@@ -6,7 +6,8 @@ implementation in ASPECT. The implementation targets the ICE-6G cases of
 Zhong et al. (2022) and the ICE-6G_D cases of Yuan et al. (2025). It extends
 the existing `potential feedback` boundary traction model; it does not add GIA
 terms directly to the Stokes assembler and it does not reuse the passive
-`sea level` postprocessor as a forcing model.
+`sea level` postprocessor as a forcing model. The sea-level calculation follows
+the single implementation in the canonical CitcomSVE 3.0 source tree.
 
 The feature is disabled unless `glacial isostatic adjustment` is listed in
 `Potential feedback/List of feedback mechanisms`. Existing self-gravity,
@@ -18,11 +19,8 @@ behavior.
 The coupled implementation owns the following state and operations:
 
 - a time-dependent gridded ice-thickness history with arbitrary stage times;
-- an optional prescribed time-dependent ocean function;
-- a static initial topography/bathymetry field;
-- grounded-versus-floating ice classification;
-- the Zhong et al. (2022) sea-level equation;
-- the Yuan et al. (2025) moving-shoreline sea-level equation;
+- a prescribed static or time-dependent ocean function;
+- the canonical CitcomSVE sea-level equation;
 - water-mass conservation through the spatially uniform barystatic constant;
 - inward ice and ocean traction on the top boundary;
 - inclusion of the same ice and ocean mass in self-gravity and rotational
@@ -78,41 +76,23 @@ the two gridded fields. It keeps the first field available as the reference
 state. The loader clamps to the first or last field outside the schedule and
 loads only the two bracketing grids needed at the current time.
 
-The initial topography is a separate static structured grid. This avoids
-duplicating bathymetry in every ice or ocean file and provides the
-`T_0` field required by the Yuan et al. equation.
-
 ## Load definition
 
 Let `I` be ice thickness, `rho_i` ice density, `rho_w` water density,
-`T_0` initial topography, `U` radial solid displacement, `N` geoid-height
-change, and `c` the barystatic constant. Ice thickness is non-negative.
+`U` radial solid displacement, `N` geoid-height change, and `c` the
+barystatic constant. Ice thickness is non-negative. The ice load is the change
+in prescribed ice mass relative to either the first history file or zero
+thickness, as selected by the input parameter.
 
-For a point below sea level, ice is grounded when
+With `Delta M_i` defined as current prescribed ice mass minus reference ice
+mass, ice loss has `Delta M_i < 0` and contributes
+`-Delta M_i/rho_w` to ocean water volume. Any grounding-line or shoreline
+classification is part of the prescribed ice and ocean histories, matching the
+canonical CitcomSVE workflow.
 
-```{math}
-\rho_i I > -\rho_w T,
-```
+## Sea-level equation
 
-where the bed elevation relative to the current sea surface is
-
-```{math}
-T = T_0 + U - N - c.
-```
-
-Ice above sea level is grounded whenever its thickness is positive. Floating
-ice is treated as part of the ocean and does not create an additional grounded
-ice load. The ice load is the change in grounded ice mass relative to either
-the first history file or zero thickness, as selected by the input parameter.
-
-With `Delta M_i` defined as current grounded ice mass minus reference grounded
-ice mass, ice loss has `Delta M_i < 0`. Both supported formulations therefore
-use `-Delta M_i/rho_w` as the water-volume contribution. This explicit sign
-convention removes the notational difference between the two papers.
-
-## Sea-level equations
-
-The Zhong et al. (2022) form is
+The canonical CitcomSVE 3.0 form is
 
 ```{math}
 L = O(N-U+c),
@@ -126,28 +106,12 @@ c = \frac{-\Delta M_i/\rho_w
          {\int O\,dS}.
 ```
 
-The ocean function may be static or prescribed at every ice stage.
-
-The Yuan et al. (2025) form is
-
-```{math}
-L = O(N-U+c)-T_0(O-O_0),
-```
-
-with
-
-```{math}
-c = \frac{-\Delta M_i/\rho_w
-          -\int (N-U)O\,dS
-          +\int T_0(O-O_0)\,dS}
-         {\int O\,dS}.
-```
-
-For the moving-shoreline ocean model, `O=1` where the current sea surface is
-above the bed and the ice is not grounded. For the prescribed model, input
-values are thresholded to zero or one and grounded-ice points are removed from
-the ocean mask. The reference ocean function `O_0` is evaluated from the first
-history state.
+The ocean function may be static or prescribed at every ice stage. Input values
+are clipped to the interval from zero to one, and stage interpolation may
+produce fractional ocean coverage. This is algebraically equivalent to
+CitcomSVE's separate static meltwater load and dynamic `N-U` ocean load, while
+allowing the combined mass field to be passed consistently to ASPECT
+self-gravity and rotational feedback.
 
 The ocean mass anomaly is `rho_w L`. The total GIA surface mass anomaly is
 
@@ -182,7 +146,8 @@ this order:
 
 1. self-gravity updates from the current GIA load and displacement predictor;
 2. rotational feedback updates from the same mass distribution;
-3. GIA updates `N`, `U`, `O`, `c`, and the ice-plus-ocean load.
+3. GIA updates `N`, `U`, `c`, and the ice-plus-ocean load for the prescribed
+   current ocean function.
 
 The solver continues while any active mechanism is unconverged. GIA
 convergence is the relative L2 change of its spherical-harmonic surface-mass
@@ -216,14 +181,14 @@ state until the next coupled update.
 
 The existing `sea level` postprocessor will become a diagnostic view of the
 active GIA provider. It will report or output at least relative sea level,
-ocean function, grounded-ice load, ocean load, total GIA load, and the
+ocean function, ice load, ocean load, total GIA load, and the
 barystatic constant.
 
 Implementation acceptance requires, in this order:
 
 1. a default-off regression proving unchanged existing behavior;
 2. a small synthetic history-loader interpolation test;
-3. a mass-conservation test for fixed and moving ocean functions;
+3. a mass-conservation test for the canonical prescribed-ocean SLE;
 4. a coupled low-resolution GIA smoke test with checkpoint/restart;
 5. Zhong et al. (2022) and Yuan et al. (2025) production cases on HPC.
 

@@ -123,42 +123,28 @@ then lists age in ka and CitcomSVE time-step count. ASPECT uses the age column t
 construct elapsed stage times and numbers the data files sequentially; the
 CitcomSVE time-step count does not override ASPECT's time-step selection.
 
-At every surface quadrature point the model distinguishes grounded and floating
-ice. With ice thickness `I`, ice density `rho_i`, water density `rho_w`, and bed
-elevation `T` relative to the current sea surface, ice is grounded when
-
-```{math}
-\rho_i I > -\rho_w T.
-```
-
-Ice above sea level is grounded whenever its thickness is positive. Floating
-ice remains part of the ocean function and does not produce a separate grounded
-ice load.
-
-The Zhong et al. (2022) sea-level equation is
+The implementation follows the single sea-level equation in the canonical
+CitcomSVE 3.0 source:
 
 ```{math}
 L=O(N-U+c),
 ```
 
-whereas the Yuan et al. (2025) option uses
+Here `N` is the current geoid-height perturbation, `U` is radial solid-surface
+displacement, and `O` is the prescribed current ocean function. The spatially
+uniform constant is
 
 ```{math}
-L=O(N-U+c)-T_0(O-O_0).
+c=\frac{-\Delta M_i/\rho_w-\int (N-U)O\,dS}{\int O\,dS}.
 ```
 
-Here `N` is the current geoid-height perturbation, `U` is radial solid-surface
-displacement, `O` is the current ocean function, and `T_0` is initial
-topography. The spatially uniform constant `c` is recomputed from global water
-mass conservation. With ice-mass change defined as current grounded ice mass
-minus reference grounded ice mass, both formulations use
-`-Delta M_i/rho_w`; ice loss therefore adds ocean water.
-
-The `prescribed` ocean-function model reads a static or time-dependent mask.
-The `moving shoreline` model determines the mask from the current sea surface,
-bed elevation, and grounded ice. Grounding, shoreline position, and `c` are
-iterated at fixed geoid and displacement before the load is passed back to the
-common potential iteration.
+The ice-mass change is current prescribed ice mass minus the selected reference
+ice mass. Ice loss therefore has `Delta M_i < 0` and adds ocean water. Ocean
+function values are read from a static or time-dependent history and
+clipped to the interval from zero to one. Stage interpolation may therefore
+produce fractional ocean coverage, matching the canonical CitcomSVE update.
+Shoreline and grounding changes must be encoded in that history; ASPECT does
+not introduce a second online moving-shoreline SLE.
 
 The total applied surface mass anomaly is
 
@@ -187,11 +173,7 @@ subsection Potential feedback
                                     glacial isostatic adjustment
 
   subsection Glacial isostatic adjustment
-    set Sea level equation = Yuan et al. 2025
-    set Ocean function model = moving shoreline
     set Ice load reference = first history file
-    set Initial topography directory = /path/to/gia-data/
-    set Initial topography file name = initial_topography.txt
     set Maximum degree = 32
 
     subsection Ice history
@@ -200,13 +182,16 @@ subsection Potential feedback
       set Schedule file name = ice_stages.txt
       set Schedule format = citcomsve stage ages
     end
+
+    subsection Prescribed ocean function history
+      set Data directory = /path/to/gia-data/
+      set Data file name = ocean.%d.txt
+      set Schedule file name = ocean_stages.txt
+      set Schedule format = citcomsve stage ages
+    end
   end
 end
 ```
-
-For the Zhong et al. formulation, select `prescribed` and configure the
-`Prescribed ocean function history` subsection. For the moving-shoreline model
-that history is not loaded.
 
 A CitcomSVE-style benchmark input uses the shared boundary-traction list for the
 interfaces and keeps the feedback block compact:
