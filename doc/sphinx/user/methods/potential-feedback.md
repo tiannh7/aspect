@@ -117,9 +117,14 @@ feedback. The feature is disabled by default and requires `self gravity` in the
 same mechanism list.
 
 Ice and prescribed ocean functions are read as structured longitude-colatitude
-histories. Their schedule may contain elapsed model time and file number, or use
-the CitcomSVE stage-age format. The latter starts with the number of stages and
-then lists age in ka and CitcomSVE time-step count. ASPECT uses the age column to
+histories. `Data format = citcomsve regular grid` reads the canonical CitcomSVE
+header and longitude-latitude values directly, converts degrees to ASPECT's
+radian longitude-colatitude coordinates, and closes the grid periodically at
+the longitude seam and continuously at the poles. The default
+`aspect structured data` format retains ASPECT's standard `# POINTS:` input.
+Their schedule may contain elapsed model time and file number, or use the
+CitcomSVE stage-age format. The latter starts with the number of stages and then
+lists age in ka and CitcomSVE time-step count. ASPECT uses the age column to
 construct elapsed stage times and numbers the data files sequentially; the
 CitcomSVE time-step count does not override ASPECT's time-step selection.
 
@@ -179,6 +184,7 @@ subsection Potential feedback
     subsection Ice history
       set Data directory = /path/to/gia-data/
       set Data file name = ice.%d.txt
+      set Data format = citcomsve regular grid
       set Schedule file name = ice_stages.txt
       set Schedule format = citcomsve stage ages
     end
@@ -186,6 +192,7 @@ subsection Potential feedback
     subsection Prescribed ocean function history
       set Data directory = /path/to/gia-data/
       set Data file name = ocean.%d.txt
+      set Data format = citcomsve regular grid
       set Schedule file name = ocean_stages.txt
       set Schedule format = citcomsve stage ages
     end

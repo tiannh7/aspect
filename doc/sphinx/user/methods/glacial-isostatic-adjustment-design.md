@@ -65,11 +65,16 @@ self-gravity sampling points, and after mesh refinement.
 ## Input histories
 
 Ice and prescribed-ocean histories use structured latitude-longitude files and
-a separate schedule. A schedule may contain increasing elapsed model times and
-file numbers, or use the CitcomSVE stage-age convention. CitcomSVE stage ages
-are converted to elapsed time from the first stage; the second column, which
-records the number of CitcomSVE time steps in a stage, does not control ASPECT's
-time step.
+a separate schedule. The explicit `citcomsve regular grid` data format reads
+the canonical CitcomSVE `nlon nlat` header followed by longitude, latitude, and
+field value in degrees. The loader converts to radian longitude-colatitude
+coordinates, adds periodic longitude ghosts, and closes each pole with the
+mean value of its nearest latitude row. The default `aspect structured data`
+format remains available for standard ASPECT `# POINTS:` files. A schedule may
+contain increasing elapsed model times and file numbers, or use the CitcomSVE
+stage-age convention. CitcomSVE stage ages are converted to elapsed time from
+the first stage; the second column, which records the number of CitcomSVE time
+steps in a stage, does not control ASPECT's time step.
 
 At a model time between two stages, the history loader linearly interpolates
 the two gridded fields. It keeps the first field available as the reference
