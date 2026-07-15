@@ -46,6 +46,23 @@ namespace aspect
   namespace Postprocess
   {
     template <int dim>
+    const BoundaryTraction::PotentialFeedbackTraction<dim> *
+    SeaLevel<dim>::gia_provider() const
+    {
+      for (const auto &plugin :
+           this->get_boundary_traction_manager().get_active_plugins())
+        if (const auto *provider =
+              dynamic_cast<const BoundaryTraction::PotentialFeedbackTraction<dim> *>(
+                plugin.get()))
+          if (provider->has_glacial_isostatic_adjustment())
+            return provider;
+
+      return nullptr;
+    }
+
+
+
+    template <int dim>
     void
     SeaLevel<dim>::initialize()
     {
@@ -57,6 +74,9 @@ namespace aspect
     SeaLevel<3>::initialize()
     {
       const int dim = 3;
+
+      if (gia_provider() != nullptr)
+        return;
 
       topography_lookup = std::make_unique<Utilities::StructuredDataLookup<dim-1>>(/* n_components = */1,
                           /* scale = */1.0);
@@ -82,6 +102,9 @@ namespace aspect
     SeaLevel<3>::compute_nonuniform_sea_level_change(const Point<3> &position) const
     {
       const int dim = 3;
+
+      if (const auto *provider = gia_provider())
+        return provider->gia_sea_level_change(position);
 
       const Postprocess::Geoid<dim> &geoid =
         this->get_postprocess_manager().template get_matching_active_plugin<Postprocess::Geoid<dim>>();
@@ -121,6 +144,9 @@ namespace aspect
     SeaLevel<3>::compute_sea_level_offset()
     {
       const int dim = 3;
+
+      if (const auto *provider = gia_provider())
+        return provider->gia_barystatic_sea_level();
 
       const types::boundary_id top_boundary_id = this->get_geometry_model().translate_symbolic_boundary_name_to_id("top");
 
@@ -222,6 +248,10 @@ namespace aspect
       // This function should be called from the boundary traction.
       const int dim = 3;
 
+      if (const auto *provider = gia_provider())
+        return this->get_gravity_model().gravity_vector(position).norm()
+               * provider->gia_surface_mass_density(position);
+
       const double nonuniform_sea_level_change = compute_nonuniform_sea_level_change(position);
 
       Point<dim-1> long_colat;
@@ -264,6 +294,9 @@ namespace aspect
                    ExcMessage("The geoid postprocessor is currently only implemented for the 3D spherical shell geometry model."));
 
       const types::boundary_id top_boundary_id = this->get_geometry_model().translate_symbolic_boundary_name_to_id("top");
+
+      const BoundaryTraction::PotentialFeedbackTraction<dim> *gia =
+        gia_provider();
 
       const Postprocess::Geoid<dim> &geoid =
         this->get_postprocess_manager().template get_matching_active_plugin<Postprocess::Geoid<dim>>();
@@ -309,18 +342,52 @@ namespace aspect
                     for (unsigned int d = 1; d < dim; ++d)
                       long_colat[d-1] = spherical_position[d];
 
-                    const double ice_height = ice_height_lookup->get_data(long_colat,0);
-                    const double topography_init = topography_lookup->get_data(long_colat,0);
-                    int ocean_mask = 0;
-                    if (topography_init < 0.0)
-                      ocean_mask = 1;
+                    double ice_height = 0.0;
+                    double ocean_mask = 0.0;
+                    double ice_load_mass_density = 0.0;
+                    double ocean_load_mass_density = 0.0;
+                    double total_load_mass_density = 0.0;
+                    if (gia != nullptr)
+                      {
+                        ice_load_mass_density =
+                          gia->gia_ice_load_mass_density(vertex);
+                        ocean_load_mass_density =
+                          gia->gia_ocean_load_mass_density(vertex);
+                        total_load_mass_density =
+                          gia->gia_surface_mass_density(vertex);
+                        ice_height = ice_load_mass_density / density_ice;
+                        ocean_mask = gia->gia_ocean_function(vertex);
+                      }
                     else
-                      ocean_mask = 0;
+                      {
+                        ice_height = ice_height_lookup->get_data(long_colat,0);
+                        ice_load_mass_density = density_ice * ice_height;
+                        const double topography_init =
+                          topography_lookup->get_data(long_colat,0);
+                        ocean_mask = topography_init < 0.0 ? 1.0 : 0.0;
+                        ocean_load_mass_density =
+                          density_water
+                          * (nonuniform_sea_level_change
+                             + sea_level_offset * ocean_mask);
+                        total_load_mass_density =
+                          ice_load_mass_density
+                          + ocean_load_mass_density;
+                      }
 
                     if (write_to_file)
                       {
                         const std::array<double,dim> scoord = aspect::Utilities::Coordinates::cartesian_to_spherical_coordinates(vertex);
-                        output_file << scoord[0] << ' ' << scoord[1] << ' ' << scoord[2] << ' ' << nonuniform_sea_level_change << ' ' << sea_level_offset << ' ' << geoid_displacement << ' ' << topography << ' ' << ice_height << ' ' << ocean_mask << std::endl;
+                        output_file << scoord[0] << ' ' << scoord[1] << ' '
+                                    << scoord[2] << ' '
+                                    << nonuniform_sea_level_change << ' '
+                                    << sea_level_offset << ' '
+                                    << geoid_displacement << ' '
+                                    << topography << ' '
+                                    << ice_height << ' '
+                                    << ocean_mask << ' '
+                                    << ice_load_mass_density << ' '
+                                    << ocean_load_mass_density << ' '
+                                    << total_load_mass_density << std::endl;
                       }
                     if (nonuniform_sea_level_change > local_max_height)
                       local_max_height = nonuniform_sea_level_change;
@@ -338,8 +405,14 @@ namespace aspect
                             min_nonuniform_sea_level_change);
       statistics.add_value ("Maximum non-uniform sea_level change (m)",
                             max_nonuniform_sea_level_change);
+      statistics.add_value ("Barystatic sea level change (m)",
+                            sea_level_offset);
+      statistics.add_value ("Eustatic sea level change (m)",
+                            gia != nullptr ? gia->gia_eustatic_sea_level() : 0.0);
       const char *columns[] = { "Minimum non-uniform sea_level change (m)",
-                                "Maximum non-uniform sea_level change (m)"
+                                "Maximum non-uniform sea_level change (m)",
+                                "Barystatic sea level change (m)",
+                                "Eustatic sea level change (m)"
                               };
       for (const auto &column : columns)
         {
@@ -390,7 +463,10 @@ namespace aspect
                << " geoid_displacement"
                << " topography"
                << " ice_height"
-               << " ocean_mask" << std::endl;
+               << " ocean_mask"
+               << " ice_load_mass_density"
+               << " ocean_load_mass_density"
+               << " total_gia_load_mass_density" << std::endl;
 
           // First write out the data we have created locally.
           file << output_file.str();

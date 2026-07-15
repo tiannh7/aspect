@@ -24,6 +24,7 @@
 
 #include <aspect/postprocess/interface.h>
 #include <aspect/simulator_access.h>
+#include <aspect/boundary_traction/potential_feedback_traction.h>
 
 
 namespace aspect
@@ -118,6 +119,9 @@ namespace aspect
          */
         double
         compute_sea_level_offset();
+
+        const BoundaryTraction::PotentialFeedbackTraction<dim> *
+        gia_provider() const;
 
         /**
          * Information about the location of topography data files.
