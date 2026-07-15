@@ -1585,11 +1585,10 @@ namespace aspect
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
                                    "distribute GMG mesh velocity constraints");
       mesh_velocity_constraints.distribute(solution);
-      trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
-                                   "update GMG mesh velocity ghost values");
-      solution.update_ghost_values();
 
       // copy solution:
+      // ChangeVectorTypes::copy imports only locally owned entries, so no
+      // ghost exchange of the matrix-free solution is required here.
       LinearAlgebra::Vector solution_tmp;
       solution_tmp.reinit(mesh_locally_owned, sim.mpi_communicator);
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
