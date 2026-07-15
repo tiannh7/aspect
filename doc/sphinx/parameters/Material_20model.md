@@ -200,7 +200,7 @@ Viscous stress may also be limited by a non-linear stress limiter that has a for
 
  The value for the components of this formula and additional parameters are read from the parameter file in subsection  &rsquo;Material model/Visco Plastic&rsquo;.
 
-&lsquo;viscoelastic&rsquo;: An implementation of a simple linear viscoelastic rheology that only includes the deviatoric components of elasticity. Specifically, the viscoelastic rheology only takes into account the elastic shear strength (e.g., shear modulus), while the tensile and volumetric strength (e.g., Young&rsquo;s and bulk modulus) are not considered. The model is incompressible and allows specifying an arbitrary number of compositional fields, where each field represents a different rock type or component of the viscoelastic stress tensor. The stress tensor in 2d and 3d, respectively, contains 3 or 6 components. The compositional fields representing these components must be named and listed in a very specific format, which is designed to minimize mislabeling stress tensor components as distinct &rsquo;compositional rock types&rsquo; (or vice versa). For 2d models, the first six compositional fields of type stress must be labeled &rsquo;ve\_stress\_xx&rsquo;, &rsquo;ve\_stress\_yy&rsquo; and &rsquo;ve\_stress\_xy&rsquo;, &rsquo;ve\_stress\_xx\_old&rsquo;, &rsquo;ve\_stress\_yy\_old&rsquo; and &rsquo;ve\_stress\_xy\_old&rsquo;, In 3d, the first twelve compositional fields of type stress must be labeled &rsquo;ve\_stress\_xx&rsquo;, &rsquo;ve\_stress\_yy&rsquo;, &rsquo;ve\_stress\_zz&rsquo;, &rsquo;ve\_stress\_xy&rsquo;, &rsquo;ve\_stress\_xz&rsquo;, &rsquo;ve\_stress\_yz&rsquo;, &rsquo;ve\_stress\_xx\_old&rsquo;, &rsquo;ve\_stress\_yy\_old&rsquo;, &rsquo;ve\_stress\_zz\_old&rsquo;,  &rsquo;ve\_stress\_xy\_old&rsquo;, &rsquo;ve\_stress\_xz\_old&rsquo;, &rsquo;ve\_stress\_yz\_old&rsquo;.
+&lsquo;viscoelastic&rsquo;: An implementation of a simple linear viscoelastic rheology that includes deviatoric elasticity by default. The default rheology takes into account elastic shear strength (e.g., shear modulus) and remains incompressible. The default-off &lsquo;Enable compressible Maxwell&rsquo; option additionally supplies a finite elastic bulk modulus to the &lsquo;elastic pressure evolution&rsquo; mass-conservation formulation; it does not make the physical material density pressure-dependent. This optional path supports assembled AMG/direct solvers and local-smoothing block GMG, while global-coarsening GMG remains explicitly rejected. PREM/VM5a use still requires scientific validation against canonical CitcomSVE 3.0 on G2 and is not yet production-ready. The model allows specifying an arbitrary number of compositional fields, where each field represents a different rock type or component of the viscoelastic stress tensor. The stress tensor in 2d and 3d, respectively, contains 3 or 6 components. The compositional fields representing these components must be named and listed in a very specific format, which is designed to minimize mislabeling stress tensor components as distinct &rsquo;compositional rock types&rsquo; (or vice versa). For 2d models, the first six compositional fields of type stress must be labeled &rsquo;ve\_stress\_xx&rsquo;, &rsquo;ve\_stress\_yy&rsquo; and &rsquo;ve\_stress\_xy&rsquo;, &rsquo;ve\_stress\_xx\_old&rsquo;, &rsquo;ve\_stress\_yy\_old&rsquo; and &rsquo;ve\_stress\_xy\_old&rsquo;, In 3d, the first twelve compositional fields of type stress must be labeled &rsquo;ve\_stress\_xx&rsquo;, &rsquo;ve\_stress\_yy&rsquo;, &rsquo;ve\_stress\_zz&rsquo;, &rsquo;ve\_stress\_xy&rsquo;, &rsquo;ve\_stress\_xz&rsquo;, &rsquo;ve\_stress\_yz&rsquo;, &rsquo;ve\_stress\_xx\_old&rsquo;, &rsquo;ve\_stress\_yy\_old&rsquo;, &rsquo;ve\_stress\_zz\_old&rsquo;,  &rsquo;ve\_stress\_xy\_old&rsquo;, &rsquo;ve\_stress\_xz\_old&rsquo;, &rsquo;ve\_stress\_yz\_old&rsquo;.
 
  Expanding the model to include non-linear viscous flow (e.g., diffusion/dislocation creep) and plasticity would produce a constitutive relationship commonly referred to as partial elastoviscoplastic (e.g., pEVP) in the geodynamics community. While extensively discussed and applied within the geodynamics literature, notable references include: Moresi et al. (2003), J. Comp. Phys., v. 184, p. 476-497. Gerya and Yuen (2007), Phys. Earth. Planet. Inter., v. 163, p. 83-105. Gerya (2010), Introduction to Numerical Geodynamic Modeling. Kaus (2010), Tectonophysics, v. 484, p. 36-47. Choi et al. (2013), J. Geophys. Res., v. 118, p. 2429-2444. Keller et al. (2013), Geophys. J. Int., v. 195, p. 1406-1442.
 
@@ -755,6 +755,24 @@ A typical example would be to set this runtime parameter to &lsquo;pi=3.14159265
 **Documentation:** The value of the specific heat $C_p$. Units: $\frac{\text{J}}{\text{K}\text{kg}}$.
 ::::
 
+::::{dropdown} __Parameter:__ {ref}`Maximum diffusion viscosity<parameters:Material_20model/Diffusion_20dislocation/Maximum_20diffusion_20viscosity>`
+:name: parameters:Material_20model/Diffusion_20dislocation/Maximum_20diffusion_20viscosity
+**Default value:** 1e28
+
+**Pattern:** [Anything]
+
+**Documentation:** Upper cutoff for the diffusion creep single-mechanism viscosity. Units: $\text{Pa}\text{s}$. List with as many components as active compositional fields.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Maximum dislocation viscosity<parameters:Material_20model/Diffusion_20dislocation/Maximum_20dislocation_20viscosity>`
+:name: parameters:Material_20model/Diffusion_20dislocation/Maximum_20dislocation_20viscosity
+**Default value:** 1e28
+
+**Pattern:** [Anything]
+
+**Documentation:** Upper cutoff for the dislocation creep single-mechanism viscosity. Units: $\text{Pa}\text{s}$. List with as many components as active compositional fields.
+::::
+
 ::::{dropdown} __Parameter:__ {ref}`Maximum strain rate ratio iterations<parameters:Material_20model/Diffusion_20dislocation/Maximum_20strain_20rate_20ratio_20iterations>`
 :name: parameters:Material_20model/Diffusion_20dislocation/Maximum_20strain_20rate_20ratio_20iterations
 **Default value:** 40
@@ -771,6 +789,24 @@ A typical example would be to set this runtime parameter to &lsquo;pi=3.14159265
 **Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
 
 **Documentation:** Upper cutoff for effective viscosity. Units: $\text{Pa}\text{s}$.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Minimum diffusion viscosity<parameters:Material_20model/Diffusion_20dislocation/Minimum_20diffusion_20viscosity>`
+:name: parameters:Material_20model/Diffusion_20dislocation/Minimum_20diffusion_20viscosity
+**Default value:** 1e17
+
+**Pattern:** [Anything]
+
+**Documentation:** Lower cutoff for the diffusion creep single-mechanism viscosity. Units: $\text{Pa}\text{s}$. List with as many components as active compositional fields.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Minimum dislocation viscosity<parameters:Material_20model/Diffusion_20dislocation/Minimum_20dislocation_20viscosity>`
+:name: parameters:Material_20model/Diffusion_20dislocation/Minimum_20dislocation_20viscosity
+**Default value:** 1e17
+
+**Pattern:** [Anything]
+
+**Documentation:** Lower cutoff for the dislocation creep single-mechanism viscosity. Units: $\text{Pa}\text{s}$. List with as many components as active compositional fields.
 ::::
 
 ::::{dropdown} __Parameter:__ {ref}`Minimum strain rate<parameters:Material_20model/Diffusion_20dislocation/Minimum_20strain_20rate>`
@@ -4968,11 +5004,11 @@ Note that melt does not freeze unless the &rsquo;Freezing rate&rsquo; parameter 
 
 ::::{dropdown} __Parameter:__ {ref}`Fixed elastic time step<parameters:Material_20model/Visco_20Plastic/Fixed_20elastic_20time_20step>`
 :name: parameters:Material_20model/Visco_20Plastic/Fixed_20elastic_20time_20step
-**Default value:** 1.e3
+**Default value:** -1.e300
 
-**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+**Pattern:** [Double -MAX_DOUBLE...MAX_DOUBLE (inclusive)]
 
-**Documentation:** The fixed elastic time step $dte$. It is always used during the first timestep; afterwards on if &rsquo;Used fixed elastic time step&rsquo; is true. Units: years if the &rsquo;Use years instead of seconds&rsquo; parameter is set; seconds otherwise.
+**Documentation:** Deprecated.
 ::::
 
 ::::{dropdown} __Parameter:__ {ref}`Friction mechanism<parameters:Material_20model/Visco_20Plastic/Friction_20mechanism>`
@@ -5044,6 +5080,24 @@ Note that melt does not freeze unless the &rsquo;Freezing rate&rsquo; parameter 
 **Documentation:** Whether to include Peierls creep in the rheological formulation.
 ::::
 
+::::{dropdown} __Parameter:__ {ref}`Initial elastic time step<parameters:Material_20model/Visco_20Plastic/Initial_20elastic_20time_20step>`
+:name: parameters:Material_20model/Visco_20Plastic/Initial_20elastic_20time_20step
+**Default value:** 1.e3
+
+**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+
+**Documentation:** The timestep used for the timestep-zero initial elastic response in the viscoelastic material model. This value is also used by timestep-zero free-surface stabilization and self-gravity/potential-feedback displacement prediction when the simulator timestep is zero. It is distinct from Maximum time step, which controls normal time stepping. Units: years if the &rsquo;Use years instead of seconds&rsquo; parameter is set; seconds otherwise.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Initial response mode<parameters:Material_20model/Visco_20Plastic/Initial_20response_20mode>`
+:name: parameters:Material_20model/Visco_20Plastic/Initial_20response_20mode
+**Default value:** viscoelastic
+
+**Pattern:** [Selection viscoelastic|instantaneous elastic ]
+
+**Documentation:** Controls the constitutive response used only during the timestep-zero initial loaded solve. &rsquo;viscoelastic&rsquo;: the full Maxwell viscoelastic response is used at timestep zero, identical to subsequent time steps. &rsquo;instantaneous elastic&rsquo;: the pure instantaneous elastic viscosity G*dt_initial is used at timestep zero, without placing the Maxwell dashpot in series. This matches benchmarks whose t=0 solution is the instantaneous elastic limit before finite viscoelastic time steps begin. This parameter only controls the initial loaded solve; subsequent time stepping always uses the full viscoelastic update.
+::::
+
 ::::{dropdown} __Parameter:__ {ref}`Lower temperature for maximum strain weakening<parameters:Material_20model/Visco_20Plastic/Lower_20temperature_20for_20maximum_20strain_20weakening>`
 :name: parameters:Material_20model/Visco_20Plastic/Lower_20temperature_20for_20maximum_20strain_20weakening
 **Default value:** 923.
@@ -5080,6 +5134,33 @@ Note that melt does not freeze unless the &rsquo;Freezing rate&rsquo; parameter 
 **Documentation:** Maximum number of iterations to find the correct Peierls strain rate.
 ::::
 
+::::{dropdown} __Parameter:__ {ref}`Maximum diffusion viscosity<parameters:Material_20model/Visco_20Plastic/Maximum_20diffusion_20viscosity>`
+:name: parameters:Material_20model/Visco_20Plastic/Maximum_20diffusion_20viscosity
+**Default value:** 1e28
+
+**Pattern:** [Anything]
+
+**Documentation:** Upper cutoff for the diffusion creep single-mechanism viscosity. Units: $\text{Pa}\text{s}$. List with as many components as active compositional fields.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Maximum dislocation viscosity<parameters:Material_20model/Visco_20Plastic/Maximum_20dislocation_20viscosity>`
+:name: parameters:Material_20model/Visco_20Plastic/Maximum_20dislocation_20viscosity
+**Default value:** 1e28
+
+**Pattern:** [Anything]
+
+**Documentation:** Upper cutoff for the dislocation creep single-mechanism viscosity. Units: $\text{Pa}\text{s}$. List with as many components as active compositional fields.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Maximum non-yielding viscosity<parameters:Material_20model/Visco_20Plastic/Maximum_20non_2dyielding_20viscosity>`
+:name: parameters:Material_20model/Visco_20Plastic/Maximum_20non_2dyielding_20viscosity
+**Default value:** 1e28
+
+**Pattern:** [Anything]
+
+**Documentation:** Upper cutoff for the non-yielding (pre-plastic) viscosity. Units: $\text{Pa}\text{s}$. List with as many components as active compositional fields.
+::::
+
 ::::{dropdown} __Parameter:__ {ref}`Maximum viscosity<parameters:Material_20model/Visco_20Plastic/Maximum_20viscosity>`
 :name: parameters:Material_20model/Visco_20Plastic/Maximum_20viscosity
 **Default value:** 1e28
@@ -5098,6 +5179,24 @@ Note that melt does not freeze unless the &rsquo;Freezing rate&rsquo; parameter 
 **Documentation:** List of maximum yield stresses, for background material and compositional fields, , which limits the maximum value of the yield stress determined by the Drucker-Prager plasticity parameters. Default value is chosen so this is not automatically used. Values of 100e6--1000e6 $Pa$ have been used in previous models. Units: \si{\pascal}.
 ::::
 
+::::{dropdown} __Parameter:__ {ref}`Minimum diffusion viscosity<parameters:Material_20model/Visco_20Plastic/Minimum_20diffusion_20viscosity>`
+:name: parameters:Material_20model/Visco_20Plastic/Minimum_20diffusion_20viscosity
+**Default value:** 1e17
+
+**Pattern:** [Anything]
+
+**Documentation:** Lower cutoff for the diffusion creep single-mechanism viscosity. Units: $\text{Pa}\text{s}$. List with as many components as active compositional fields.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Minimum dislocation viscosity<parameters:Material_20model/Visco_20Plastic/Minimum_20dislocation_20viscosity>`
+:name: parameters:Material_20model/Visco_20Plastic/Minimum_20dislocation_20viscosity
+**Default value:** 1e17
+
+**Pattern:** [Anything]
+
+**Documentation:** Lower cutoff for the dislocation creep single-mechanism viscosity. Units: $\text{Pa}\text{s}$. List with as many components as active compositional fields.
+::::
+
 ::::{dropdown} __Parameter:__ {ref}`Minimum mass fraction bound water content for fugacity<parameters:Material_20model/Visco_20Plastic/Minimum_20mass_20fraction_20bound_20water_20content_20for_20fugacity>`
 :name: parameters:Material_20model/Visco_20Plastic/Minimum_20mass_20fraction_20bound_20water_20content_20for_20fugacity
 **Default value:** 6.15e-6
@@ -5105,6 +5204,15 @@ Note that melt does not freeze unless the &rsquo;Freezing rate&rsquo; parameter 
 **Pattern:** [List of <[Double 0...MAX_DOUBLE (inclusive)]> of length 0...4294967295 (inclusive)]
 
 **Documentation:** The minimum water content for the HK04 olivine hydration viscosity prefactor scheme. This acts as the cutoff between &rsquo;dry&rsquo; creep and &rsquo;wet&rsquo; creep for olivine, and the default value is chosen based on the value reported by Hirth & Kohlstaedt 2004. For a mass fraction of bound water beneath this value, this value is used instead to compute the water fugacity. Units: \si{\kg} / \si{\kg} %.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Minimum non-yielding viscosity<parameters:Material_20model/Visco_20Plastic/Minimum_20non_2dyielding_20viscosity>`
+:name: parameters:Material_20model/Visco_20Plastic/Minimum_20non_2dyielding_20viscosity
+**Default value:** 1e17
+
+**Pattern:** [Anything]
+
+**Documentation:** Lower cutoff for the non-yielding (pre-plastic) viscosity. Units: $\text{Pa}\text{s}$. List with as many components as active compositional fields.
 ::::
 
 ::::{dropdown} __Parameter:__ {ref}`Minimum strain rate<parameters:Material_20model/Visco_20Plastic/Minimum_20strain_20rate>`
@@ -5577,6 +5685,15 @@ If a compositional field named &rsquo;noninitial\_plastic\_strain&rsquo; is incl
 **Documentation:** Select whether the material time scale in the viscoelastic constitutive relationship uses the regular numerical time step or a separate fixed elastic time step throughout the model run. The fixed elastic time step is always used during the initial time step. If a fixed elastic time step is used throughout the model run, a stress averaging scheme is applied to account for differences with the numerical time step. An alternative approach is to limit the maximum time step size so that it is equal to the elastic time step. The default value of this parameter is &rsquo;unspecified&rsquo;, which throws an exception during runtime. In order for the model to run the user must select &rsquo;true&rsquo; or &rsquo;false&rsquo;.
 ::::
 
+::::{dropdown} __Parameter:__ {ref}`Use instantaneous elastic response at timestep zero<parameters:Material_20model/Visco_20Plastic/Use_20instantaneous_20elastic_20response_20at_20timestep_20zero>`
+:name: parameters:Material_20model/Visco_20Plastic/Use_20instantaneous_20elastic_20response_20at_20timestep_20zero
+**Default value:** unspecified
+
+**Pattern:** [Selection true|false|unspecified ]
+
+**Documentation:** Deprecated. Use &rsquo;Initial response mode&rsquo; instead.
+::::
+
 ::::{dropdown} __Parameter:__ {ref}`Use plastic damper<parameters:Material_20model/Visco_20Plastic/Use_20plastic_20damper>`
 :name: parameters:Material_20model/Visco_20Plastic/Use_20plastic_20damper
 **Default value:** false
@@ -5593,6 +5710,24 @@ If a compositional field named &rsquo;noninitial\_plastic\_strain&rsquo; is incl
 **Pattern:** [Bool]
 
 **Documentation:** Whether viscous strain softening factor depends on temperature
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Viscoelastic stress update scheme<parameters:Material_20model/Visco_20Plastic/Viscoelastic_20stress_20update_20scheme>`
+:name: parameters:Material_20model/Visco_20Plastic/Viscoelastic_20stress_20update_20scheme
+**Default value:** backward euler
+
+**Pattern:** [Selection backward euler|theta|exponential ]
+
+**Documentation:** Select the time discretization used for the linear Maxwell stress update. The &rsquo;backward euler&rsquo; option recovers ASPECT&rsquo;s existing effective-viscosity update. The &rsquo;theta&rsquo; option uses the value of &rsquo;Viscoelastic stress update theta&rsquo;. The &rsquo;exponential&rsquo; option uses the exact stress relaxation factor exp(-dt/tau_M) over each time step, with the current strain rate representing the forcing over the step.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Viscoelastic stress update theta<parameters:Material_20model/Visco_20Plastic/Viscoelastic_20stress_20update_20theta>`
+:name: parameters:Material_20model/Visco_20Plastic/Viscoelastic_20stress_20update_20theta
+**Default value:** 1.0
+
+**Pattern:** [Double 0.5...1 (inclusive)]
+
+**Documentation:** Theta parameter for the linear Maxwell stress update when &rsquo;Viscoelastic stress update scheme&rsquo; is &rsquo;theta&rsquo;. A value of 1.0 recovers the backward-Euler retention factor, while 0.5 gives the centered Crank-Nicolson-like retention (1-dt/(2 tau_M))/(1+dt/(2 tau_M)). Values between 0.5 and 1.0 add controlled numerical dissipation.
 ::::
 
 ::::{dropdown} __Parameter:__ {ref}`Viscosity averaging scheme<parameters:Material_20model/Visco_20Plastic/Viscosity_20averaging_20scheme>`
@@ -5767,6 +5902,33 @@ If the function you are describing represents a vector-valued function with mult
 **Documentation:** List of densities for background mantle and compositional fields,for a total of N+M+1 values, where N is the number of compositional fields and M is the number of phases. If only one value is given, then all use the same value. Units: \si{\kilogram\per\meter\cubed}.
 ::::
 
+::::{dropdown} __Parameter:__ {ref}`Elastic Lame lambda moduli<parameters:Material_20model/Viscoelastic/Elastic_20Lame_20lambda_20moduli>`
+:name: parameters:Material_20model/Viscoelastic/Elastic_20Lame_20lambda_20moduli
+**Default value:** 1.5e11
+
+**Pattern:** [List of <[Double 0...MAX_DOUBLE (inclusive)]> of length 0...4294967295 (inclusive)]
+
+**Documentation:** Lame&rsquo;s first parameters for the background and chemical compositions. These values are used when &lsquo;Elastic bulk modulus formulation&rsquo; is &lsquo;Lame lambda&rsquo;. A single value applies to every phase. Units: Pa.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Elastic bulk moduli<parameters:Material_20model/Viscoelastic/Elastic_20bulk_20moduli>`
+:name: parameters:Material_20model/Viscoelastic/Elastic_20bulk_20moduli
+**Default value:** 2.e11
+
+**Pattern:** [List of <[Double 0...MAX_DOUBLE (inclusive)]> of length 0...4294967295 (inclusive)]
+
+**Documentation:** Elastic bulk moduli for the background and chemical compositions. A single value applies to every phase. Units: Pa.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Elastic bulk modulus formulation<parameters:Material_20model/Viscoelastic/Elastic_20bulk_20modulus_20formulation>`
+:name: parameters:Material_20model/Viscoelastic/Elastic_20bulk_20modulus_20formulation
+**Default value:** bulk modulus
+
+**Pattern:** [Selection bulk modulus|Lame lambda ]
+
+**Documentation:** Select whether elastic bulk modulus K is specified directly or computed as K=lambda+2G/3 from Lame&rsquo;s first parameter and the elastic shear modulus. This selection applies to parameter-list input; ASCII profiles use their compressibility or lame_lambda column.
+::::
+
 ::::{dropdown} __Parameter:__ {ref}`Elastic damper viscosity<parameters:Material_20model/Viscoelastic/Elastic_20damper_20viscosity>`
 :name: parameters:Material_20model/Viscoelastic/Elastic_20damper_20viscosity
 **Default value:** 0.0
@@ -5785,13 +5947,22 @@ If the function you are describing represents a vector-valued function with mult
 **Documentation:** List of elastic shear moduli, $G$, for background material and compositional fields, for a total of N+1 values, where N is the number of all compositional fields or only those corresponding to chemical compositions. The default value of 75 GPa is representative of mantle rocks. Units: Pa.
 ::::
 
+::::{dropdown} __Parameter:__ {ref}`Enable compressible Maxwell<parameters:Material_20model/Viscoelastic/Enable_20compressible_20Maxwell>`
+:name: parameters:Material_20model/Viscoelastic/Enable_20compressible_20Maxwell
+**Default value:** false
+
+**Pattern:** [Bool]
+
+**Documentation:** Whether to enable a finite elastic bulk response. When enabled, the material model supplies an elastic bulk modulus to the &lsquo;elastic pressure evolution&rsquo; mass formulation. Physical material density remains the incompressible equation-of-state density. This option is disabled by default.
+::::
+
 ::::{dropdown} __Parameter:__ {ref}`Fixed elastic time step<parameters:Material_20model/Viscoelastic/Fixed_20elastic_20time_20step>`
 :name: parameters:Material_20model/Viscoelastic/Fixed_20elastic_20time_20step
-**Default value:** 1.e3
+**Default value:** -1.e300
 
-**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+**Pattern:** [Double -MAX_DOUBLE...MAX_DOUBLE (inclusive)]
 
-**Documentation:** The fixed elastic time step $dte$. It is always used during the first timestep; afterwards on if &rsquo;Used fixed elastic time step&rsquo; is true. Units: years if the &rsquo;Use years instead of seconds&rsquo; parameter is set; seconds otherwise.
+**Documentation:** Deprecated.
 ::::
 
 ::::{dropdown} __Parameter:__ {ref}`Heat capacities<parameters:Material_20model/Viscoelastic/Heat_20capacities>`
@@ -5801,6 +5972,42 @@ If the function you are describing represents a vector-valued function with mult
 **Pattern:** [Anything]
 
 **Documentation:** List of specific heats $C_p$ for background mantle and compositional fields,for a total of N+M+1 values, where N is the number of compositional fields and M is the number of phases. If only one value is given, then all use the same value. Units: \si{\joule\per\kelvin\per\kilogram}.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Initial elastic time step<parameters:Material_20model/Viscoelastic/Initial_20elastic_20time_20step>`
+:name: parameters:Material_20model/Viscoelastic/Initial_20elastic_20time_20step
+**Default value:** 1.e3
+
+**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+
+**Documentation:** The timestep used for the timestep-zero initial elastic response in the viscoelastic material model. This value is also used by timestep-zero free-surface stabilization and self-gravity/potential-feedback displacement prediction when the simulator timestep is zero. It is distinct from Maximum time step, which controls normal time stepping. Units: years if the &rsquo;Use years instead of seconds&rsquo; parameter is set; seconds otherwise.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Initial response mode<parameters:Material_20model/Viscoelastic/Initial_20response_20mode>`
+:name: parameters:Material_20model/Viscoelastic/Initial_20response_20mode
+**Default value:** viscoelastic
+
+**Pattern:** [Selection viscoelastic|instantaneous elastic ]
+
+**Documentation:** Controls the constitutive response used only during the timestep-zero initial loaded solve. &rsquo;viscoelastic&rsquo;: the full Maxwell viscoelastic response is used at timestep zero, identical to subsequent time steps. &rsquo;instantaneous elastic&rsquo;: the pure instantaneous elastic viscosity G*dt_initial is used at timestep zero, without placing the Maxwell dashpot in series. This matches benchmarks whose t=0 solution is the instantaneous elastic limit before finite viscoelastic time steps begin. This parameter only controls the initial loaded solve; subsequent time stepping always uses the full viscoelastic update.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Reference density for Stokes perturbation<parameters:Material_20model/Viscoelastic/Reference_20density_20for_20Stokes_20perturbation>`
+:name: parameters:Material_20model/Viscoelastic/Reference_20density_20for_20Stokes_20perturbation
+**Default value:** 0
+
+**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Constant reference density whose gravitational body force is subtracted through the additional Stokes RHS, so the Stokes equation sees (rho - rho_ref)*g rather than rho*g. A value of zero leaves the full-pressure formulation unchanged. This permits an incompressible perturbation-pressure weak form while retaining physical material density for other model components (e.g. geoid, self-gravity). Units: kg/m^3.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Reference density for perturbation Stokes<parameters:Material_20model/Viscoelastic/Reference_20density_20for_20perturbation_20Stokes>`
+:name: parameters:Material_20model/Viscoelastic/Reference_20density_20for_20perturbation_20Stokes
+**Default value:** -1.e300
+
+**Pattern:** [Double -MAX_DOUBLE...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Deprecated. Use &rsquo;Reference density for Stokes perturbation&rsquo; instead.
 ::::
 
 ::::{dropdown} __Parameter:__ {ref}`Reference temperature<parameters:Material_20model/Viscoelastic/Reference_20temperature>`
@@ -5846,6 +6053,15 @@ If the function you are describing represents a vector-valued function with mult
 **Documentation:** List of thermal expansivities for background mantle and compositional fields,for a total of N+M+1 values, where N is the number of compositional fields and M is the number of phases. If only one value is given, then all use the same value. Units: \si{\per\kelvin}.
 ::::
 
+::::{dropdown} __Parameter:__ {ref}`Use ascii profile<parameters:Material_20model/Viscoelastic/Use_20ascii_20profile>`
+:name: parameters:Material_20model/Viscoelastic/Use_20ascii_20profile
+**Default value:** false
+
+**Pattern:** [Bool]
+
+**Documentation:** Whether to read density, viscosity, and elastic shear modulus from a one-dimensional ASCII depth profile. The required column names are &lsquo;density&rsquo;, &lsquo;viscosity&rsquo;, and &lsquo;elastic_shear_modulus&rsquo;. When compressible Maxwell elasticity is enabled, the profile must also provide &lsquo;compressibility&rsquo; or &lsquo;lame_lambda&rsquo;; these define the elastic bulk modulus without changing the thermodynamic equation of state. If both columns are present, they must satisfy K=1/compressibility=lame_lambda+2G/3. This option is disabled by default and does not by itself enable finite compressibility.
+::::
+
 ::::{dropdown} __Parameter:__ {ref}`Use fixed elastic time step<parameters:Material_20model/Viscoelastic/Use_20fixed_20elastic_20time_20step>`
 :name: parameters:Material_20model/Viscoelastic/Use_20fixed_20elastic_20time_20step
 **Default value:** unspecified
@@ -5853,6 +6069,33 @@ If the function you are describing represents a vector-valued function with mult
 **Pattern:** [Selection true|false|unspecified ]
 
 **Documentation:** Select whether the material time scale in the viscoelastic constitutive relationship uses the regular numerical time step or a separate fixed elastic time step throughout the model run. The fixed elastic time step is always used during the initial time step. If a fixed elastic time step is used throughout the model run, a stress averaging scheme is applied to account for differences with the numerical time step. An alternative approach is to limit the maximum time step size so that it is equal to the elastic time step. The default value of this parameter is &rsquo;unspecified&rsquo;, which throws an exception during runtime. In order for the model to run the user must select &rsquo;true&rsquo; or &rsquo;false&rsquo;.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Use instantaneous elastic response at timestep zero<parameters:Material_20model/Viscoelastic/Use_20instantaneous_20elastic_20response_20at_20timestep_20zero>`
+:name: parameters:Material_20model/Viscoelastic/Use_20instantaneous_20elastic_20response_20at_20timestep_20zero
+**Default value:** unspecified
+
+**Pattern:** [Selection true|false|unspecified ]
+
+**Documentation:** Deprecated. Use &rsquo;Initial response mode&rsquo; instead.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Viscoelastic stress update scheme<parameters:Material_20model/Viscoelastic/Viscoelastic_20stress_20update_20scheme>`
+:name: parameters:Material_20model/Viscoelastic/Viscoelastic_20stress_20update_20scheme
+**Default value:** backward euler
+
+**Pattern:** [Selection backward euler|theta|exponential ]
+
+**Documentation:** Select the time discretization used for the linear Maxwell stress update. The &rsquo;backward euler&rsquo; option recovers ASPECT&rsquo;s existing effective-viscosity update. The &rsquo;theta&rsquo; option uses the value of &rsquo;Viscoelastic stress update theta&rsquo;. The &rsquo;exponential&rsquo; option uses the exact stress relaxation factor exp(-dt/tau_M) over each time step, with the current strain rate representing the forcing over the step.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Viscoelastic stress update theta<parameters:Material_20model/Viscoelastic/Viscoelastic_20stress_20update_20theta>`
+:name: parameters:Material_20model/Viscoelastic/Viscoelastic_20stress_20update_20theta
+**Default value:** 1.0
+
+**Pattern:** [Double 0.5...1 (inclusive)]
+
+**Documentation:** Theta parameter for the linear Maxwell stress update when &rsquo;Viscoelastic stress update scheme&rsquo; is &rsquo;theta&rsquo;. A value of 1.0 recovers the backward-Euler retention factor, while 0.5 gives the centered Crank-Nicolson-like retention (1-dt/(2 tau_M))/(1+dt/(2 tau_M)). Values between 0.5 and 1.0 add controlled numerical dissipation.
 ::::
 
 ::::{dropdown} __Parameter:__ {ref}`Viscosities<parameters:Material_20model/Viscoelastic/Viscosities>`
@@ -5871,4 +6114,33 @@ If the function you are describing represents a vector-valued function with mult
 **Pattern:** [Selection arithmetic|harmonic|geometric|maximum composition  ]
 
 **Documentation:** When more than one compositional field is present at a point with different viscosities, we need to come up with an average viscosity at that point.  Select a weighted harmonic, arithmetic, geometric, or maximum composition.
+::::
+
+(parameters:Material_20model/Viscoelastic/Ascii_20profile)=
+## **Subsection:** Material model / Viscoelastic / Ascii profile
+::::{dropdown} __Parameter:__ {ref}`Data directory<parameters:Material_20model/Viscoelastic/Ascii_20profile/Data_20directory>`
+:name: parameters:Material_20model/Viscoelastic/Ascii_20profile/Data_20directory
+**Default value:** $ASPECT_SOURCE_DIR/data/material-model/viscoelastic/
+
+**Pattern:** [DirectoryName]
+
+**Documentation:** The name of a directory that contains the model data. This path may either be absolute (if starting with a &lsquo;/&rsquo;) or relative to the current directory. The path may also include the special text &lsquo;$ASPECT_SOURCE_DIR&rsquo; which will be interpreted as the path in which the ASPECT source files were located when ASPECT was compiled. This interpretation allows, for example, to reference files located in the &lsquo;data/&rsquo; subdirectory of ASPECT. A trailing slash at the end of the directory path is optional; the plugin will automatically append a &rsquo;/&rsquo; when the parameters are parsed if it is missing.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Data file name<parameters:Material_20model/Viscoelastic/Ascii_20profile/Data_20file_20name>`
+:name: parameters:Material_20model/Viscoelastic/Ascii_20profile/Data_20file_20name
+**Default value:** viscoelastic_profile.txt
+
+**Pattern:** [Anything]
+
+**Documentation:** The file name of the model data.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Scale factor<parameters:Material_20model/Viscoelastic/Ascii_20profile/Scale_20factor>`
+:name: parameters:Material_20model/Viscoelastic/Ascii_20profile/Scale_20factor
+**Default value:** 1.
+
+**Pattern:** [Double -MAX_DOUBLE...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Scalar factor, which is applied to the model data. You might want to use this to scale the input to a reference model. Another way to use this factor is to convert units of the input files. For instance, if you provide velocities in cm/yr set this factor to 0.01.
 ::::
