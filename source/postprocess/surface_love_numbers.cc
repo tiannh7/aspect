@@ -42,6 +42,23 @@ namespace aspect
 {
   namespace Postprocess
   {
+    namespace SurfaceLoveNumberUtilities
+    {
+      std::pair<double,double>
+      load_love_number_from_displacement (
+        const std::pair<double,double> &radial_displacement,
+        const double load_height,
+        const double displacement_to_love_scale)
+      {
+        return std::make_pair(radial_displacement.first / load_height
+                              * displacement_to_love_scale,
+                              radial_displacement.second / load_height
+                              * displacement_to_love_scale);
+      }
+    }
+
+
+
     namespace
     {
       Tensor<1,3>
@@ -1264,13 +1281,15 @@ namespace aspect
                       unified_output << "# initial_elastic_displacement_time_s: " << std::setprecision(16) << initial_elastic_displacement_time << "\n";
                       unified_output << "# surface_radius_m: " << std::setprecision(16) << surface_radius << "\n";
                       unified_output << "# surface_gravity_m_s2: " << std::setprecision(16) << surface_gravity << "\n";
-                      unified_output << "# h_lm = (surface_mass_potential_lm/load_geoid_scale_l - target_delta_lm) * displacement_to_love_scale_l\n";
-                      unified_output << "# h_from_radial_displacement_lm = radial_displacement_lm/load_height * displacement_to_love_scale_l\n";
+                      unified_output << "# h_lm = radial_displacement_lm/load_height * displacement_to_love_scale_l\n";
+                      unified_output << "# h_from_radial_displacement_lm = h_lm (compatibility diagnostic column)\n";
                       unified_output << "# k_lm = geoid_lm/load_geoid_scale_l - target_delta_lm\n";
                       unified_output << "# l_lm = tangential_displacement_lm/load_height * displacement_to_love_scale_l\n";
                       unified_output << "# displacement_to_love_scale_l = (2*l+1)*g/(4*pi*G*rho_load*R_surface)\n";
                       unified_output << "# geoid: total geoid-anomaly coefficient from the geoid postprocessor, m\n";
                       unified_output << "# surface_mass_potential: surface-topography mass-potential contribution from the geoid postprocessor, m\n";
+                      unified_output << "# surface_density_jump_kg_m3: " << std::setprecision(16) << surface_delta_rho << "\n";
+                      unified_output << "# surface_mass_potential is retained as a density-jump-dependent diagnostic and is not used to infer h\n";
                       unified_output << "# tangential_displacement: cumulative poloidal tangential displacement coefficient V_lm, m\n";
                       unified_output << "# radial_displacement: cumulative radial displacement coefficient U_lm, m\n";
                       unified_output << "# degree_horizontal_l_rms: sqrt(sum_m(l_cos^2+l_sin^2)) over all coefficients for the same degree\n";
@@ -1564,24 +1583,21 @@ namespace aspect
                               projected_radial_displacement(degree,
                                                             order,
                                                             coefficient_index);
-                            double h_cos =
-                              (surface_coefficient.first / load_geoid_scale - target_cos_delta)
-                              * displacement_to_love_scale;
-                            double h_sin =
-                              surface_coefficient.second / load_geoid_scale
-                              * displacement_to_love_scale;
                             const double l_cos =
                               tangential_displacement_cos / load_height
                               * displacement_to_love_scale;
                             const double l_sin =
                               tangential_displacement_sin / load_height
                               * displacement_to_love_scale;
-                            const double h_from_radial_displacement_cos =
-                              radial_displacement_cos / load_height
-                              * displacement_to_love_scale;
-                            const double h_from_radial_displacement_sin =
-                              radial_displacement_sin / load_height
-                              * displacement_to_love_scale;
+                            const std::pair<double,double> radial_love_number =
+                              SurfaceLoveNumberUtilities::load_love_number_from_displacement(
+                                radial_displacement,
+                                load_height,
+                                displacement_to_love_scale);
+                            const double h_cos = radial_love_number.first;
+                            const double h_sin = radial_love_number.second;
+                            const double h_from_radial_displacement_cos = h_cos;
+                            const double h_from_radial_displacement_sin = h_sin;
                             const double projected_l_cos =
                               projected_tangential.first / load_height
                               * displacement_to_love_scale;
@@ -1594,13 +1610,6 @@ namespace aspect
                             const double projected_h_from_radial_displacement_sin =
                               projected_radial.second / load_height
                               * displacement_to_love_scale;
-                            if (degree_one_displacement_reference_frame == "citcomsve-deformation-cm"
-                                && degree == 1)
-                              {
-                                h_cos = h_from_radial_displacement_cos;
-                                h_sin = h_from_radial_displacement_sin;
-                              }
-
                             double row_phi_total_pre = std::numeric_limits<double>::quiet_NaN();
                             double row_phi_total_post = std::numeric_limits<double>::quiet_NaN();
                             double row_projection_radial_correction = std::numeric_limits<double>::quiet_NaN();
@@ -1738,8 +1747,10 @@ namespace aspect
                             "Whether to write one text file per output time "
                             "with normalized h, k, and l load Love numbers "
                             "followed by the raw geoid, surface mass-potential, "
-                            "and cumulative tangential displacement coefficients "
-                            "used to compute them.");
+                            "and cumulative radial and tangential displacement "
+                            "coefficients. The radial displacement defines h; "
+                            "the surface mass potential is an independent "
+                            "density-jump-dependent diagnostic.");
           prm.declare_entry("Initial elastic displacement time", "0",
                             Patterns::Double(0),
                             "Time interval used to convert the timestep-zero "
@@ -1921,10 +1932,10 @@ namespace aspect
                                   "surface love numbers",
                                   "A postprocessor that writes the surface "
                                   "spherical-harmonic coefficients needed to "
-                                  "compute load Love numbers. It combines "
-                                  "the geoid postprocessor's geoid and surface "
-                                  "mass-potential coefficients with the "
-                                  "cumulative tangential displacement "
-                                  "coefficients.")
+                                  "compute load Love numbers. It computes h "
+                                  "from cumulative radial displacement and "
+                                  "combines it with geoid, surface mass-"
+                                  "potential, and cumulative tangential "
+                                  "displacement diagnostics.")
   }
 }

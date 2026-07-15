@@ -228,4 +228,9 @@ end
 The `Surface love numbers` postprocessor remains an output filter. Its minimum
 degree defaults to 0 so that coefficient output follows CitcomSVE 3.0's
 degree-0-through-`output_ll_max` output convention unless the user chooses a
-narrower diagnostic range.
+narrower diagnostic range. The normalized radial load Love number `h` follows
+Zhong et al. (2022), equations (37)--(39), and is computed from the cumulative
+radial-displacement coefficient. The surface mass-potential coefficient is
+also written, but it remains a separate density-jump-dependent diagnostic. In
+particular, it must not be used to infer `h` when the material density at the
+surface differs from the prescribed load density.

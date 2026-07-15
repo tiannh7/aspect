@@ -33,11 +33,29 @@ namespace aspect
 {
   namespace Postprocess
   {
+    namespace SurfaceLoveNumberUtilities
+    {
+      /**
+       * Convert cosine and sine radial-displacement coefficients to the load
+       * Love number h using the displacement normalization of Zhong et al.
+       * (2022), equations (37)--(39).
+       */
+      std::pair<double,double>
+      load_love_number_from_displacement (
+        const std::pair<double,double> &radial_displacement,
+        const double load_height,
+        const double displacement_to_love_scale);
+    }
+
+
+
     /**
      * A postprocessor that writes one timestep-consistent set of surface
      * coefficients used to compute load Love numbers in postprocessing.
-     * The file combines geoid, surface mass-potential, and cumulative
-     * tangential displacement coefficients.
+     * The file combines geoid, surface mass-potential, and cumulative radial
+     * and tangential displacement coefficients. The radial displacement is
+     * used to compute h; the surface mass potential is retained as an
+     * independent diagnostic.
      */
     template <int dim>
     class SurfaceLoveNumbers : public Interface<dim>, public ::aspect::SimulatorAccess<dim>
