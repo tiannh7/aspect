@@ -22,6 +22,7 @@ advection-stabilization/index.md
 freesurface/index.md
 melt-transport.md
 potential-feedback.md
+glacial-isostatic-adjustment-design.md
 nullspace-removal.md
 particles.md
 stokes-solver/solver.md
