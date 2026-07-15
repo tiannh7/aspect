@@ -97,6 +97,12 @@ namespace aspect
       bool is_compressible;
 
       /**
+       * Whether elastic pressure evolution contributes a finite pressure
+       * mass term to the Stokes operator.
+       */
+      bool use_elastic_pressure_evolution = false;
+
+      /**
        * Pressure scaling constant.
        */
       double pressure_scaling;
@@ -134,6 +140,12 @@ namespace aspect
        * assumed to be constant per cell.
        */
       Table<2, VectorizedArray<number>> viscosity;
+
+      /**
+       * Product of elastic bulk modulus and effective mechanical time step.
+       * This has the same units as viscosity.
+       */
+      Table<2, VectorizedArray<number>> elastic_bulk_modulus_times_timestep;
 
       /**
        * Table which stores the strain rate for each cell to be used

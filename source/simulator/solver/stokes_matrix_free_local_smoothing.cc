@@ -180,6 +180,7 @@ namespace aspect
 
     double minimum_viscosity_local = std::numeric_limits<double>::max();
     double maximum_viscosity_local = std::numeric_limits<double>::lowest();
+    double representative_elastic_bulk_viscosity = 1.0;
 
     const bool active_no_averaging = (this->get_parameters().material_averaging
                                       ==
@@ -351,6 +352,93 @@ namespace aspect
         }
     }
 
+    active_cell_data.use_elastic_pressure_evolution =
+      this->get_parameters().formulation_mass_conservation
+      == Parameters<dim>::Formulation::MassConservation::elastic_pressure_evolution;
+
+    if (active_cell_data.use_elastic_pressure_evolution)
+      {
+        const unsigned int n_cells = stokes_matrix.get_matrix_free()->n_cell_batches();
+        const unsigned int n_q_points = quadrature_formula.size();
+        double elastic_time_step = this->get_timestep();
+        if (this->get_timestep_number() == 0)
+          elastic_time_step = this->get_material_model().initial_elastic_time_step();
+        AssertThrow(elastic_time_step > 0.0,
+                    ExcMessage("Elastic pressure evolution requires a positive effective time step."));
+
+        active_cell_data.elastic_bulk_modulus_times_timestep.reinit(
+          TableIndices<2>(n_cells, n_q_points));
+        for (unsigned int cell=0; cell<n_cells; ++cell)
+          for (unsigned int q=0; q<n_q_points; ++q)
+            active_cell_data.elastic_bulk_modulus_times_timestep(cell,q) = 1.0;
+
+        FEValues<dim> elastic_fe_values(this->get_mapping(),
+                                        this->get_fe(),
+                                        quadrature_formula,
+                                        update_values |
+                                        update_gradients |
+                                        update_quadrature_points);
+        MaterialModel::MaterialModelInputs<dim> elastic_inputs(
+          n_q_points, this->introspection().n_compositional_fields);
+        MaterialModel::MaterialModelOutputs<dim> elastic_outputs(
+          n_q_points, this->introspection().n_compositional_fields);
+        elastic_outputs.additional_outputs.push_back(
+          std::make_unique<MaterialModel::ElasticOutputs<dim>>(n_q_points));
+
+        double minimum_bulk_viscosity_local = std::numeric_limits<double>::max();
+        double maximum_bulk_viscosity_local = std::numeric_limits<double>::lowest();
+
+        for (unsigned int cell=0; cell<n_cells; ++cell)
+          {
+            const unsigned int n_components_filled =
+              stokes_matrix.get_matrix_free()->n_active_entries_per_cell_batch(cell);
+            for (unsigned int i=0; i<n_components_filled; ++i)
+              {
+                const typename DoFHandler<dim>::active_cell_iterator matrix_free_cell =
+                  stokes_matrix.get_matrix_free()->get_cell_iterator(cell,i);
+                const typename DoFHandler<dim>::active_cell_iterator simulator_cell(
+                  &this->get_triangulation(),
+                  matrix_free_cell->level(),
+                  matrix_free_cell->index(),
+                  &this->get_dof_handler());
+
+                elastic_fe_values.reinit(simulator_cell);
+                elastic_inputs.reinit(elastic_fe_values,
+                                      simulator_cell,
+                                      this->introspection(),
+                                      this->get_current_linearization_point());
+                this->get_material_model().fill_additional_material_model_inputs(
+                  elastic_inputs,
+                  this->get_current_linearization_point(),
+                  elastic_fe_values,
+                  this->introspection());
+                this->get_material_model().evaluate(elastic_inputs, elastic_outputs);
+
+                for (unsigned int q=0; q<n_q_points; ++q)
+                  {
+                    const double bulk_viscosity =
+                      this->get_density_source_manager().elastic_bulk_modulus(
+                        elastic_outputs, q) * elastic_time_step;
+                    active_cell_data.elastic_bulk_modulus_times_timestep(cell,q)[i] =
+                      bulk_viscosity;
+                    minimum_bulk_viscosity_local =
+                      std::min(minimum_bulk_viscosity_local, bulk_viscosity);
+                    maximum_bulk_viscosity_local =
+                      std::max(maximum_bulk_viscosity_local, bulk_viscosity);
+                  }
+              }
+          }
+
+        const double minimum_bulk_viscosity = dealii::Utilities::MPI::min(
+                                                minimum_bulk_viscosity_local,
+                                                this->get_mpi_communicator());
+        const double maximum_bulk_viscosity = dealii::Utilities::MPI::max(
+                                                maximum_bulk_viscosity_local,
+                                                this->get_mpi_communicator());
+        representative_elastic_bulk_viscosity =
+          std::sqrt(minimum_bulk_viscosity) * std::sqrt(maximum_bulk_viscosity);
+      }
+
     active_cell_data.is_compressible = this->get_material_model().is_compressible();
     active_cell_data.pressure_scaling = this->get_pressure_scaling();
 
@@ -394,6 +482,8 @@ namespace aspect
       {
         level_cell_data[level].is_compressible = this->get_material_model().is_compressible();
         level_cell_data[level].pressure_scaling = this->get_pressure_scaling();
+        level_cell_data[level].use_elastic_pressure_evolution =
+          active_cell_data.use_elastic_pressure_evolution;
 
         // The Citcom-style CMB radial restoring term is currently applied
         // only on the active-level matrix-free Stokes operator. This follows
@@ -408,6 +498,15 @@ namespace aspect
         const unsigned int n_cells = mg_matrices_A_block[level].get_matrix_free()->n_cell_batches();
 
         const unsigned int n_q_points = quadrature_formula.size();
+
+        if (level_cell_data[level].use_elastic_pressure_evolution)
+          {
+            level_cell_data[level].elastic_bulk_modulus_times_timestep.reinit(
+              TableIndices<2>(n_cells, 1));
+            for (unsigned int cell=0; cell<n_cells; ++cell)
+              level_cell_data[level].elastic_bulk_modulus_times_timestep(cell,0) =
+                representative_elastic_bulk_viscosity;
+          }
 
         std::vector<GMGNumberType> values_on_quad;
 
@@ -1277,7 +1376,9 @@ namespace aspect
         outputs.initial_nonlinear_residual = solution_copy.l2_norm();
 
         // Note: the residual is computed with a zero velocity, effectively computing
-        // || B^T p - g ||, which we are going to use for our solver tolerance.
+        // || (B^T p - g, C p - h) ||, which we use for the solver tolerance.
+        // The pressure block C is zero for the traditional formulations and finite
+        // for elastic pressure evolution.
         // We do not use the current velocity for the initial residual because
         // this would not decrease the number of iterations if we had a better
         // initial guess (say using a smaller timestep). But we need to use
@@ -1288,10 +1389,10 @@ namespace aspect
         initial_copy.block(0) = 0.;
         stokes_matrix.vmult(solution_copy,initial_copy);
         solution_copy.block(0).sadd(-1,1,rhs_copy.block(0));
+        solution_copy.block(1).sadd(-1,1,rhs_copy.block(1));
 
         const double residual_u = solution_copy.block(0).l2_norm();
-
-        const double residual_p = rhs_copy.block(1).l2_norm();
+        const double residual_p = solution_copy.block(1).l2_norm();
 
         solver_tolerance = this->get_parameters().linear_stokes_solver_tolerance *
                            std::sqrt(residual_u*residual_u+residual_p*residual_p);

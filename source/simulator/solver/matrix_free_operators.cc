@@ -102,6 +102,7 @@ namespace aspect
     OperatorCellData<dim,number>::memory_consumption() const
     {
       return viscosity.memory_consumption()
+             + elastic_bulk_modulus_times_timestep.memory_consumption()
              + newton_factor_wrt_pressure_table.memory_consumption()
              + strain_rate_table.memory_consumption()
              + newton_factor_wrt_strain_rate_table.memory_consumption()
@@ -118,11 +119,13 @@ namespace aspect
     OperatorCellData<dim,number>::clear()
     {
       enable_newton_derivatives = false;
+      use_elastic_pressure_evolution = false;
       use_citcom_style_cmb_radial_restoring = false;
       citcom_style_cmb_radial_restoring_boundary_indicator = numbers::invalid_boundary_id;
       citcom_style_cmb_radial_restoring_density_contrast = 0.0;
       citcom_style_cmb_radial_restoring_scale = 0.0;
       viscosity.clear();
+      elastic_bulk_modulus_times_timestep.clear();
       newton_factor_wrt_pressure_table.clear();
       strain_rate_table.clear();
       newton_factor_wrt_strain_rate_table.clear();
@@ -262,6 +265,12 @@ namespace aspect
             // Terms to be tested by phi_p:
             VectorizedArray<number> pressure_terms =
               -cell_data->pressure_scaling * div_u;
+
+            if (cell_data->use_elastic_pressure_evolution)
+              pressure_terms -= cell_data->pressure_scaling
+                                * cell_data->pressure_scaling
+                                / cell_data->elastic_bulk_modulus_times_timestep(cell,q)
+                                * val_p;
 
             if (cell_data->enable_prescribed_dilation)
               pressure_terms -= cell_data->pressure_scaling *
@@ -656,28 +665,26 @@ namespace aspect
   {
     const bool use_viscosity_at_quadrature_points
       = (cell_data->viscosity.size(1) == pressure.n_q_points);
+    const bool use_bulk_modulus_at_quadrature_points
+      = (cell_data->use_elastic_pressure_evolution
+         && cell_data->elastic_bulk_modulus_times_timestep.size(1) == pressure.n_q_points);
 
     const unsigned int cell = pressure.get_current_cell_index();
     const unsigned int n_components_filled = this->get_matrix_free()->n_active_entries_per_cell_batch(cell);
 
     VectorizedArray<number> prefactor;
 
-    // The /= operator for VectorizedArray results in a floating point operation
-    // (divide by 0) since the (*viscosity)(cell) array is not completely filled.
-    // Therefore, we need to divide each entry manually.
-    if (!use_viscosity_at_quadrature_points)
-      {
-        for (unsigned int c=0; c<n_components_filled; ++c)
-          prefactor[c] = cell_data->pressure_scaling*cell_data->pressure_scaling / cell_data->viscosity(cell, 0)[c];
-      }
-
     for (const unsigned int q : pressure.quadrature_point_indices())
       {
-        // Only update the viscosity if a Q1 projection is used.
-        if (use_viscosity_at_quadrature_points)
+        const unsigned int viscosity_q = use_viscosity_at_quadrature_points ? q : 0;
+        const unsigned int bulk_modulus_q = use_bulk_modulus_at_quadrature_points ? q : 0;
+        for (unsigned int c=0; c<n_components_filled; ++c)
           {
-            for (unsigned int c=0; c<n_components_filled; ++c)
-              prefactor[c] = cell_data->pressure_scaling*cell_data->pressure_scaling / cell_data->viscosity(cell, q)[c];
+            prefactor[c] = cell_data->pressure_scaling * cell_data->pressure_scaling
+                           / cell_data->viscosity(cell, viscosity_q)[c];
+            if (cell_data->use_elastic_pressure_evolution)
+              prefactor[c] += cell_data->pressure_scaling * cell_data->pressure_scaling
+                              / cell_data->elastic_bulk_modulus_times_timestep(cell, bulk_modulus_q)[c];
           }
 
         pressure.submit_value(prefactor*pressure.get_value(q), q);

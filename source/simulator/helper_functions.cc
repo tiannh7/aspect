@@ -2365,10 +2365,14 @@ namespace aspect
         AssertThrow(parameters.pressure_normalization == "no",
                     ExcMessage("The `elastic pressure evolution' mass formulation gives pressure "
                                "a finite mass term and therefore requires <Pressure normalization = no>."));
-        AssertThrow(parameters.stokes_solver_type != Parameters<dim>::StokesSolverType::block_gmg,
-                    ExcMessage("The `elastic pressure evolution' mass formulation is not yet "
-                               "implemented in the matrix-free block GMG operator. Use block AMG "
-                               "or the direct Stokes solver."));
+        AssertThrow(parameters.stokes_solver_type != Parameters<dim>::StokesSolverType::block_gmg
+                    || (parameters.stokes_gmg_type == Parameters<dim>::StokesGMGType::local_smoothing
+                        && parameters.density_source_law
+                        != Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation),
+                    ExcMessage("The `elastic pressure evolution' mass formulation currently supports "
+                               "local-smoothing block GMG only without mechanical mass conservation. "
+                               "Use `Stokes GMG type = local smoothing' with another density source law, "
+                               "or use block AMG or the direct Stokes solver."));
 
         if (parameters.density_source_law ==
             Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation)
