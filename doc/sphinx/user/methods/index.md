@@ -11,6 +11,7 @@ dimensionalize/index.md
 pressure-static-dyn.md
 volume-density-sources.md
 reference-state-mass-conservation.md
+elastic-pressure-evolution-gmg.md
 pressure-norm.md
 initial-conditions.md
 compositional-fields.md
