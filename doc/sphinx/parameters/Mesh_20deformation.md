@@ -16,6 +16,16 @@
 The names of the boundaries listed here can either be numbers (in which case they correspond to the numerical boundary indicators assigned by the geometry object), or they can correspond to any of the symbolic names the geometry object may have provided for each part of the boundary. You may want to compare this with the documentation of the geometry model you use in your model.
 ::::
 
+::::{dropdown} __Parameter:__ {ref}`Krylov subspace method<parameters:Mesh_20deformation/Krylov_20subspace_20method>`
+:name: parameters:Mesh_20deformation/Krylov_20subspace_20method
+**Default value:** gmres
+
+**Pattern:** [Selection cg|gmres|bicgstab ]
+
+**Documentation:** The Krylov subspace method to use when solving the mesh deformation
+linear system. Options: cg, gmres, bicgstab.
+::::
+
 ::::{dropdown} __Parameter:__ {ref}`Mesh deformation boundary indicators<parameters:Mesh_20deformation/Mesh_20deformation_20boundary_20indicators>`
 :name: parameters:Mesh_20deformation/Mesh_20deformation_20boundary_20indicators
 **Default value:**
@@ -37,6 +47,15 @@ Using this definition, the plugin then solves for one time step, i.e., using as 
 This surface velocity is used to deform the surface and as a boundary condition for solving the Laplace equation to determine the mesh velocity in the domain interior. Diffusion can be applied every timestep, mimicking surface processes of erosion and deposition, or at a user-defined timestep interval to purely smooth the surface topography to avoid too great a distortion of mesh elements when a free surface is also used.
 
 &lsquo;free surface&rsquo;: A plugin that computes the deformation of surface vertices according to the solution of the flow problem. In particular this means if the surface of the domain is left open to flow, this flow will carry the mesh with it. The implementation was described in {cite}`rose_freesurface`, with the stabilization of the free surface originally described in {cite}`kaus:etal:2010`.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Skip mesh deformation assembly at timestep<parameters:Mesh_20deformation/Skip_20mesh_20deformation_20assembly_20at_20timestep>`
+:name: parameters:Mesh_20deformation/Skip_20mesh_20deformation_20assembly_20at_20timestep
+**Default value:** -1
+
+**Pattern:** [Anything]
+
+**Documentation:** The timestep at which to skip assembling and solving the mesh deformation system. Allowed values are &lsquo;none&lsquo; (same as -1, never skip), &lsquo;all&lsquo; (same as -2, skip every timestep), or an integer timestep index (e.g., 0, 1, 2) to skip only that timestep. Any value less than -1 is treated like &lsquo;all&lsquo; and skips every timestep. This can be used to save computational time when mesh deformation is not needed.
 ::::
 
 (parameters:Mesh_20deformation/Ascii_20data_20model)=
@@ -132,6 +151,33 @@ If the function you are describing represents a vector-valued function with mult
 **Documentation:** Theta parameter described in {cite}`kaus:etal:2010`. An unstabilized free surface can overshoot its equilibrium position quite easily and generate unphysical results.  One solution is to use a quasi-implicit correction term to the forces near the free surface.  This parameter describes how much the free surface is stabilized with this term, where zero is no stabilization, and one is fully implicit.
 ::::
 
+::::{dropdown} __Parameter:__ {ref}`Initial stabilization density contrasts<parameters:Mesh_20deformation/Free_20surface/Initial_20stabilization_20density_20contrasts>`
+:name: parameters:Mesh_20deformation/Free_20surface/Initial_20stabilization_20density_20contrasts
+**Default value:**
+
+**Pattern:** [Anything]
+
+**Documentation:** Optional timestep-zero overrides of &rsquo;Stabilization density contrasts&rsquo;, using the same boundary:value syntax. This separates an instantaneous elastic predictor from subsequent finite-time free-boundary stabilization.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Initial stabilization time step<parameters:Mesh_20deformation/Free_20surface/Initial_20stabilization_20time_20step>`
+:name: parameters:Mesh_20deformation/Free_20surface/Initial_20stabilization_20time_20step
+**Default value:** -1.e300
+
+**Pattern:** [Double -MAX_DOUBLE...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Deprecated.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Stabilization density contrasts<parameters:Mesh_20deformation/Free_20surface/Stabilization_20density_20contrasts>`
+:name: parameters:Mesh_20deformation/Free_20surface/Stabilization_20density_20contrasts
+**Default value:**
+
+**Pattern:** [Anything]
+
+**Documentation:** Optional comma-separated boundary:density-jump map in kg/m^3, for example &rsquo;outer: 4604.4, inner: 5401.0&rsquo;. Explicit physical jumps use an orientation correction so the boundary matrix in Equation (17) of Zhong et al. (2022) is restoring at both the outer and inner interfaces. Unlisted boundaries retain the historical material-density FSSA behavior.
+::::
+
 ::::{dropdown} __Parameter:__ {ref}`Surface velocity projection<parameters:Mesh_20deformation/Free_20surface/Surface_20velocity_20projection>`
 :name: parameters:Mesh_20deformation/Free_20surface/Surface_20velocity_20projection
 **Default value:** normal
@@ -139,4 +185,13 @@ If the function you are describing represents a vector-valued function with mult
 **Pattern:** [Selection normal|vertical ]
 
 **Documentation:** After each time step the free surface must be advected in the direction of the velocity field. Mass conservation requires that the mesh velocity is in the normal direction of the surface. However, for steep topography or large curvature, advection in the normal direction can become ill-conditioned, and instabilities in the mesh can form. Projection of the mesh velocity onto the local vertical direction can preserve the mesh quality better, but at the cost of slightly poorer mass conservation of the domain.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Use displacement history in free surface stabilization<parameters:Mesh_20deformation/Free_20surface/Use_20displacement_20history_20in_20free_20surface_20stabilization>`
+:name: parameters:Mesh_20deformation/Free_20surface/Use_20displacement_20history_20in_20free_20surface_20stabilization
+**Default value:** false
+
+**Pattern:** [Bool]
+
+**Documentation:** Whether to add the restoring traction from cumulative normal mesh displacement to the Stokes right-hand side. Together with the usual FSSA matrix, this represents the old displacement plus the implicit velocity increment for displacement-formulation benchmarks. This option is disabled by default.
 ::::

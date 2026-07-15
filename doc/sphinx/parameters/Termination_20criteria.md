@@ -27,13 +27,17 @@
 :name: parameters:Termination_20criteria/Termination_20criteria
 **Default value:** end time
 
-**Pattern:** [MultipleSelection end step|end time|steady state heat flux|steady state temperature|steady state velocity|user request|wall time ]
+**Pattern:** [MultipleSelection end step|end time|maximum velocity|rms velocity|steady state heat flux|steady state temperature|steady state velocity|timestep|user request|wall time ]
 
 **Documentation:** A comma separated list of termination criteria that will determine when the simulation should end. Whether explicitly stated or not, the &ldquo;end time&rdquo; termination criterion will always be used.The following termination criteria are available:
 
 &lsquo;end step&rsquo;: Terminate the simulation once the specified timestep has been reached.
 
 &lsquo;end time&rsquo;: Terminate the simulation once the end time specified in the input file has been reached. Unlike all other termination criteria, this criterion is *always* active, whether it has been explicitly selected or not in the input file (this is done to preserve historical behavior of ASPECT, but it also likely does not inconvenience anyone since it is what would be selected in most cases anyway).
+
+&lsquo;maximum velocity&rsquo;: Terminate the simulation when a user-defined function of the maximum velocity evaluates to a positive value.
+
+&lsquo;rms velocity&rsquo;: Terminate the simulation when a user-defined function of the RMS velocity evaluates to a positive value.
 
 &lsquo;steady state heat flux&rsquo;: A criterion that terminates the simulation when the integrated heat flux over a given list of boundaries stays within a certain range for a specified period of time.
 
@@ -42,6 +46,8 @@ The criterion considers the total heat flux over all boundaries listed by their 
 &lsquo;steady state temperature&rsquo;: A criterion that terminates the simulation when the global integral of the temperature field stays within a certain range for a specified period of time.
 
 &lsquo;steady state velocity&rsquo;: A criterion that terminates the simulation when the RMS of the velocity field stays within a certain range for a specified period of time.
+
+&lsquo;timestep&rsquo;: Terminate the simulation when a user-defined function of the timestep evaluates to a positive value.
 
 &lsquo;user request&rsquo;: Terminate the simulation gracefully when a file with a specified name appears in the output directory. This allows the user to gracefully exit the simulation at any time by simply creating such a file using, for example, `touch output/terminate-aspect`. The file&rsquo;s location is chosen to be in the output directory, rather than in a generic location such as the ASPECT directory, so that one can run multiple simulations at the same time (which presumably write to different output directories) and can selectively terminate a particular one.
 
@@ -55,6 +61,68 @@ The criterion considers the total heat flux over all boundaries listed by their 
 **Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
 
 **Documentation:** The wall time of the simulation. Unit: hours.
+::::
+
+(parameters:Termination_20criteria/Maximum_20velocity)=
+## **Subsection:** Termination criteria / Maximum velocity
+::::{dropdown} __Parameter:__ {ref}`Function constants<parameters:Termination_20criteria/Maximum_20velocity/Function_20constants>`
+:name: parameters:Termination_20criteria/Maximum_20velocity/Function_20constants
+**Default value:**
+
+**Pattern:** [Anything]
+
+**Documentation:** Sometimes it is convenient to use symbolic constants in the expression that describes the function, rather than having to use its numeric value everywhere the constant appears. These values can be defined using this parameter, in the form &lsquo;var1=value1, var2=value2, ...&rsquo;.
+
+A typical example would be to set this runtime parameter to &lsquo;pi=3.1415926536&rsquo; and then use &lsquo;pi&rsquo; in the expression of the actual formula. (That said, for convenience this class actually defines both &lsquo;pi&rsquo; and &lsquo;Pi&rsquo; by default, but you get the idea.)
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Function expression<parameters:Termination_20criteria/Maximum_20velocity/Function_20expression>`
+:name: parameters:Termination_20criteria/Maximum_20velocity/Function_20expression
+**Default value:** 0
+
+**Pattern:** [Anything]
+
+**Documentation:** Expression for the termination criterion as a function of &rsquo;vmax&rsquo; (maximum velocity). The simulation terminates if this expression evaluates to a positive value. Units of vmax: m/yr if the &rsquo;Use years instead of seconds&rsquo; parameter is set; m/s otherwise.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Variable names<parameters:Termination_20criteria/Maximum_20velocity/Variable_20names>`
+:name: parameters:Termination_20criteria/Maximum_20velocity/Variable_20names
+**Default value:** vmax
+
+**Pattern:** [Anything]
+
+**Documentation:** Name for the variable representing the current maximum velocity. Currently only &rsquo;vmax&rsquo; is supported.
+::::
+
+(parameters:Termination_20criteria/RMS_20velocity)=
+## **Subsection:** Termination criteria / RMS velocity
+::::{dropdown} __Parameter:__ {ref}`Function constants<parameters:Termination_20criteria/RMS_20velocity/Function_20constants>`
+:name: parameters:Termination_20criteria/RMS_20velocity/Function_20constants
+**Default value:**
+
+**Pattern:** [Anything]
+
+**Documentation:** Sometimes it is convenient to use symbolic constants in the expression that describes the function, rather than having to use its numeric value everywhere the constant appears. These values can be defined using this parameter, in the form &lsquo;var1=value1, var2=value2, ...&rsquo;.
+
+A typical example would be to set this runtime parameter to &lsquo;pi=3.1415926536&rsquo; and then use &lsquo;pi&rsquo; in the expression of the actual formula. (That said, for convenience this class actually defines both &lsquo;pi&rsquo; and &lsquo;Pi&rsquo; by default, but you get the idea.)
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Function expression<parameters:Termination_20criteria/RMS_20velocity/Function_20expression>`
+:name: parameters:Termination_20criteria/RMS_20velocity/Function_20expression
+**Default value:** 0
+
+**Pattern:** [Anything]
+
+**Documentation:** Expression for the termination criterion as a function of &rsquo;vrms&rsquo; (RMS velocity). The simulation terminates if this expression evaluates to a positive value. Units of vrms: m/yr if the &rsquo;Use years instead of seconds&rsquo; parameter is set; m/s otherwise.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Variable names<parameters:Termination_20criteria/RMS_20velocity/Variable_20names>`
+:name: parameters:Termination_20criteria/RMS_20velocity/Variable_20names
+**Default value:** vrms
+
+**Pattern:** [Anything]
+
+**Documentation:** Name for the variable representing the current RMS velocity. Currently only &rsquo;vrms&rsquo; is supported.
 ::::
 
 (parameters:Termination_20criteria/Steady_20state_20heat_20flux)=
@@ -126,6 +194,37 @@ The names of the boundaries listed here can either be numbers (in which case the
 **Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
 
 **Documentation:** The minimum length of simulation time that the system should be in steady state before termination.Units: years if the &rsquo;Use years instead of seconds&rsquo; parameter is set; seconds otherwise.
+::::
+
+(parameters:Termination_20criteria/Timestep)=
+## **Subsection:** Termination criteria / Timestep
+::::{dropdown} __Parameter:__ {ref}`Function constants<parameters:Termination_20criteria/Timestep/Function_20constants>`
+:name: parameters:Termination_20criteria/Timestep/Function_20constants
+**Default value:**
+
+**Pattern:** [Anything]
+
+**Documentation:** Sometimes it is convenient to use symbolic constants in the expression that describes the function, rather than having to use its numeric value everywhere the constant appears. These values can be defined using this parameter, in the form &lsquo;var1=value1, var2=value2, ...&rsquo;.
+
+A typical example would be to set this runtime parameter to &lsquo;pi=3.1415926536&rsquo; and then use &lsquo;pi&rsquo; in the expression of the actual formula. (That said, for convenience this class actually defines both &lsquo;pi&rsquo; and &lsquo;Pi&rsquo; by default, but you get the idea.)
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Function expression<parameters:Termination_20criteria/Timestep/Function_20expression>`
+:name: parameters:Termination_20criteria/Timestep/Function_20expression
+**Default value:** 0
+
+**Pattern:** [Anything]
+
+**Documentation:** Expression for the termination criterion as a function of &rsquo;dt&rsquo; (timestep). The simulation terminates if this expression evaluates to a positive value. Units of dt: years if the &rsquo;Use years instead of seconds&rsquo; parameter is set; seconds otherwise.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Variable names<parameters:Termination_20criteria/Timestep/Variable_20names>`
+:name: parameters:Termination_20criteria/Timestep/Variable_20names
+**Default value:** dt
+
+**Pattern:** [Anything]
+
+**Documentation:** Name for the variable representing the current timestep. Currently only &rsquo;dt&rsquo; is supported.
 ::::
 
 (parameters:Termination_20criteria/User_20request)=

@@ -744,7 +744,7 @@ If the function you are describing represents a vector-valued function with mult
 
 In 3d, the number of cells is computed differently and does not have an easy interpretation. Valid values for this parameter in 3d are 0 (let this class choose), 6, 12 and 96. Other possible values may be discussed in the documentation of the deal.II function GridGenerator::hyper_shell. The parameter is best left at its default in 3d.
 
-In either case, this parameter is ignored unless the opening angle of the domain is 360 degrees. This parameter is also ignored when using a custom mesh subdivision scheme.
+In either case, this parameter is ignored unless the opening angle of the domain is 360 degrees. For a custom mesh subdivision, zero preserves the default six-cell coarse surface; a nonzero value generates the requested coarse full-shell mesh and extrudes its outer surface through the radial subdivisions.
 ::::
 
 ::::{dropdown} __Parameter:__ {ref}`Custom mesh subdivision<parameters:Geometry_20model/Spherical_20shell/Custom_20mesh_20subdivision>`

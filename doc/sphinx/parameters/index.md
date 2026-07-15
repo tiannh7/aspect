@@ -31,6 +31,7 @@ Nullspace_20removal.md
 Particles.md
 Particles_202.md
 Postprocess.md
+Potential_20feedback.md
 Prescribed_20Stokes_20solution.md
 Prescribed_20solution.md
 Solver_20parameters.md
