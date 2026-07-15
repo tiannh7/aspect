@@ -63,8 +63,8 @@ namespace aspect
                   ExcMessage("Surface histories for glacial isostatic "
                              "adjustment are implemented only in 3D."));
       AssertThrow(Plugins::plugin_type_matches<
-                    const GeometryModel::SphericalShell<dim>>(
-                      this->get_geometry_model()),
+                  const GeometryModel::SphericalShell<dim>>(
+                    this->get_geometry_model()),
                   ExcMessage("Surface histories for glacial isostatic "
                              "adjustment require a spherical shell geometry."));
       AssertThrow(!configuration.data_file_name.empty(),

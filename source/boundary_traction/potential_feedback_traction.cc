@@ -241,7 +241,7 @@ namespace aspect
       double potential_height = 0.0;
       if (self_gravity_active)
         potential_height += self_gravity.potential_height(top_boundary_id,
-                                                           position);
+                                                          position);
       if (rotational_feedback_active)
         potential_height += rotational_feedback.potential_height(
                               top_boundary_id, position);

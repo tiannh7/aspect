@@ -1685,7 +1685,7 @@ namespace aspect
                  potential_cos,
                  potential_sin,
         {spherical_coordinates[2]},
-        {spherical_coordinates[1]})[0];
+      {spherical_coordinates[1]})[0];
 
       return fourier_transform->synthesize(potential_cos,
                                            potential_sin,

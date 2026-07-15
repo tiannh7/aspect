@@ -611,7 +611,7 @@ namespace aspect
         return sh_transform->synthesize(cos_coefficients,
                                         sin_coefficients,
         {spherical_coordinates[2]},
-        {spherical_coordinates[1]})[0];
+      {spherical_coordinates[1]})[0];
 
       return 0.0;
     }

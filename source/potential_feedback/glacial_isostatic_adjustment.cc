@@ -117,8 +117,8 @@ namespace aspect
                   ExcMessage("Glacial isostatic adjustment is implemented "
                              "only for 3D spherical-shell models."));
       AssertThrow(Plugins::plugin_type_matches<
-                    const GeometryModel::SphericalShell<dim>>(
-                      this->get_geometry_model()),
+                  const GeometryModel::SphericalShell<dim>>(
+                    this->get_geometry_model()),
                   ExcMessage("Glacial isostatic adjustment requires a "
                              "spherical shell geometry."));
       AssertThrow(this->get_parameters().mesh_deformation_enabled,
@@ -172,9 +172,9 @@ namespace aspect
                  const unsigned int,
                  const SolverControl &,
                  const SolverControl &)
-      {
-        this->update_after_stokes_solve();
-      });
+        {
+          this->update_after_stokes_solve();
+        });
 
       this->get_signals().post_mesh_deformation.connect(
         [this](const SimulatorAccess<dim> &)
@@ -463,13 +463,13 @@ namespace aspect
         return std::array<double,4>
         {
           Utilities::MPI::sum(local_ocean_area,
-                              this->get_mpi_communicator()),
+          this->get_mpi_communicator()),
           Utilities::MPI::sum(local_ice_mass_change,
-                              this->get_mpi_communicator()),
+          this->get_mpi_communicator()),
           Utilities::MPI::sum(local_relative_sea_level_volume,
-                              this->get_mpi_communicator()),
+          this->get_mpi_communicator()),
           Utilities::MPI::sum(local_topography_volume,
-                              this->get_mpi_communicator())
+          this->get_mpi_communicator())
         };
       };
 
