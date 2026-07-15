@@ -76,15 +76,18 @@ namespace aspect
                                    "count must be a positive integer."));
             entries.erase(entries.begin());
 
-            AssertThrow(entries.size() == declared_stage_count,
+            const std::size_t expected_age_rows =
+              static_cast<std::size_t>(declared_stage_count) + 1;
+            AssertThrow(entries.size() == expected_age_rows,
                         ExcMessage("The CitcomSVE surface-history schedule "
                                    "declares "
                                    + Utilities::int_to_string(
                                      declared_stage_count)
-                                   + " stages but contains "
+                                   + " stage intervals but contains "
                                    + Utilities::int_to_string(
                                      static_cast<unsigned int>(entries.size()))
-                                   + " stage rows."));
+                                   + " age rows. Canonical CitcomSVE schedules "
+                                   "require one more age row than interval."));
             AssertThrow(!entries.empty(), ExcInternalError());
 
             const double first_age_ka = entries.front().first;
@@ -626,9 +629,9 @@ namespace aspect
                           Patterns::Selection("elapsed time and file number|citcomsve stage ages"),
                           "Schedule syntax. Elapsed-time schedules contain "
                           "time and file number columns. CitcomSVE schedules "
-                          "contain a stage-count header followed by age in ka "
-                          "and stage time-step count; files are numbered "
-                          "sequentially.");
+                          "contain a stage-interval-count header followed by "
+                          "one more row of age in ka and stage time-step count; "
+                          "files are numbered sequentially.");
         prm.declare_entry("First data file number", "0",
                           Patterns::Integer(),
                           "File number of the first CitcomSVE stage or of a "

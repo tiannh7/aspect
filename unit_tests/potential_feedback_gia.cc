@@ -71,7 +71,7 @@ TEST_CASE("Surface history parses CitcomSVE stage ages",
   using aspect::PotentialFeedback::SurfaceHistoryUtilities::parse_schedule;
 
   const std::string negative_age_schedule =
-    "3 1\n"
+    "2 1\n"
     "-26.0 10\n"
     "-25.5 5\n"
     "0.0 0\n";
@@ -91,7 +91,7 @@ TEST_CASE("Surface history parses CitcomSVE stage ages",
   REQUIRE(negative_age_stages[2].file_number == 9);
 
   const std::string positive_age_schedule =
-    "3 1\n"
+    "2 1\n"
     "26.0 10\n"
     "25.5 5\n"
     "0.0 0\n";
@@ -106,7 +106,7 @@ TEST_CASE("Surface history parses CitcomSVE stage ages",
           == Approx(negative_age_stages[2].time));
 
   const std::string nonmonotone_schedule =
-    "3 1\n"
+    "2 1\n"
     "-26.0 10\n"
     "-25.0 5\n"
     "-25.5 5\n";

@@ -48,10 +48,11 @@ namespace aspect
        *
        * For an elapsed-time schedule, @p times_are_years determines whether
        * the first column is converted from years to seconds. For a CitcomSVE
-       * stage-age schedule, ages may use either negative ka relative to the
-       * present (the canonical CitcomSVE files) or positive ka BP. In both
-       * cases elapsed time is the chronological age difference from the first
-       * stage and data files are numbered sequentially.
+       * stage-age schedule, the header gives the number of stage intervals and
+       * is followed by one more age row. Ages may use either negative ka
+       * relative to the present (the canonical CitcomSVE files) or positive ka
+       * BP. In both cases elapsed time is the chronological age difference
+       * from the first stage and data files are numbered sequentially.
        */
       std::vector<Stage>
       parse_schedule(const std::string &contents,
