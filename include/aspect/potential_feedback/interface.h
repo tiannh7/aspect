@@ -109,6 +109,7 @@ namespace aspect
       std::string include_internal_density_anomalies = "auto";
       double reference_density_for_internal_anomalies = 0.0;
       double internal_density_anomaly_tolerance = 0.0;
+      std::string full_domain_volume_source_discretization = "quadrature point";
 
       std::string tidal_model_name = "none";
       unsigned int tidal_harmonic_degree = 2;

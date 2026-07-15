@@ -78,6 +78,10 @@ namespace aspect
 
       if (this->get_parameters().include_melt_transport)
         {
+          AssertThrow(!this->get_mesh_deformation_handler()
+                      .use_displacement_history_in_free_surface_stabilization(),
+                      ExcMessage("Free-surface displacement-history restoring "
+                                 "loads are not implemented with melt transport."));
           this->get_melt_handler().apply_free_surface_stabilization_with_melt (free_surface_theta,
                                                                                scratch.cell,
                                                                                scratch,
@@ -112,6 +116,36 @@ namespace aspect
                 continue;
 
               scratch.face_finite_element_values.reinit(cell, face_no);
+
+              const bool use_displacement_history =
+                (this->get_timestep_number() > 0
+                 && this->get_mesh_deformation_handler()
+                 .use_displacement_history_in_free_surface_stabilization());
+              std::vector<Tensor<1,dim>> old_boundary_displacements;
+              if (use_displacement_history)
+                {
+                  old_boundary_displacements.resize(n_face_q_points);
+                  const auto &mesh_deformation_handler =
+                    this->get_mesh_deformation_handler();
+                  const auto &mesh_deformation_dof_handler =
+                    mesh_deformation_handler.get_mesh_deformation_dof_handler();
+                  const typename DoFHandler<dim>::active_cell_iterator mesh_cell(
+                    &this->get_triangulation(),
+                    cell->level(),
+                    cell->index(),
+                    &mesh_deformation_dof_handler);
+
+                  FEFaceValues<dim> mesh_face_values(
+                    this->get_mapping(),
+                    mesh_deformation_dof_handler.get_fe(),
+                    scratch.face_finite_element_values.get_quadrature(),
+                    update_values);
+                  mesh_face_values.reinit(mesh_cell, face_no);
+                  const FEValuesExtractors::Vector mesh_displacement(0);
+                  mesh_face_values[mesh_displacement].get_function_values(
+                    mesh_deformation_handler.get_mesh_displacements(),
+                    old_boundary_displacements);
+                }
 
               scratch.face_material_model_inputs.reinit  (scratch.face_finite_element_values,
                                                           cell,
@@ -177,6 +211,13 @@ namespace aspect
 
                         data.local_matrix(i,j) += stress_value;
                       }
+
+                  if (use_displacement_history)
+                    for (unsigned int i=0; i<stokes_dofs_per_cell; ++i)
+                      data.local_rhs(i) += density_jump * g_norm * orientation
+                                           * phi_u_times_g_hat[i]
+                                           * (old_boundary_displacements[q] * n_hat)
+                                           * JxW;
                 }
             }
     }
@@ -460,6 +501,14 @@ namespace aspect
                             "boundary:value syntax. This separates an "
                             "instantaneous elastic predictor from subsequent "
                             "finite-time free-boundary stabilization.");
+          prm.declare_entry("Use displacement history in free surface stabilization", "false",
+                            Patterns::Bool(),
+                            "Whether to add the restoring traction from cumulative "
+                            "normal mesh displacement to the Stokes right-hand side. "
+                            "Together with the usual FSSA matrix, this represents "
+                            "the old displacement plus the implicit velocity increment "
+                            "for displacement-formulation benchmarks. This option is "
+                            "disabled by default.");
         }
         prm.leave_subsection ();
         prm.declare_entry("Krylov subspace method", "gmres",
@@ -614,6 +663,8 @@ namespace aspect
           surface_theta = prm.get_double("Free surface stabilization theta");
           initial_surface_stabilization_timestep =
             prm.get_double("Initial stabilization time step");
+          use_displacement_history_in_surface_stabilization =
+            prm.get_bool("Use displacement history in free surface stabilization");
           if (initial_surface_stabilization_timestep != -1e300 && this->convert_output_to_years())
             initial_surface_stabilization_timestep *= year_in_seconds;
 
@@ -695,6 +746,24 @@ namespace aspect
           for (const auto &model : boundary_and_deformation_objects.second)
             if (model->needs_surface_stabilization() == true)
               boundary_indicators_requiring_stabilization.insert(boundary_and_deformation_objects.first);
+        }
+
+      if (use_displacement_history_in_surface_stabilization)
+        {
+          AssertThrow(!boundary_indicators_requiring_stabilization.empty(),
+                      ExcMessage("Using displacement history in free surface "
+                                 "stabilization requires at least one active free "
+                                 "surface boundary."));
+          for (const types::boundary_id boundary_id :
+               boundary_indicators_requiring_stabilization)
+            AssertThrow(surface_stabilization_density_contrasts.count(boundary_id) > 0,
+                        ExcMessage("Using displacement history in free surface "
+                                   "stabilization requires an explicit steady "
+                                   "<Stabilization density contrasts> entry for "
+                                   "every active stabilization boundary. Missing "
+                                   "boundary id "
+                                   + std::to_string(static_cast<unsigned int>(boundary_id))
+                                   + "."));
         }
     }
 
@@ -1926,6 +1995,16 @@ namespace aspect
       return (this->get_timestep() == 0.0
               ? initial_surface_stabilization_timestep
               : this->get_timestep());
+    }
+
+
+
+    template <int dim>
+    bool
+    MeshDeformationHandler<dim>::
+    use_displacement_history_in_free_surface_stabilization() const
+    {
+      return use_displacement_history_in_surface_stabilization;
     }
 
 

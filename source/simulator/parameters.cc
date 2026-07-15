@@ -241,10 +241,9 @@ namespace aspect
                        "0.",
                        Patterns::Double (0.),
                        "Legacy fallback for the physical time step size representing "
-                       "the interval over which the instantaneous elastic response is "
-                       "accumulated at timestep zero. If the material model uses "
-                       "instantaneous elastic response at timestep zero and provides "
-                       "a fixed elastic time step, that material-model value is used "
+                       "the interval represented by the timestep-zero elastic or "
+                       "viscoelastic response. If the material model provides an "
+                       "initial elastic time step, that material-model value is used "
                        "instead. "
                        "Units: Years or seconds, depending on the ``Use years instead of seconds'' parameter.");
 
@@ -833,10 +832,13 @@ namespace aspect
       prm.declare_entry ("Mass conservation", "ask material model",
                          Patterns::Selection ("incompressible|isentropic compression|hydrostatic compression|"
                                               "reference density profile|implicit reference density profile|"
-                                              "projected density field|"
+                                              "projected density field|elastic pressure evolution|"
                                               "ask material model"),
                          "Possible approximations for the density derivatives in the mass "
-                         "conservation equation. Note that this parameter is only evaluated "
+                         "conservation equation. `Elastic pressure evolution' implements "
+                         "dp'/dt=-K div(v) using the Stokes pressure unknown and an elastic "
+                         "bulk modulus supplied by the material model; it is distinct from "
+                         "thermodynamic `isentropic compression'. Note that this parameter is only evaluated "
                          "if `Formulation' is set to `custom'. Other formulations ignore "
                          "the value of this parameter.");
       prm.declare_entry ("Temperature equation", "real density",
@@ -865,16 +867,16 @@ namespace aspect
       prm.enter_subsection ("Density sources");
       {
         prm.declare_entry ("Reference density model", "none",
-                           Patterns::Selection ("none|constant|frozen initial lateral average"),
+                           Patterns::Selection ("none|constant|frozen initial lateral average|tabulated radial"),
                            "Select the central reference-density model used by non-legacy "
                            "volume-density source laws. `none' defines a zero reference, "
                            "`constant' uses the configured constant value, and `frozen "
                            "initial lateral average' computes one quadrature-weighted "
                            "initial lateral average in geometric-depth bins and freezes it "
-                           "for the run. Analytical and tabulated radial models are planned "
-                           "but are not implemented.");
+                           "for the run. `tabulated radial' uses the configured radius and "
+                           "density lists with the selected interpolation.");
         prm.declare_entry ("Density source law", "legacy",
-                           Patterns::Selection ("legacy|material density|material minus reference|zero volume perturbation"),
+                           Patterns::Selection ("legacy|material density|material minus reference|zero volume perturbation|mechanical mass conservation"),
                            "Select the volume-density source consumed by Stokes momentum, "
                            "internal self-gravity, and centre-of-mass/degree-1 integrals. "
                            "`legacy' preserves each consumer's historical behavior. "
@@ -882,8 +884,10 @@ namespace aspect
                            "minus reference' subtracts the selected central reference, and "
                            "`zero volume perturbation' suppresses volume-density sources "
                            "without changing explicit surface or CMB sheet and restoring "
-                           "terms. Linearized mass conservation and material-provided laws "
-                           "are planned but are not implemented.");
+                           "terms. `mechanical mass conservation' reconstructs the density "
+                           "perturbation from elastic pressure and radial material-displacement "
+                           "history. It is intended for radial reference states and requires "
+                           "the `elastic pressure evolution' mass formulation.");
         prm.declare_entry ("Constant reference density", "0",
                            Patterns::Double (0.),
                            "Constant central reference density used when `Reference density "
@@ -894,6 +898,59 @@ namespace aspect
                            "lateral-average reference-density profile. Values are stored at "
                            "bin centers and linearly interpolated with endpoint clamping. "
                            "Units: none.");
+        prm.declare_entry ("Tabulated reference radii", "0, 1",
+                           Patterns::List(Patterns::Double(0.)),
+                           "Strictly increasing radii for the tabulated radial reference "
+                           "state. At least two values are required. Units: m.");
+        prm.declare_entry ("Tabulated reference densities", "0, 0",
+                           Patterns::List(Patterns::Double(0.)),
+                           "Reference densities corresponding to `Tabulated reference "
+                           "radii'. Units: kg/m^3.");
+        prm.declare_entry ("Tabulated reference density interpolation", "linear",
+                           Patterns::Selection("linear|piecewise constant"),
+                           "Interpolation used between tabulated reference radii. `Linear' "
+                           "preserves the continuous piecewise-linear reference profile. "
+                           "`Piecewise constant' uses the density at the lower radius over "
+                           "each outward interval and automatically treats every interior "
+                           "table radius with unequal adjacent densities as a sharp density "
+                           "sheet. The default is `linear'.");
+        prm.declare_entry ("Tabulated mechanical gravity magnitudes", "",
+                           Patterns::List(Patterns::Double(0.)),
+                           "Optional gravity magnitudes for mechanical mass conservation, "
+                           "with one constant value for each interval in `Tabulated reference "
+                           "radii'. The default empty list uses the selected gravity model at "
+                           "volume quadrature points. A nonempty list changes only the local "
+                           "mechanical volume couplings; boundary and internal-interface "
+                           "restoring terms continue to use the selected gravity model. "
+                           "Units: m/s^2.");
+        prm.declare_entry ("Allow viscoelastic initial mechanical response", "false",
+                           Patterns::Bool(),
+                           "Whether mechanical mass conservation may use the material "
+                           "model's finite viscoelastic response during the timestep-zero "
+                           "loaded solve. The default false requires the instantaneous "
+                           "elastic initial response. Enable this only for an explicit "
+                           "time-integration discriminator; it does not change later "
+                           "viscoelastic timesteps.");
+        prm.declare_entry ("Internal density jump radii", "",
+                           Patterns::List(Patterns::Double(0.)),
+                           "Strictly increasing radii of sharp internal density interfaces. "
+                           "The default empty list disables explicitly prescribed interface "
+                           "sheets; piecewise-constant tabulated reference density still "
+                           "derives its internal sheets automatically. "
+                           "Each configured radius must coincide with a radial mesh face. "
+                           "Units: m.");
+        prm.declare_entry ("Internal density jump density contrasts", "",
+                           Patterns::List(Patterns::Double()),
+                           "Density below minus density above each radius in `Internal "
+                           "density jump radii'. Negative contrasts are allowed. The two "
+                           "lists must have equal length. Units: kg/m^3.");
+        prm.declare_entry ("Internal density jump face tolerance", "1",
+                           Patterns::Double(0.),
+                           "Absolute radial tolerance used to match an explicitly configured "
+                           "internal density jump to a mesh face. Piecewise-constant tabulated "
+                           "jumps instead use adjacent cell identities and remain active under "
+                           "mesh deformation. This value must be positive. "
+                           "Units: m.");
       }
       prm.leave_subsection();
 
@@ -2060,16 +2117,137 @@ namespace aspect
         constant_reference_density = prm.get_double("Constant reference density");
         frozen_reference_density_profile_slices =
           prm.get_integer("Frozen reference density profile slices");
+        tabulated_reference_radii = Utilities::string_to_double(
+                                      Utilities::split_string_list(prm.get("Tabulated reference radii")));
+        tabulated_reference_densities = Utilities::string_to_double(
+                                          Utilities::split_string_list(prm.get("Tabulated reference densities")));
+        tabulated_reference_density_interpolation =
+          Formulation::TabulatedReferenceDensityInterpolation::parse(
+            prm.get("Tabulated reference density interpolation"));
+        tabulated_mechanical_gravity_magnitudes = Utilities::string_to_double(
+                                                    Utilities::split_string_list(
+                                                      prm.get("Tabulated mechanical gravity magnitudes")));
+        allow_viscoelastic_initial_mechanical_response =
+          prm.get_bool("Allow viscoelastic initial mechanical response");
+        internal_density_jump_radii = Utilities::string_to_double(
+                                        Utilities::split_string_list(prm.get("Internal density jump radii")));
+        internal_density_jump_density_contrasts = Utilities::string_to_double(
+                                                    Utilities::split_string_list(prm.get("Internal density jump density contrasts")));
+        internal_density_jump_face_tolerance =
+          prm.get_double("Internal density jump face tolerance");
       }
       prm.leave_subsection();
+
+      if (reference_density_model == Formulation::ReferenceDensityModel::tabulated_radial)
+        {
+          AssertThrow(tabulated_reference_radii.size() >= 2,
+                      ExcMessage("The tabulated radial reference-density model requires at least two radii."));
+          AssertThrow(tabulated_reference_radii.size() == tabulated_reference_densities.size(),
+                      ExcMessage("Tabulated reference radii and densities must contain the same number of values."));
+          AssertThrow(*std::min_element(tabulated_reference_densities.begin(),
+                                        tabulated_reference_densities.end()) > 0.0,
+                      ExcMessage("Tabulated reference densities must be positive."));
+          for (unsigned int i = 1; i < tabulated_reference_radii.size(); ++i)
+            AssertThrow(tabulated_reference_radii[i] > tabulated_reference_radii[i-1],
+                        ExcMessage("Tabulated reference radii must be strictly increasing."));
+        }
+
+      AssertThrow(internal_density_jump_radii.size()
+                  == internal_density_jump_density_contrasts.size(),
+                  ExcMessage("Internal density jump radii and density contrasts must "
+                             "contain the same number of values."));
+      AssertThrow(internal_density_jump_face_tolerance > 0.0,
+                  ExcMessage("Internal density jump face tolerance must be positive."));
+      for (unsigned int i = 0; i < internal_density_jump_radii.size(); ++i)
+        {
+          AssertThrow(internal_density_jump_radii[i] > 0.0,
+                      ExcMessage("Internal density jump radii must be positive."));
+          if (i > 0)
+            AssertThrow(internal_density_jump_radii[i]
+                        - internal_density_jump_radii[i-1]
+                        > 2.0 * internal_density_jump_face_tolerance,
+                        ExcMessage("Internal density jump radii must be strictly increasing "
+                                   "and separated by more than twice the face tolerance."));
+        }
+
+      if (!internal_density_jump_radii.empty())
+        {
+          AssertThrow(density_source_law
+                      == Formulation::DensitySourceLaw::mechanical_mass_conservation,
+                      ExcMessage("Internal density jump sheets currently require "
+                                 "<Density source law = mechanical mass conservation>."));
+          AssertThrow(reference_density_model
+                      == Formulation::ReferenceDensityModel::tabulated_radial,
+                      ExcMessage("Internal density jump sheets currently require "
+                                 "<Reference density model = tabulated radial>."));
+          AssertThrow(internal_density_jump_radii.front()
+                      > tabulated_reference_radii.front()
+                      && internal_density_jump_radii.back()
+                      < tabulated_reference_radii.back(),
+                      ExcMessage("Internal density jump radii must lie strictly inside the "
+                                 "tabulated radial reference-density range."));
+        }
+
+      if (!tabulated_mechanical_gravity_magnitudes.empty())
+        {
+          AssertThrow(density_source_law
+                      == Formulation::DensitySourceLaw::mechanical_mass_conservation,
+                      ExcMessage("Tabulated mechanical gravity magnitudes require "
+                                 "<Density source law = mechanical mass conservation>."));
+          AssertThrow(reference_density_model
+                      == Formulation::ReferenceDensityModel::tabulated_radial,
+                      ExcMessage("Tabulated mechanical gravity magnitudes use the intervals "
+                                 "from <Reference density model = tabulated radial>."));
+          AssertThrow(tabulated_mechanical_gravity_magnitudes.size() + 1
+                      == tabulated_reference_radii.size(),
+                      ExcMessage("Tabulated mechanical gravity magnitudes must contain one "
+                                 "value per tabulated reference-radius interval."));
+        }
+
+      if (allow_viscoelastic_initial_mechanical_response)
+        AssertThrow(density_source_law
+                    == Formulation::DensitySourceLaw::mechanical_mass_conservation,
+                    ExcMessage("Allowing a viscoelastic initial mechanical response "
+                               "requires <Density source law = mechanical mass conservation>."));
+
+      if (tabulated_reference_density_interpolation
+          == Formulation::TabulatedReferenceDensityInterpolation::piecewise_constant)
+        {
+          AssertThrow(reference_density_model
+                      == Formulation::ReferenceDensityModel::tabulated_radial,
+                      ExcMessage("Piecewise-constant tabulated reference density requires "
+                                 "<Reference density model = tabulated radial>."));
+          AssertThrow(density_source_law
+                      == Formulation::DensitySourceLaw::mechanical_mass_conservation,
+                      ExcMessage("Piecewise-constant tabulated reference density requires "
+                                 "<Density source law = mechanical mass conservation> so "
+                                 "its internal density sheets have a unique owner."));
+          AssertThrow(internal_density_jump_radii.empty(),
+                      ExcMessage("Piecewise-constant tabulated reference density derives "
+                                 "internal density jumps from the table. Leave `Internal "
+                                 "density jump radii' and contrasts empty to avoid double "
+                                 "counting."));
+        }
 
       if (density_source_law == Formulation::DensitySourceLaw::material_minus_reference
           && reference_density_model == Formulation::ReferenceDensityModel::none)
         AssertThrow(false,
                     ExcMessage("<Formulation/Density sources/Density source law> is "
                                "`material minus reference', but <Reference density model> "
-                               "is `none'. Select `constant' or `frozen initial lateral "
-                               "average'."));
+                               "is `none'. Select a constant, frozen initial lateral average, "
+                               "or tabulated radial reference-density model."));
+
+      if (density_source_law == Formulation::DensitySourceLaw::mechanical_mass_conservation)
+        {
+          AssertThrow(formulation_mass_conservation ==
+                      Formulation::MassConservation::elastic_pressure_evolution,
+                      ExcMessage("The `mechanical mass conservation' density-source law requires "
+                                 "<Formulation/Mass conservation = elastic pressure evolution>."));
+          AssertThrow(reference_density_model == Formulation::ReferenceDensityModel::constant
+                      || reference_density_model == Formulation::ReferenceDensityModel::tabulated_radial,
+                      ExcMessage("The `mechanical mass conservation' density-source law requires "
+                                 "a constant or tabulated radial reference-density model."));
+        }
 
       if (reference_density_model == Formulation::ReferenceDensityModel::frozen_initial_lateral_average
           && resume_computation)

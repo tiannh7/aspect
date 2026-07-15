@@ -184,6 +184,18 @@ namespace aspect
 
         unsigned int minimum_degree() const;
 
+        /**
+         * Return the current self-gravitational potential Phi at @p position.
+         * The cached field is available for the 3-D mechanical mass-
+         * conservation formulation and is zero otherwise.
+         */
+        double
+        full_domain_potential(const Point<dim> &position) const;
+
+        /** Return whether a full-domain self-gravity potential is cached. */
+        bool
+        has_full_domain_potential() const;
+
         void configure_from_potential_feedback_settings(
           const PotentialFeedback::Settings &settings);
 
@@ -296,6 +308,19 @@ namespace aspect
         Tensor<1,3>
         compute_internal_density_mass_dipole() const;
 
+        /**
+         * Cache Phi/g_surface spherical-harmonic coefficients on radial
+         * support points for compressible full-domain potential forcing.
+         */
+        void
+        update_full_domain_potential(
+          const std::vector<double> &surface_height_cos,
+          const std::vector<double> &surface_height_sin,
+          const std::vector<double> &cmb_height_cos,
+          const std::vector<double> &cmb_height_sin,
+          const double outer_radius,
+          const double inner_radius);
+
         void
         write_native_center_of_mass_diagnostic(
           const bool include_current_velocity_increment) const;
@@ -334,6 +359,7 @@ namespace aspect
         std::string include_internal_density_anomalies;
         double reference_density_for_internal_anomalies;
         double internal_density_anomaly_tolerance;
+        std::string full_domain_volume_source_discretization = "quadrature point";
 
         double time_between_text_output;
         unsigned int time_steps_between_text_output;
@@ -361,6 +387,14 @@ namespace aspect
         std::vector<double> surface_potential_sin_coeffs;
         std::vector<double> cmb_potential_cos_coeffs;
         std::vector<double> cmb_potential_sin_coeffs;
+
+        // Phi/g_surface coefficients on radial support points. These vectors
+        // contain the self-gravity mass potential only; tidal, rotational,
+        // and reference-frame potentials remain separate.
+        std::vector<double> full_domain_potential_radii;
+        std::vector<std::vector<double>> full_domain_potential_cos_coeffs;
+        std::vector<std::vector<double>> full_domain_potential_sin_coeffs;
+        double full_domain_reference_gravity = 0.0;
 
         // Separate contributions to Phi/g at the outer surface. Their sum is
         // surface_potential_*; retaining the split avoids reconstructing

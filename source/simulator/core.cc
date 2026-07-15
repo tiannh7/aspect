@@ -1065,11 +1065,13 @@ namespace aspect
                 coupling[x.pressure][x.velocities[d]] = DoFTools::always;
               }
 
-            // For equal-order interpolation, we need a stabilization term
-            // in the bottom right of Stokes matrix. Make sure we have the
-            // necessary entries.
+            // Equal-order interpolation, prescribed dilation, and elastic
+            // pressure evolution add terms to the pressure-pressure block.
+            // Make sure the corresponding sparsity entries exist.
             if (parameters.use_equal_order_interpolation_for_stokes == true ||
-                parameters.enable_prescribed_dilation == true)
+                parameters.enable_prescribed_dilation == true ||
+                parameters.formulation_mass_conservation ==
+                Parameters<dim>::Formulation::MassConservation::elastic_pressure_evolution)
               coupling[x.pressure][x.pressure] = DoFTools::always;
           }
       }
@@ -2278,6 +2280,11 @@ namespace aspect
         if (! (parameters.skip_solvers_on_initial_refinement
                && pre_refinement_step < parameters.initial_adaptive_refinement))
           {
+            if (timestep_number == 0
+                && parameters.density_source_law ==
+                Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation)
+              density_source_manager.begin_initial_mechanical_solve();
+
             start_timestep ();
 
             // then do the core work: assemble systems and solve

@@ -101,13 +101,32 @@ namespace aspect
           prm.declare_entry("Include internal density anomalies", "auto",
                             Patterns::Selection("true|false|auto"),
                             "controls whether internal volume density anomalies contribute to "
-                            "self-gravity/geoid diagnostics.");
+                            "self-gravity feedback and geoid diagnostics. "
+                            "With 3-D mechanical mass conservation, the "
+                            "resulting potential is also applied through the "
+                            "full-domain compressible weak form.");
           prm.declare_entry("Reference density for internal anomalies", "0.0",
                             Patterns::Double(0.0),
                             "A constant spherically symmetric reference density subtracted from the volume-density integral.");
           prm.declare_entry("Internal density anomaly tolerance", "0.0",
                             Patterns::Double(0.0),
                             "absolute tolerance for auto-detecting zero internal density anomaly field.");
+          prm.declare_entry("Full domain volume source discretization", "quadrature point",
+                            Patterns::Selection("quadrature point|cell average|radial layer midpoint|mass lumped radial layer"),
+                            "Discretization of the mechanical volume-density "
+                            "source in the 3-D full-domain self-gravity "
+                            "potential. `quadrature point' preserves the "
+                            "existing pointwise integration. `cell average' "
+                            "uses one volume-weighted density perturbation per "
+                            "active cell before applying the spherical-harmonic "
+                            "Green kernel. `radial layer midpoint' additionally "
+                            "uses an arithmetic quadrature-point source average "
+                            "and evaluates the radial kernel and radial measure "
+                            "at the cell's midpoint radius. `mass lumped radial "
+                            "layer' first projects those cell averages to "
+                            "shared pressure vertices with a lumped Q1 mass "
+                            "matrix before applying the midpoint rule. The "
+                            "default is unchanged.");
         }
         prm.leave_subsection();
 
@@ -236,6 +255,8 @@ namespace aspect
           include_internal_density_anomalies = prm.get("Include internal density anomalies");
           reference_density_for_internal_anomalies = prm.get_double("Reference density for internal anomalies");
           internal_density_anomaly_tolerance = prm.get_double("Internal density anomaly tolerance");
+          full_domain_volume_source_discretization =
+            prm.get("Full domain volume source discretization");
         }
         prm.leave_subsection();
 

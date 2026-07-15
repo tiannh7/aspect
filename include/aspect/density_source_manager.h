@@ -54,6 +54,11 @@ namespace aspect
       void
       initialize_reference_density();
 
+      /** Add material outputs needed by the selected density-source law. */
+      void
+      create_additional_material_model_outputs(
+        MaterialModel::MaterialModelOutputs<dim> &outputs) const;
+
       /**
        * Return the physical density produced by the material model.
        */
@@ -68,6 +73,78 @@ namespace aspect
        */
       double
       reference_density(const Point<dim> &position) const;
+
+      /** Return the Cartesian gradient of the selected radial reference density. */
+      Tensor<1,dim>
+      reference_density_gradient(const Point<dim> &position) const;
+
+      /** Return the finite elastic bulk modulus supplied by the material model. */
+      double
+      elastic_bulk_modulus(
+        const MaterialModel::MaterialModelOutputs<dim> &outputs,
+        const unsigned int q) const;
+
+      /** Return the time interval represented by the current elastic solve. */
+      double
+      effective_mechanical_time_step() const;
+
+      /**
+       * Return the gravity magnitude used by the local mechanical volume
+       * couplings. The default empty table returns @p gravity_model_magnitude.
+       */
+      double
+      mechanical_gravity_magnitude(
+        const Point<dim> &position,
+        const double gravity_model_magnitude) const;
+
+      /**
+       * Return whether explicit or piecewise-constant tabulated internal
+       * density jumps are active.
+       */
+      bool
+      has_internal_density_jumps() const;
+
+      /**
+       * Return the configured density contrast at @p radius, or zero when no
+       * interface matches within the configured face tolerance. The contrast
+       * is density below minus density above the interface.
+       */
+      double
+      internal_density_jump(const double radius) const;
+
+      /**
+       * Return the density contrast across an internal face. For a
+       * piecewise-constant tabulated reference state, infer the contrast from
+       * the adjacent inner and outer cell centers so that material interfaces
+       * remain identified after mesh deformation. Explicit jumps retain the
+       * radius-based query at @p face_radius.
+       */
+      double
+      internal_density_jump_across_face(
+        const Point<dim> &inner_cell_center,
+        const Point<dim> &outer_cell_center,
+        const double face_radius) const;
+
+      /** Reset timestep-zero prediction bookkeeping before the first solve. */
+      void
+      begin_initial_mechanical_solve();
+
+      /** Record that timestep-zero radial history includes the solved increment. */
+      void
+      mark_initial_mechanical_history_initialized();
+
+      /** Return committed radial displacement plus the current trial increment. */
+      double
+      mechanical_radial_displacement(
+        const MaterialModel::MaterialModelInputs<dim> &inputs,
+        const unsigned int q) const;
+
+      /** Return the selected non-legacy volume-density perturbation. */
+      double
+      density_perturbation(
+        const MaterialModel::MaterialModelInputs<dim> &inputs,
+        const MaterialModel::MaterialModelOutputs<dim> &outputs,
+        const unsigned int q) const;
 
       /**
        * Return the density used by the Stokes momentum body force. Legacy
@@ -124,11 +201,21 @@ namespace aspect
       unsigned int
       depth_bin_index(const double depth) const;
 
+      /** Return the lower interval index for a clamped radial table lookup. */
+      unsigned int
+      radial_table_interval(const double radius) const;
+
+      /** Return whether a table interval encodes an explicit density jump. */
+      bool
+      radial_table_interval_contains_internal_density_jump(
+        const unsigned int lower_interval_index) const;
+
       std::vector<double> depth_bounds;
       std::vector<double> depth_samples;
       std::vector<double> reference_density_values;
       Diagnostics initial_diagnostics;
       bool initialized = false;
+      bool initial_mechanical_history_includes_current_solution = false;
       unsigned int initialization_count = 0;
       double reference_density_scale = 0.0;
   };

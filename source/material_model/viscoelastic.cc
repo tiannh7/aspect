@@ -22,12 +22,98 @@
 #include <aspect/material_model/viscoelastic.h>
 #include <aspect/utilities.h>
 #include <aspect/global.h>
+#include <algorithm>
 #include <numeric>
 
 namespace aspect
 {
   namespace MaterialModel
   {
+    template <int dim>
+    Viscoelastic<dim>::Viscoelastic ()
+      :
+      use_ascii_profile(false),
+      profile_density_index(numbers::invalid_unsigned_int),
+      profile_viscosity_index(numbers::invalid_unsigned_int),
+      profile_elastic_shear_modulus_index(numbers::invalid_unsigned_int),
+      profile_compressibility_index(numbers::invalid_unsigned_int),
+      profile_elastic_lame_lambda_index(numbers::invalid_unsigned_int),
+      radial_displacement_field_index(numbers::invalid_unsigned_int)
+    {}
+
+
+
+    template <int dim>
+    void
+    Viscoelastic<dim>::initialize ()
+    {
+      if (use_ascii_profile)
+        {
+          material_profile.initialize(this->get_mpi_communicator());
+          profile_density_index = material_profile.get_column_index_from_name("density");
+          profile_viscosity_index = material_profile.get_column_index_from_name("viscosity");
+          profile_elastic_shear_modulus_index =
+            material_profile.get_column_index_from_name("elastic_shear_modulus");
+          profile_compressibility_index =
+            material_profile.maybe_get_column_index_from_name("compressibility");
+          profile_elastic_lame_lambda_index =
+            material_profile.maybe_get_column_index_from_name("lame_lambda");
+
+          if (enable_compressible_maxwell)
+            {
+              AssertThrow(profile_compressibility_index != numbers::invalid_unsigned_int
+                          || profile_elastic_lame_lambda_index != numbers::invalid_unsigned_int,
+                          ExcMessage("A viscoelastic ASCII profile with compressible Maxwell elasticity "
+                                     "requires a 'compressibility' or 'lame_lambda' column."));
+
+              for (const double depth : material_profile.get_interpolation_point_coordinates())
+                {
+                  const Point<1> profile_position(depth);
+                  const double shear_modulus =
+                    material_profile.get_data_component(profile_position,
+                                                        profile_elastic_shear_modulus_index);
+                  double bulk_modulus_from_compressibility = numbers::signaling_nan<double>();
+                  double bulk_modulus_from_lame_lambda = numbers::signaling_nan<double>();
+
+                  if (profile_compressibility_index != numbers::invalid_unsigned_int)
+                    {
+                      const double compressibility =
+                        material_profile.get_data_component(profile_position,
+                                                            profile_compressibility_index);
+                      AssertThrow(std::isfinite(compressibility) && compressibility > 0.0,
+                                  ExcMessage("The viscoelastic ASCII profile requires positive finite compressibility values."));
+                      bulk_modulus_from_compressibility = 1.0 / compressibility;
+                    }
+
+                  if (profile_elastic_lame_lambda_index != numbers::invalid_unsigned_int)
+                    {
+                      const double lame_lambda =
+                        material_profile.get_data_component(profile_position,
+                                                            profile_elastic_lame_lambda_index);
+                      bulk_modulus_from_lame_lambda = lame_lambda + 2.0 * shear_modulus / 3.0;
+                      AssertThrow(std::isfinite(bulk_modulus_from_lame_lambda)
+                                  && bulk_modulus_from_lame_lambda > 0.0,
+                                  ExcMessage("The viscoelastic ASCII profile requires lame_lambda+2G/3 to be positive and finite."));
+                    }
+
+                  if (profile_compressibility_index != numbers::invalid_unsigned_int
+                      && profile_elastic_lame_lambda_index != numbers::invalid_unsigned_int)
+                    {
+                      const double relative_difference =
+                        std::abs(bulk_modulus_from_compressibility - bulk_modulus_from_lame_lambda)
+                        / std::max(bulk_modulus_from_compressibility,
+                                   bulk_modulus_from_lame_lambda);
+                      AssertThrow(relative_difference <= 1e-6,
+                                  ExcMessage("The viscoelastic ASCII profile columns 'compressibility' and "
+                                             "'lame_lambda' are inconsistent with K=lambda+2G/3."));
+                    }
+                }
+            }
+        }
+    }
+
+
+
     template <int dim>
     void
     Viscoelastic<dim>::
@@ -42,6 +128,8 @@ namespace aspect
 
       std::vector<double> average_elastic_shear_moduli (in.n_evaluation_points());
       std::vector<double> elastic_shear_moduli(elastic_rheology.get_elastic_shear_moduli());
+      std::vector<double> average_elastic_bulk_moduli(in.n_evaluation_points(),
+                                                      numbers::signaling_nan<double>());
 
       for (unsigned int i=0; i < in.n_evaluation_points(); ++i)
         {
@@ -67,6 +155,14 @@ namespace aspect
           out.entropy_derivative_pressure[i] = MaterialUtilities::average_value (volume_fractions, eos_outputs.entropy_derivative_pressure, MaterialUtilities::arithmetic);
           out.entropy_derivative_temperature[i] = MaterialUtilities::average_value (volume_fractions, eos_outputs.entropy_derivative_temperature, MaterialUtilities::arithmetic);
 
+          Point<1> profile_position;
+          if (use_ascii_profile)
+            {
+              profile_position[0] = this->get_geometry_model().depth(in.position[i]);
+              out.densities[i] =
+                material_profile.get_data_component(profile_position, profile_density_index);
+            }
+
           for (unsigned int c=0; c<in.composition[i].size(); ++c)
             out.reaction_terms[i][c] = 0.0;
 
@@ -85,26 +181,90 @@ namespace aspect
             }
 
           // Average the viscous viscosity and the shear modulus over the compositions
-          average_elastic_shear_moduli[i] = MaterialUtilities::average_value(volume_fractions, elastic_shear_moduli, viscosity_averaging);
+          if (use_ascii_profile)
+            average_elastic_shear_moduli[i] =
+              material_profile.get_data_component(profile_position,
+                                                  profile_elastic_shear_modulus_index);
+          else
+            average_elastic_shear_moduli[i] =
+              MaterialUtilities::average_value(volume_fractions,
+                                               elastic_shear_moduli,
+                                               viscosity_averaging);
+
+          if (enable_compressible_maxwell)
+            {
+              if (use_ascii_profile)
+                {
+                  if (profile_compressibility_index != numbers::invalid_unsigned_int)
+                    average_elastic_bulk_moduli[i] =
+                      1.0 / material_profile.get_data_component(profile_position,
+                                                                profile_compressibility_index);
+                  else
+                    average_elastic_bulk_moduli[i] =
+                      material_profile.get_data_component(profile_position,
+                                                          profile_elastic_lame_lambda_index)
+                      + 2.0 * average_elastic_shear_moduli[i] / 3.0;
+                }
+              else
+                {
+                  std::vector<double> phase_bulk_moduli(elastic_bulk_moduli);
+                  if (elastic_bulk_modulus_formulation == ElasticBulkModulusFormulation::lame_lambda)
+                    for (unsigned int j = 0; j < phase_bulk_moduli.size(); ++j)
+                      phase_bulk_moduli[j] = elastic_lame_lambda_moduli[j]
+                                             + 2.0 * elastic_shear_moduli[j] / 3.0;
+
+                  average_elastic_bulk_moduli[i] =
+                    MaterialUtilities::average_value(volume_fractions,
+                                                     phase_bulk_moduli,
+                                                     MaterialUtilities::arithmetic);
+                }
+
+              AssertThrow(std::isfinite(average_elastic_bulk_moduli[i])
+                          && average_elastic_bulk_moduli[i] > 0.0,
+                          ExcMessage("Compressible Maxwell elasticity requires a finite positive elastic bulk modulus."));
+              out.compressibilities[i] = 1.0 / average_elastic_bulk_moduli[i];
+            }
 
           // If we have multiple compositions, we need to first compute their respective viscoelastic viscosities,
           // based on their respective viscous viscosities and the averaged shear modulus, before averaging them
           // into the final effective viscosity.
-          std::vector<double> viscoelastic_viscosities(volume_fractions.size());
-          for (unsigned int j=0; j < volume_fractions.size(); ++j)
+          if (use_ascii_profile)
             {
-              // The viscoelastic viscosity is scaled with the timestep ratio $\frac{\Delta t_c}{\Delta t_{el}}$ in the
-              // calculate_viscoelastic_viscosity function.
-              viscoelastic_viscosities[j] = elastic_rheology.calculate_viscoelastic_viscosity(viscosities[j],
-                                                                                              average_elastic_shear_moduli[i]);
+              const double viscosity =
+                material_profile.get_data_component(profile_position,
+                                                    profile_viscosity_index);
+              out.viscosities[i] =
+                elastic_rheology.calculate_viscoelastic_viscosity(viscosity,
+                                                                  average_elastic_shear_moduli[i]);
             }
+          else
+            {
+              std::vector<double> viscoelastic_viscosities(volume_fractions.size());
+              for (unsigned int j=0; j < volume_fractions.size(); ++j)
+                {
+                  // The viscoelastic viscosity is scaled with the timestep ratio $\frac{\Delta t_c}{\Delta t_{el}}$ in the
+                  // calculate_viscoelastic_viscosity function.
+                  viscoelastic_viscosities[j] = elastic_rheology.calculate_viscoelastic_viscosity(viscosities[j],
+                                                                                                  average_elastic_shear_moduli[i]);
+                }
 
-          // Average viscoelastic (e.g., effective) viscosity (equation 28 in Moresi et al., 2003, J. Comp. Phys.).
-          out.viscosities[i] =  MaterialUtilities::average_value(volume_fractions, viscoelastic_viscosities, viscosity_averaging);
+              // Average viscoelastic (e.g., effective) viscosity (equation 28 in Moresi et al., 2003, J. Comp. Phys.).
+              out.viscosities[i] = MaterialUtilities::average_value(volume_fractions,
+                                                                    viscoelastic_viscosities,
+                                                                    viscosity_averaging);
+            }
         }
 
       // Fill the body force term, viscoelastic strain rate and viscous dissipation.
       elastic_rheology.fill_elastic_outputs(in, average_elastic_shear_moduli, out);
+
+      if (enable_compressible_maxwell)
+        {
+          const std::shared_ptr<MaterialModel::ElasticOutputs<dim>> elastic_outputs =
+            out.template get_additional_output_object<MaterialModel::ElasticOutputs<dim>>();
+          if (elastic_outputs != nullptr)
+            elastic_outputs->elastic_bulk_moduli = average_elastic_bulk_moduli;
+        }
       // Fill the elastic additional outputs with the shear modulus, elastic viscosity
       // and deviatoric stress of the current timestep.
       // TODO requests_property is already checked in the fill_ function,
@@ -117,6 +277,32 @@ namespace aspect
       // timestep to the advected and rotated stress computed in the previous timestep ($\tau^{0adv}$)
       // to obtain $\tau^{t}$.
       elastic_rheology.fill_reaction_rates(in, average_elastic_shear_moduli, out);
+
+      const bool use_radial_displacement_history =
+        this->get_parameters().density_source_law
+        == Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation;
+      if (use_radial_displacement_history)
+        {
+          const std::shared_ptr<ReactionRateOutputs<dim>> reaction_rate_out =
+            out.template get_additional_output_object<ReactionRateOutputs<dim>>();
+
+          if (reaction_rate_out != nullptr
+              && in.current_cell.state() == IteratorState::valid
+              && this->get_timestep_number() > 0
+              && !(use_instantaneous_elastic_response_at_timestep_zero()
+                   && this->get_timestep_number() == 1)
+              && (in.requests_property(MaterialProperties::reaction_rates)
+                  || in.requests_property(MaterialProperties::additional_outputs)))
+            for (unsigned int i = 0; i < in.n_evaluation_points(); ++i)
+              {
+                const double radius = in.position[i].norm();
+                AssertThrow(radius > 0.0,
+                            ExcMessage("The radial material-displacement history is undefined at radius zero."));
+                const Tensor<1,dim> radial_unit = in.position[i] / radius;
+                reaction_rate_out->reaction_rates[i][radial_displacement_field_index] =
+                  in.velocity[i] * radial_unit;
+              }
+        }
     }
 
 
@@ -126,7 +312,7 @@ namespace aspect
     Viscoelastic<dim>::
     is_compressible () const
     {
-      return equation_of_state.is_compressible();
+      return enable_compressible_maxwell || equation_of_state.is_compressible();
     }
 
 
@@ -156,6 +342,47 @@ namespace aspect
                              "those corresponding to chemical compositions. "
                              "If only one value is given, then all use the same value. "
                              "Units: $\\frac{\\text{W}}{\\text{m}\\text{K}}$.");
+          prm.declare_entry ("Use ascii profile", "false",
+                             Patterns::Bool(),
+                             "Whether to read density, viscosity, and elastic shear modulus "
+                             "from a one-dimensional ASCII depth profile. The required column "
+                             "names are `density', `viscosity', and `elastic_shear_modulus'. "
+                             "When compressible Maxwell elasticity is enabled, the profile must "
+                             "also provide `compressibility' or `lame_lambda'; these define the "
+                             "elastic bulk modulus without changing the thermodynamic equation "
+                             "of state. If both columns are present, they must satisfy "
+                             "K=1/compressibility=lame_lambda+2G/3. This option is disabled by "
+                             "default and does not by itself enable finite compressibility.");
+          aspect::Utilities::AsciiDataProfile<dim>::declare_parameters(prm,
+                                                                       "$ASPECT_SOURCE_DIR/data/material-model/viscoelastic/",
+                                                                       "viscoelastic_profile.txt",
+                                                                       "Ascii profile");
+          prm.declare_entry ("Enable compressible Maxwell", "false",
+                             Patterns::Bool(),
+                             "Whether to enable a finite elastic bulk response. "
+                             "When enabled, the material model supplies an elastic "
+                             "bulk modulus to the `elastic pressure evolution' mass "
+                             "formulation. Physical material density remains the "
+                             "incompressible equation-of-state density. This option "
+                             "is disabled by default.");
+          prm.declare_entry ("Elastic bulk modulus formulation", "bulk modulus",
+                             Patterns::Selection("bulk modulus|Lame lambda"),
+                             "Select whether elastic bulk modulus K is specified "
+                             "directly or computed as K=lambda+2G/3 from Lame's "
+                             "first parameter and the elastic shear modulus. This "
+                             "selection applies to parameter-list input; ASCII "
+                             "profiles use their compressibility or lame_lambda column.");
+          prm.declare_entry ("Elastic bulk moduli", "2.e11",
+                             Patterns::List(Patterns::Double (0.)),
+                             "Elastic bulk moduli for the background and chemical "
+                             "compositions. A single value applies to every phase. "
+                             "Units: Pa.");
+          prm.declare_entry ("Elastic Lame lambda moduli", "1.5e11",
+                             Patterns::List(Patterns::Double (0.)),
+                             "Lame's first parameters for the background and chemical "
+                             "compositions. These values are used when `Elastic bulk "
+                             "modulus formulation' is `Lame lambda'. A single value "
+                             "applies to every phase. Units: Pa.");
           prm.declare_entry ("Viscosity averaging scheme", "harmonic",
                              Patterns::Selection("arithmetic|harmonic|geometric|maximum composition "),
                              "When more than one compositional field is present at a point "
@@ -211,6 +438,58 @@ namespace aspect
           viscosities = Utilities::MapParsing::parse_map_to_double_array (prm.get("Viscosities"), options);
           options.property_name = "Thermal conductivities";
           thermal_conductivities = Utilities::MapParsing::parse_map_to_double_array (prm.get("Thermal conductivities"), options);
+          use_ascii_profile = prm.get_bool("Use ascii profile");
+          material_profile.parse_parameters(prm, "Ascii profile");
+          enable_compressible_maxwell = prm.get_bool("Enable compressible Maxwell");
+
+          const std::string bulk_modulus_formulation =
+            prm.get("Elastic bulk modulus formulation");
+          if (bulk_modulus_formulation == "bulk modulus")
+            elastic_bulk_modulus_formulation = ElasticBulkModulusFormulation::bulk_modulus;
+          else if (bulk_modulus_formulation == "Lame lambda")
+            elastic_bulk_modulus_formulation = ElasticBulkModulusFormulation::lame_lambda;
+          else
+            AssertThrow(false, ExcNotImplemented());
+
+          options.property_name = "Elastic bulk moduli";
+          elastic_bulk_moduli =
+            Utilities::MapParsing::parse_map_to_double_array(prm.get("Elastic bulk moduli"), options);
+          options.property_name = "Elastic Lame lambda moduli";
+          elastic_lame_lambda_moduli =
+            Utilities::MapParsing::parse_map_to_double_array(prm.get("Elastic Lame lambda moduli"), options);
+
+          if (enable_compressible_maxwell && !use_ascii_profile)
+            {
+              const std::vector<double> &selected_values =
+                (elastic_bulk_modulus_formulation == ElasticBulkModulusFormulation::bulk_modulus
+                 ? elastic_bulk_moduli
+                 : elastic_lame_lambda_moduli);
+              for (const double value : selected_values)
+                AssertThrow(value > 0.0,
+                            ExcMessage("Compressible Maxwell elasticity requires positive bulk or Lame moduli."));
+            }
+
+          if (this->get_parameters().density_source_law
+              == Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation)
+            {
+              AssertThrow(enable_compressible_maxwell,
+                          ExcMessage("Mechanical mass conservation requires <Enable compressible Maxwell = true>."));
+              AssertThrow(this->get_parameters().use_operator_splitting,
+                          ExcMessage("Mechanical mass conservation requires operator splitting for radial material-displacement history."));
+              AssertThrow(this->introspection().compositional_name_exists("ve_radial_displacement"),
+                          ExcMessage("Mechanical mass conservation requires a compositional field named `ve_radial_displacement'."));
+
+              radial_displacement_field_index =
+                this->introspection().compositional_index_for_name("ve_radial_displacement");
+              AssertThrow(this->get_parameters().compositional_field_methods[radial_displacement_field_index]
+                          == Parameters<dim>::AdvectionFieldMethod::fem_field,
+                          ExcMessage("The radial material-displacement history must be a compositional finite-element field."));
+              AssertThrow(this->get_parameters().use_discontinuous_composition_discretization[radial_displacement_field_index],
+                          ExcMessage("The radial material-displacement history requires a discontinuous compositional element."));
+              AssertThrow(this->get_parameters().composition_descriptions[radial_displacement_field_index].type
+                          == CompositionalFieldDescription::generic,
+                          ExcMessage("The radial material-displacement history must use the `generic' compositional field type."));
+            }
           const double new_ref = prm.get_double("Reference density for Stokes perturbation");
           const double old_ref = prm.get_double("Reference density for perturbation Stokes");
           if (old_ref != -1e300 || new_ref != 0.0)

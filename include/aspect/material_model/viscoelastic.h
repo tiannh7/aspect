@@ -24,6 +24,7 @@
 #include <aspect/material_model/interface.h>
 #include <aspect/material_model/rheology/elasticity.h>
 #include <aspect/simulator_access.h>
+#include <aspect/structured_data.h>
 #include <aspect/material_model/equation_of_state/multicomponent_incompressible.h>
 
 namespace aspect
@@ -35,8 +36,9 @@ namespace aspect
      * includes the deviatoric components of elasticity. Specifically, the
      * viscoelastic rheology only takes into account the elastic shear
      * strength (e.g., shear modulus), while the tensile and volumetric
-     * strength (e.g., Young's and bulk modulus) are not considered. The model
-     * is incompressible and allows specifying an arbitrary number of
+     * strength (e.g., Young's and bulk modulus) are not considered by default.
+     * An optional finite elastic bulk response supplies a bulk modulus to the
+     * elastic-pressure-evolution mass formulation. The model allows specifying an arbitrary number of
      * compositional fields, where each field represents a different rock type
      * or component of the viscoelastic stress tensor. The stress tensor in 2D
      * and 3D, respectively, contains 3 or 6 components. The compositional fields
@@ -154,6 +156,8 @@ namespace aspect
     class Viscoelastic : public MaterialModel::Interface<dim>, public ::aspect::SimulatorAccess<dim>
     {
       public:
+        Viscoelastic ();
+
         /**
          * Function to compute the material properties in @p out given the
          * inputs in @p in.
@@ -167,7 +171,7 @@ namespace aspect
          */
 
         /**
-         * This model is not compressible, so this returns false.
+         * Return whether finite elastic compressibility is enabled.
          */
         bool is_compressible () const override;
         /**
@@ -190,6 +194,9 @@ namespace aspect
          */
         void
         parse_parameters(ParameterHandler &prm) override;
+
+        void
+        initialize () override;
         /**
          * @}
          */
@@ -223,6 +230,40 @@ namespace aspect
          * Vector for field thermal conductivities, read from parameter file.
          */
         std::vector<double> thermal_conductivities;
+
+        /** Whether density, viscosity, and shear modulus come from a depth profile. */
+        bool use_ascii_profile;
+
+        /** Optional one-dimensional material profile. */
+        aspect::Utilities::AsciiDataProfile<dim> material_profile;
+
+        unsigned int profile_density_index;
+        unsigned int profile_viscosity_index;
+        unsigned int profile_elastic_shear_modulus_index;
+        unsigned int profile_compressibility_index;
+        unsigned int profile_elastic_lame_lambda_index;
+
+        /** Whether to expose a finite elastic bulk response. */
+        bool enable_compressible_maxwell;
+
+        /** Available input conventions for the elastic bulk modulus. */
+        enum class ElasticBulkModulusFormulation
+        {
+          bulk_modulus,
+          lame_lambda
+        };
+
+        /** Selected input convention for the elastic bulk modulus. */
+        ElasticBulkModulusFormulation elastic_bulk_modulus_formulation;
+
+        /** Elastic bulk moduli for the background and chemical fields. */
+        std::vector<double> elastic_bulk_moduli;
+
+        /** Lamé's first parameters for the background and chemical fields. */
+        std::vector<double> elastic_lame_lambda_moduli;
+
+        /** Radial material-displacement history used by elastic pressure evolution. */
+        unsigned int radial_displacement_field_index;
 
         /**
          * Constant reference density whose gravitational body force is

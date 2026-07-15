@@ -149,6 +149,22 @@ namespace aspect
     };
 
     /**
+     * Assemble finite elastic pressure evolution
+     * @f$ p'^n-p'^{n-1}=-K\Delta t\,\nabla\cdot\mathbf v^n @f$.
+     * This is a mechanical bulk response and is distinct from the existing
+     * thermodynamic isentropic-compression approximation.
+     */
+    template <int dim>
+    class StokesElasticPressureEvolutionTerm : public Assemblers::Interface<dim>,
+      public SimulatorAccess<dim>
+    {
+      public:
+        void
+        execute(internal::Assembly::Scratch::ScratchBase<dim>   &scratch_base,
+                internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const override;
+    };
+
+    /**
      * This class assembles the right-hand-side term of the Stokes equation
      * that is caused by the variable density in the mass conservation equation.
      * This class approximates this term as
@@ -215,6 +231,26 @@ namespace aspect
      */
     template <int dim>
     class StokesCitcomStyleCMBRadialRestoring : public Assemblers::Interface<dim>,
+      public SimulatorAccess<dim>
+    {
+      public:
+        void
+        execute(internal::Assembly::Scratch::ScratchBase<dim>   &scratch_base,
+                internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const override;
+    };
+
+    /**
+     * Assemble local radial restoring terms on explicitly configured,
+     * jump-aligned internal mesh faces:
+     *
+     *   int_Gamma Delta rho g dt (w.e_r)(v.e_r) dS
+     *   - int_Gamma Delta rho g (w.e_r) U_old dS.
+     *
+     * The interface list is disabled by default and is separate from surface
+     * and CMB free-boundary stabilization.
+     */
+    template <int dim>
+    class StokesInternalDensityJumpRestoring : public Assemblers::Interface<dim>,
       public SimulatorAccess<dim>
     {
       public:

@@ -108,6 +108,12 @@ namespace aspect
           std::make_unique<aspect::Assemblers::StokesIsentropicCompressionTerm<dim>>());
       }
     else if (parameters.formulation_mass_conservation ==
+             Parameters<dim>::Formulation::MassConservation::elastic_pressure_evolution)
+      {
+        assemblers->stokes_system.push_back(
+          std::make_unique<aspect::Assemblers::StokesElasticPressureEvolutionTerm<dim>>());
+      }
+    else if (parameters.formulation_mass_conservation ==
              Parameters<dim>::Formulation::MassConservation::hydrostatic_compression)
       {
         assemblers->stokes_system.push_back(
@@ -124,6 +130,13 @@ namespace aspect
       AssertThrow(false,
                   ExcMessage("Unknown mass conservation equation approximation. There is no assembler"
                              " defined that handles this formulation."));
+
+    if (density_source_manager.has_internal_density_jumps())
+      {
+        assemblers->stokes_system.push_back(
+          std::make_unique<aspect::Assemblers::StokesInternalDensityJumpRestoring<dim>>());
+        assemblers->stokes_system_assembler_properties.need_face_finite_element_evaluation = true;
+      }
 
     // add the terms for traction boundary conditions
     if (!boundary_traction_manager.get_prescribed_boundary_traction_indicators().empty())
@@ -836,6 +849,14 @@ namespace aspect
           update_JxW_values
           :
           update_default)
+        |
+        (assemblers->stokes_system_assembler_properties.need_face_finite_element_evaluation
+         ?
+         update_values |
+         update_quadrature_points |
+         update_JxW_values
+         :
+         update_default)
         |
         (assemblers->stokes_system_assembler_on_boundary_face_properties.need_face_material_model_data
          ?

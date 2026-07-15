@@ -405,7 +405,10 @@ namespace aspect
         double phi;
 
         /**
-         * Number of tangential mesh cells in the initial, coarse mesh.
+         * Number of tangential mesh cells in the initial, coarse mesh. For a
+         * custom radial subdivision, zero preserves the default six-cell
+         * coarse surface and a nonzero value selects a supported hyper-shell
+         * surface topology before extrusion.
          */
         int n_cells_along_circumference;
 

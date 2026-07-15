@@ -23,6 +23,7 @@
 #include <aspect/geometry_model/interface.h>
 #include <aspect/gravity_model/interface.h>
 #include <aspect/mesh_deformation/free_surface.h>
+#include <aspect/mesh_deformation/interface.h>
 #include <aspect/simulator.h>
 #include <aspect/postprocess/boundary_densities.h>
 
@@ -808,6 +809,24 @@ namespace aspect
               cmb_potential_sin_coeffs[i] += cmb_at_cmb_sin[i];
             }
 
+          update_full_domain_potential(cos_topo,
+                                       sin_topo,
+                                       cos_cmb,
+                                       sin_cmb,
+                                       outer_radius,
+                                       inner_radius);
+          if (has_full_domain_potential())
+            {
+              surface_potential_cos_coeffs =
+                full_domain_potential_cos_coeffs.back();
+              surface_potential_sin_coeffs =
+                full_domain_potential_sin_coeffs.back();
+              cmb_potential_cos_coeffs =
+                full_domain_potential_cos_coeffs.front();
+              cmb_potential_sin_coeffs =
+                full_domain_potential_sin_coeffs.front();
+            }
+
           tidal_surface_potential_cos_coeffs.assign(n_coeff, 0.0);
           tidal_surface_potential_sin_coeffs.assign(n_coeff, 0.0);
           tidal_cmb_potential_cos_coeffs.assign(n_coeff, 0.0);
@@ -1320,6 +1339,102 @@ namespace aspect
 
 
     template <int dim>
+    bool
+    SelfGravitation<dim>::has_full_domain_potential() const
+    {
+      return dim == 3
+             && full_domain_reference_gravity > 0.0
+             && full_domain_potential_radii.size() >= 2
+             && full_domain_potential_cos_coeffs.size()
+             == full_domain_potential_radii.size()
+             && full_domain_potential_sin_coeffs.size()
+             == full_domain_potential_radii.size();
+    }
+
+
+    template <int dim>
+    double
+    SelfGravitation<dim>::full_domain_potential(
+      const Point<dim> &position) const
+    {
+      if constexpr (dim != 3)
+        return 0.0;
+      else
+        {
+          if (!has_full_domain_potential())
+            return 0.0;
+
+          const double radius = position.norm();
+          AssertThrow(radius > 0.0,
+                      ExcMessage("Full-domain self-gravity potential is undefined at radius zero."));
+
+          const auto upper =
+            std::upper_bound(full_domain_potential_radii.begin(),
+                             full_domain_potential_radii.end(),
+                             radius);
+          unsigned int lower_index = 0;
+          unsigned int upper_index = 0;
+          double upper_weight = 0.0;
+
+          if (upper == full_domain_potential_radii.begin())
+            lower_index = upper_index = 0;
+          else if (upper == full_domain_potential_radii.end())
+            lower_index = upper_index =
+                            full_domain_potential_radii.size() - 1;
+          else
+            {
+              upper_index =
+                std::distance(full_domain_potential_radii.begin(), upper);
+              lower_index = upper_index - 1;
+              upper_weight =
+                (radius - full_domain_potential_radii[lower_index])
+                / (full_domain_potential_radii[upper_index]
+                   - full_domain_potential_radii[lower_index]);
+            }
+
+          const std::array<double,3> spherical_coordinates =
+            aspect::Utilities::Coordinates::
+            cartesian_to_spherical_coordinates(position);
+          double potential_height = 0.0;
+          unsigned int coefficient_index = 0;
+          for (unsigned int degree = min_degree;
+               degree <= max_degree;
+               ++degree)
+            for (unsigned int order = 0;
+                 order <= degree;
+                 ++order, ++coefficient_index)
+              {
+                const std::pair<double,double> harmonics =
+                  aspect::Utilities::real_spherical_harmonic(
+                    degree,
+                    order,
+                    spherical_coordinates[2],
+                    spherical_coordinates[1]);
+                const double cosine_coefficient =
+                  (1.0 - upper_weight)
+                  * full_domain_potential_cos_coeffs[lower_index]
+                  [coefficient_index]
+                  + upper_weight
+                  * full_domain_potential_cos_coeffs[upper_index]
+                  [coefficient_index];
+                const double sine_coefficient =
+                  (1.0 - upper_weight)
+                  * full_domain_potential_sin_coeffs[lower_index]
+                  [coefficient_index]
+                  + upper_weight
+                  * full_domain_potential_sin_coeffs[upper_index]
+                  [coefficient_index];
+                potential_height +=
+                  cosine_coefficient * harmonics.first
+                  + sine_coefficient * harmonics.second;
+              }
+
+          return full_domain_reference_gravity * potential_height;
+        }
+    }
+
+
+    template <int dim>
     std::pair<double,double>
     SelfGravitation<dim>::surface_mass_potential_coefficient(
       const unsigned int degree,
@@ -1560,6 +1675,19 @@ namespace aspect
       if (!is_surface && !is_cmb)
         return Tensor<1, dim>();
 
+      bool displacement_history_supplies_local_restoring_traction = false;
+      if (this->get_parameters().mesh_deformation_enabled)
+        {
+          const auto &mesh_deformation_handler =
+            this->get_mesh_deformation_handler();
+          displacement_history_supplies_local_restoring_traction =
+            (mesh_deformation_handler
+             .use_displacement_history_in_free_surface_stabilization()
+             && mesh_deformation_handler
+             .get_boundary_indicators_requiring_stabilization()
+             .count(boundary_indicator) > 0);
+        }
+
       const std::vector<double> &potential_cos =
         (is_surface ? surface_potential_cos_coeffs : cmb_potential_cos_coeffs);
       const std::vector<double> &potential_sin =
@@ -1582,7 +1710,9 @@ namespace aspect
               ph_vec);
           potential_height = potential[0];
 
-          if (is_cmb && include_cmb_contribution)
+          if (is_cmb
+              && include_cmb_contribution
+              && !displacement_history_supplies_local_restoring_traction)
             cmb_topography = timed_spherical_harmonic_synthesis(
                                cmb_committed_topography_cos_coeffs,
                                cmb_committed_topography_sin_coeffs,
@@ -1618,7 +1748,9 @@ namespace aspect
                                           ph_vec);
           potential_height = potential[0];
 
-          if (is_cmb && include_cmb_contribution)
+          if (is_cmb
+              && include_cmb_contribution
+              && !displacement_history_supplies_local_restoring_traction)
             cmb_topography = fourier_transform->synthesize(
                                cmb_committed_topography_cos_coeffs,
                                cmb_committed_topography_sin_coeffs,
@@ -1633,12 +1765,17 @@ namespace aspect
       if (is_surface)
         {
           double committed_surface_topography = 0.0;
-          if (this->get_timestep_number() > 0)
+          if (this->get_timestep_number() > 0
+              && !displacement_history_supplies_local_restoring_traction)
             committed_surface_topography =
               this->get_geometry_model().height_above_reference_surface(position);
 
           // CitcomSVE keeps the current displacement increment in the local
           // restoring matrix and carries committed topography as an RHS load.
+          // If ASPECT's free-surface stabilization already assembles that
+          // displacement-history load, do not add the same local traction a
+          // second time here. The committed topography remains part of the
+          // non-local potential calculation.
           return density_below_surface * g_magnitude
                  * (-committed_surface_topography
                     + (enable_surface_potential_traction
@@ -1700,6 +1837,8 @@ namespace aspect
       include_internal_density_anomalies = settings.include_internal_density_anomalies;
       reference_density_for_internal_anomalies = settings.reference_density_for_internal_anomalies;
       internal_density_anomaly_tolerance = settings.internal_density_anomaly_tolerance;
+      full_domain_volume_source_discretization =
+        settings.full_domain_volume_source_discretization;
       degree_one_reference_frame = settings.degree_one_reference_frame;
       center_of_mass_correction = settings.center_of_mass_correction;
       citcomsve_degree_one_load_compensation =
@@ -1859,6 +1998,22 @@ namespace aspect
           prm.declare_entry("Internal density anomaly tolerance", "0",
                             Patterns::Double(0),
                             "Density anomaly threshold below which the volume integral is skipped.");
+          prm.declare_entry("Full domain volume source discretization", "quadrature point",
+                            Patterns::Selection("quadrature point|cell average|radial layer midpoint|mass lumped radial layer"),
+                            "Discretization of the mechanical volume-density "
+                            "source in the 3-D full-domain self-gravity "
+                            "potential. `quadrature point' preserves the "
+                            "existing pointwise integration. `cell average' "
+                            "uses one volume-weighted density perturbation per "
+                            "active cell before applying the spherical-harmonic "
+                            "Green kernel. `radial layer midpoint' additionally "
+                            "uses an arithmetic quadrature-point source average "
+                            "and evaluates the radial kernel and radial measure "
+                            "at the cell's midpoint radius. `mass lumped radial "
+                            "layer' first projects those cell averages to "
+                            "shared pressure vertices with a lumped Q1 mass "
+                            "matrix before applying the midpoint rule. The "
+                            "default is unchanged.");
           prm.declare_entry("Time between text output", "0.",
                             Patterns::Double(0.),
                             "The time interval in years between text outputs for self-gravity diagnostics. "
@@ -1925,6 +2080,8 @@ namespace aspect
             prm.get_double("Reference density for internal anomalies");
           internal_density_anomaly_tolerance =
             prm.get_double("Internal density anomaly tolerance");
+          full_domain_volume_source_discretization =
+            prm.get("Full domain volume source discretization");
           time_between_text_output = prm.get_double("Time between text output");
           time_steps_between_text_output = prm.get_integer("Time steps between text output");
           potential_relative_change = std::numeric_limits<double>::infinity();
@@ -2054,6 +2211,602 @@ namespace aspect
     }
 
 
+    template <int dim>
+    void
+    SelfGravitation<dim>::update_full_domain_potential(
+      const std::vector<double> &,
+      const std::vector<double> &,
+      const std::vector<double> &,
+      const std::vector<double> &,
+      const double,
+      const double)
+    {
+      full_domain_potential_radii.clear();
+      full_domain_potential_cos_coeffs.clear();
+      full_domain_potential_sin_coeffs.clear();
+      full_domain_reference_gravity = 0.0;
+    }
+
+
+    template <>
+    void
+    SelfGravitation<3>::update_full_domain_potential(
+      const std::vector<double> &surface_height_cos,
+      const std::vector<double> &surface_height_sin,
+      const std::vector<double> &cmb_height_cos,
+      const std::vector<double> &cmb_height_sin,
+      const double outer_radius,
+      const double inner_radius)
+    {
+      full_domain_potential_radii.clear();
+      full_domain_potential_cos_coeffs.clear();
+      full_domain_potential_sin_coeffs.clear();
+      full_domain_reference_gravity = 0.0;
+
+      const auto &parameters = this->get_parameters();
+      if (!self_gravity_mass_feedback_enabled
+          || parameters.density_source_law
+          != Parameters<3>::Formulation::DensitySourceLaw::mechanical_mass_conservation)
+        return;
+
+      full_domain_potential_radii.push_back(inner_radius);
+      if (parameters.reference_density_model
+          == Parameters<3>::Formulation::ReferenceDensityModel::tabulated_radial)
+        for (const double radius : parameters.tabulated_reference_radii)
+          if (radius > inner_radius && radius < outer_radius)
+            full_domain_potential_radii.push_back(radius);
+      full_domain_potential_radii.push_back(outer_radius);
+      std::sort(full_domain_potential_radii.begin(),
+                full_domain_potential_radii.end());
+      full_domain_potential_radii.erase(
+        std::unique(full_domain_potential_radii.begin(),
+                    full_domain_potential_radii.end()),
+        full_domain_potential_radii.end());
+
+      const unsigned int n_coefficients = sh_transform->n_coefficients();
+      const unsigned int n_radii = full_domain_potential_radii.size();
+      AssertDimension(surface_height_cos.size(), n_coefficients);
+      AssertDimension(surface_height_sin.size(), n_coefficients);
+      AssertDimension(cmb_height_cos.size(), n_coefficients);
+      AssertDimension(cmb_height_sin.size(), n_coefficients);
+
+      std::vector<double> local_internal_cos(n_radii * n_coefficients, 0.0);
+      std::vector<double> local_internal_sin(n_radii * n_coefficients, 0.0);
+
+      bool include_internal = false;
+      if (include_internal_density_anomalies == "true")
+        include_internal = true;
+      else if (include_internal_density_anomalies == "auto")
+        include_internal = true;
+
+      const unsigned int quadrature_degree =
+        std::max(2u,
+                 this->introspection().polynomial_degree.temperature + 1u);
+
+      if (include_internal)
+        {
+          const QGauss<3> quadrature_formula(quadrature_degree);
+          FEValues<3> fe_values(this->get_mapping(),
+                                this->get_fe(),
+                                quadrature_formula,
+                                update_values |
+                                update_quadrature_points |
+                                update_JxW_values |
+                                update_gradients);
+          MaterialModel::MaterialModelInputs<3>
+          inputs(fe_values.n_quadrature_points,
+                 this->n_compositional_fields());
+          MaterialModel::MaterialModelOutputs<3>
+          outputs(fe_values.n_quadrature_points,
+                  this->n_compositional_fields());
+          this->get_density_source_manager()
+          .create_additional_material_model_outputs(outputs);
+          inputs.requested_properties =
+            MaterialModel::MaterialProperties::density;
+
+          const bool use_mass_lumped_radial_layer =
+            full_domain_volume_source_discretization
+            == "mass lumped radial layer";
+          const bool use_radial_layer_midpoint =
+            full_domain_volume_source_discretization
+            == "radial layer midpoint"
+            || use_mass_lumped_radial_layer;
+          const auto linear_vertex_shape_value =
+            [](const unsigned int vertex,
+               const Point<3> &unit_point)
+          {
+            const Point<3> vertex_point =
+              GeometryInfo<3>::unit_cell_vertex(vertex);
+            double value = 1.0;
+            for (unsigned int d = 0; d < 3; ++d)
+              value *= (vertex_point[d] > 0.5
+                        ? unit_point[d]
+                        : 1.0 - unit_point[d]);
+            return value;
+          };
+
+          std::array<unsigned int, GeometryInfo<3>::vertices_per_cell>
+          pressure_shape_index_by_vertex;
+          std::vector<types::global_dof_index> local_dof_indices(
+            this->get_fe().dofs_per_cell);
+          std::vector<double> nodal_source_sum;
+          std::vector<double> nodal_source_weight;
+
+          if (use_mass_lumped_radial_layer)
+            {
+              std::vector<double> local_nodal_source_sum(
+                this->get_dof_handler().n_dofs(), 0.0);
+              std::vector<double> local_nodal_source_weight(
+                this->get_dof_handler().n_dofs(), 0.0);
+
+              const FiniteElement<3> &finite_element = this->get_fe();
+              const unsigned int pressure_component =
+                this->introspection().component_indices.pressure;
+              for (unsigned int vertex = 0;
+                   vertex < GeometryInfo<3>::vertices_per_cell;
+                   ++vertex)
+                {
+                  pressure_shape_index_by_vertex[vertex] =
+                    finite_element.component_to_system_index(
+                      pressure_component,
+                      vertex);
+                  AssertThrow(
+                    std::abs(finite_element.shape_value_component(
+                               pressure_shape_index_by_vertex[vertex],
+                               GeometryInfo<3>::unit_cell_vertex(vertex),
+                               pressure_component) - 1.0) < 1e-12,
+                    ExcMessage(
+                      "The mass-lumped radial-layer self-gravity source "
+                      "requires continuous vertex-supported pressure shape "
+                      "functions."));
+                }
+
+              for (const auto &cell :
+                   this->get_dof_handler().active_cell_iterators())
+                if (cell->is_locally_owned())
+                  {
+                    fe_values.reinit(cell);
+                    inputs.reinit(fe_values,
+                                  cell,
+                                  this->introspection(),
+                                  this->get_solution());
+                    this->get_material_model().evaluate(inputs, outputs);
+
+                    double cell_density_anomaly_sum = 0.0;
+                    for (unsigned int q = 0;
+                         q < quadrature_formula.size();
+                         ++q)
+                      cell_density_anomaly_sum +=
+                        this->get_density_source_manager()
+                        .self_gravity_source_density(
+                          inputs,
+                          outputs,
+                          q,
+                          reference_density_for_internal_anomalies);
+                    const double cell_average_density_anomaly =
+                      cell_density_anomaly_sum
+                      / static_cast<double>(quadrature_formula.size());
+
+                    cell->get_dof_indices(local_dof_indices);
+                    for (unsigned int vertex = 0;
+                         vertex < GeometryInfo<3>::vertices_per_cell;
+                         ++vertex)
+                      {
+                        double lumped_weight = 0.0;
+                        for (unsigned int q = 0;
+                             q < quadrature_formula.size();
+                             ++q)
+                          lumped_weight +=
+                            linear_vertex_shape_value(
+                              vertex,
+                              quadrature_formula.point(q))
+                            * fe_values.JxW(q);
+
+                        const types::global_dof_index pressure_dof =
+                          local_dof_indices[
+                            pressure_shape_index_by_vertex[vertex]];
+                        const double source_contribution =
+                          cell_average_density_anomaly * lumped_weight;
+                        local_nodal_source_sum[pressure_dof] +=
+                          source_contribution;
+                        local_nodal_source_weight[pressure_dof] +=
+                          lumped_weight;
+                      }
+                  }
+
+              nodal_source_sum.assign(
+                local_nodal_source_sum.size(), 0.0);
+              nodal_source_weight.assign(
+                local_nodal_source_weight.size(), 0.0);
+              dealii::Utilities::MPI::sum(
+                local_nodal_source_sum,
+                this->get_mpi_communicator(),
+                nodal_source_sum);
+              dealii::Utilities::MPI::sum(
+                local_nodal_source_weight,
+                this->get_mpi_communicator(),
+                nodal_source_weight);
+            }
+
+          for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+            if (cell->is_locally_owned())
+              {
+                fe_values.reinit(cell);
+                std::vector<double> density_anomalies(
+                  quadrature_formula.size(), 0.0);
+                if (use_mass_lumped_radial_layer)
+                  {
+                    cell->get_dof_indices(local_dof_indices);
+                    for (unsigned int q = 0;
+                         q < quadrature_formula.size();
+                         ++q)
+                      for (unsigned int vertex = 0;
+                           vertex < GeometryInfo<3>::vertices_per_cell;
+                           ++vertex)
+                        {
+                          const types::global_dof_index pressure_dof =
+                            local_dof_indices[
+                              pressure_shape_index_by_vertex[vertex]];
+                          AssertThrow(nodal_source_weight[pressure_dof] > 0.0,
+                                      ExcInternalError());
+                          density_anomalies[q] +=
+                            nodal_source_sum[pressure_dof]
+                            / nodal_source_weight[pressure_dof]
+                            * linear_vertex_shape_value(
+                              vertex,
+                              quadrature_formula.point(q));
+                        }
+                  }
+                else
+                  {
+                    inputs.reinit(fe_values,
+                                  cell,
+                                  this->introspection(),
+                                  this->get_solution());
+                    this->get_material_model().evaluate(inputs, outputs);
+
+                    double cell_density_anomaly_integral = 0.0;
+                    double cell_density_anomaly_sum = 0.0;
+                    double cell_volume = 0.0;
+                    for (unsigned int q = 0;
+                         q < quadrature_formula.size();
+                         ++q)
+                      {
+                        density_anomalies[q] =
+                          this->get_density_source_manager()
+                          .self_gravity_source_density(
+                            inputs,
+                            outputs,
+                            q,
+                            reference_density_for_internal_anomalies);
+                        cell_density_anomaly_integral +=
+                          density_anomalies[q] * fe_values.JxW(q);
+                        cell_density_anomaly_sum += density_anomalies[q];
+                        cell_volume += fe_values.JxW(q);
+                      }
+
+                    if (full_domain_volume_source_discretization
+                        != "quadrature point")
+                      {
+                        double cell_average_density_anomaly = 0.0;
+                        if (full_domain_volume_source_discretization
+                            == "cell average")
+                          {
+                            AssertThrow(cell_volume > 0.0,
+                                        ExcInternalError());
+                            cell_average_density_anomaly =
+                              cell_density_anomaly_integral / cell_volume;
+                          }
+                        else
+                          {
+                            AssertThrow(
+                              full_domain_volume_source_discretization
+                              == "radial layer midpoint",
+                              ExcInternalError());
+                            cell_average_density_anomaly =
+                              cell_density_anomaly_sum
+                              / static_cast<double>(
+                                quadrature_formula.size());
+                          }
+                        std::fill(density_anomalies.begin(),
+                                  density_anomalies.end(),
+                                  cell_average_density_anomaly);
+                      }
+                  }
+
+                double layer_midpoint_radius = 0.0;
+                if (use_radial_layer_midpoint)
+                  {
+                    double inner_vertex_radius =
+                      std::numeric_limits<double>::max();
+                    double outer_vertex_radius = 0.0;
+                    for (unsigned int vertex = 0;
+                         vertex < GeometryInfo<3>::vertices_per_cell;
+                         ++vertex)
+                      {
+                        const double vertex_radius = cell->vertex(vertex).norm();
+                        inner_vertex_radius =
+                          std::min(inner_vertex_radius, vertex_radius);
+                        outer_vertex_radius =
+                          std::max(outer_vertex_radius, vertex_radius);
+                      }
+                    AssertThrow(outer_vertex_radius > inner_vertex_radius,
+                                ExcInternalError());
+                    layer_midpoint_radius =
+                      0.5 * (inner_vertex_radius + outer_vertex_radius);
+                  }
+
+                for (unsigned int q = 0;
+                     q < quadrature_formula.size();
+                     ++q)
+                  {
+                    const double density_anomaly = density_anomalies[q];
+                    if (density_anomaly == 0.0)
+                      continue;
+
+                    const Point<3> point = fe_values.quadrature_point(q);
+                    const double quadrature_radius = point.norm();
+                    const double source_radius =
+                      (use_radial_layer_midpoint
+                       ? layer_midpoint_radius
+                       : quadrature_radius);
+                    AssertThrow(source_radius > 0.0,
+                                ExcMessage("Full-domain self-gravity source is undefined at radius zero."));
+                    const std::array<double,3> spherical_coordinates =
+                      aspect::Utilities::Coordinates::
+                      cartesian_to_spherical_coordinates(point);
+                    double source_weight =
+                      density_anomaly * fe_values.JxW(q);
+                    if (use_radial_layer_midpoint)
+                      {
+                        AssertThrow(quadrature_radius > 0.0,
+                                    ExcInternalError());
+                        source_weight *=
+                          (layer_midpoint_radius * layer_midpoint_radius)
+                          / (quadrature_radius * quadrature_radius);
+                      }
+
+                    unsigned int coefficient_index = 0;
+                    for (unsigned int degree = min_degree;
+                         degree <= max_degree;
+                         ++degree)
+                      for (unsigned int order = 0;
+                           order <= degree;
+                           ++order, ++coefficient_index)
+                        {
+                          const std::pair<double,double> harmonics =
+                            aspect::Utilities::real_spherical_harmonic(
+                              degree,
+                              order,
+                              spherical_coordinates[2],
+                              spherical_coordinates[1]);
+                          for (unsigned int radius_index = 0;
+                               radius_index < n_radii;
+                               ++radius_index)
+                            {
+                              const double evaluation_radius =
+                                full_domain_potential_radii[radius_index];
+                              const double radial_kernel =
+                                (source_radius <= evaluation_radius
+                                 ? (1.0 / source_radius)
+                                 * std::pow(source_radius / evaluation_radius,
+                                            degree + 1)
+                                 : (1.0 / source_radius)
+                                 * std::pow(evaluation_radius / source_radius,
+                                            degree));
+                              const unsigned int index =
+                                radius_index * n_coefficients
+                                + coefficient_index;
+                              local_internal_cos[index] +=
+                                source_weight * radial_kernel
+                                * harmonics.first;
+                              local_internal_sin[index] +=
+                                source_weight * radial_kernel
+                                * harmonics.second;
+                            }
+                        }
+                  }
+              }
+
+          if (this->get_density_source_manager().has_internal_density_jumps())
+            {
+              const QGauss<2> face_quadrature_formula(quadrature_degree);
+              FEFaceValues<3> face_values(this->get_mapping(),
+                                          this->get_fe(),
+                                          face_quadrature_formula,
+                                          update_values |
+                                          update_gradients |
+                                          update_quadrature_points |
+                                          update_JxW_values);
+              MaterialModel::MaterialModelInputs<3> face_inputs(
+                face_values.n_quadrature_points,
+                this->n_compositional_fields());
+
+              for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+                if (cell->is_locally_owned())
+                  for (const unsigned int face_no : cell->face_indices())
+                    {
+                      if (cell->at_boundary(face_no)
+                          || cell->has_periodic_neighbor(face_no))
+                        continue;
+
+                      const auto neighbor = cell->neighbor(face_no);
+                      if (cell->center().norm() >= neighbor->center().norm())
+                        continue;
+
+                      const auto face = cell->face(face_no);
+                      const double density_contrast =
+                        this->get_density_source_manager()
+                        .internal_density_jump_across_face(
+                          cell->center(),
+                          neighbor->center(),
+                          face->vertex(0).norm());
+                      if (density_contrast == 0.0)
+                        continue;
+
+                      bool all_vertices_match = true;
+                      for (unsigned int vertex = 1;
+                           vertex < face->n_vertices();
+                           ++vertex)
+                        all_vertices_match =
+                          all_vertices_match
+                          && (this->get_density_source_manager()
+                              .internal_density_jump_across_face(
+                                cell->center(),
+                                neighbor->center(),
+                                face->vertex(vertex).norm())
+                              == density_contrast);
+                      if (!all_vertices_match)
+                        continue;
+
+                      face_values.reinit(cell, face_no);
+                      face_inputs.reinit(face_values,
+                                         cell,
+                                         this->introspection(),
+                                         this->get_solution());
+
+                      for (unsigned int q = 0;
+                           q < face_values.n_quadrature_points;
+                           ++q)
+                        {
+                          const Point<3> point = face_inputs.position[q];
+                          const double source_radius = point.norm();
+                          AssertThrow(source_radius > 0.0,
+                                      ExcMessage("Full-domain internal sheet potential is undefined at radius zero."));
+                          const double surface_density =
+                            density_contrast
+                            * this->get_density_source_manager()
+                            .mechanical_radial_displacement(face_inputs, q);
+                          const double source_weight =
+                            surface_density * face_values.JxW(q);
+                          const std::array<double,3> spherical_coordinates =
+                            aspect::Utilities::Coordinates::
+                            cartesian_to_spherical_coordinates(point);
+
+                          unsigned int coefficient_index = 0;
+                          for (unsigned int degree = min_degree;
+                               degree <= max_degree;
+                               ++degree)
+                            for (unsigned int order = 0;
+                                 order <= degree;
+                                 ++order, ++coefficient_index)
+                              {
+                                const std::pair<double,double> harmonics =
+                                  aspect::Utilities::real_spherical_harmonic(
+                                    degree,
+                                    order,
+                                    spherical_coordinates[2],
+                                    spherical_coordinates[1]);
+                                for (unsigned int radius_index = 0;
+                                     radius_index < n_radii;
+                                     ++radius_index)
+                                  {
+                                    const double evaluation_radius =
+                                      full_domain_potential_radii[radius_index];
+                                    const double radial_kernel =
+                                      (source_radius <= evaluation_radius
+                                       ? (1.0 / source_radius)
+                                       * std::pow(source_radius / evaluation_radius,
+                                                  degree + 1)
+                                       : (1.0 / source_radius)
+                                       * std::pow(evaluation_radius / source_radius,
+                                                  degree));
+                                    const unsigned int index =
+                                      radius_index * n_coefficients
+                                      + coefficient_index;
+                                    local_internal_cos[index] +=
+                                      source_weight * radial_kernel
+                                      * harmonics.first;
+                                    local_internal_sin[index] +=
+                                      source_weight * radial_kernel
+                                      * harmonics.second;
+                                  }
+                              }
+                        }
+                    }
+            }
+        }
+
+      std::vector<double> global_internal_cos(local_internal_cos.size(), 0.0);
+      std::vector<double> global_internal_sin(local_internal_sin.size(), 0.0);
+      dealii::Utilities::MPI::sum(local_internal_cos,
+                                  this->get_mpi_communicator(),
+                                  global_internal_cos);
+      dealii::Utilities::MPI::sum(local_internal_sin,
+                                  this->get_mpi_communicator(),
+                                  global_internal_sin);
+
+      const double surface_gravity =
+        this->get_gravity_model()
+        .gravity_vector(this->get_geometry_model().representative_point(1.0))
+        .norm();
+      AssertThrow(surface_gravity > 0.0,
+                  ExcMessage("Full-domain self-gravity requires positive surface gravity."));
+      full_domain_reference_gravity = surface_gravity;
+      full_domain_potential_cos_coeffs.assign(
+        n_radii,
+        std::vector<double>(n_coefficients, 0.0));
+      full_domain_potential_sin_coeffs.assign(
+        n_radii,
+        std::vector<double>(n_coefficients, 0.0));
+
+      const double surface_density_contrast =
+        density_below_surface - density_above_surface;
+      const double cmb_density_contrast =
+        density_below_cmb - density_above_cmb;
+
+      unsigned int coefficient_index = 0;
+      for (unsigned int degree = min_degree;
+           degree <= max_degree;
+           ++degree)
+        {
+          const double potential_scale =
+            4.0 * numbers::PI * constants::big_g
+            / (surface_gravity * (2.0 * degree + 1.0));
+          for (unsigned int order = 0;
+               order <= degree;
+               ++order, ++coefficient_index)
+            for (unsigned int radius_index = 0;
+                 radius_index < n_radii;
+                 ++radius_index)
+              {
+                const double evaluation_radius =
+                  full_domain_potential_radii[radius_index];
+                const double surface_kernel =
+                  outer_radius
+                  * std::pow(evaluation_radius / outer_radius, degree);
+                const double cmb_kernel =
+                  inner_radius
+                  * std::pow(inner_radius / evaluation_radius,
+                             degree + 1);
+                const unsigned int index =
+                  radius_index * n_coefficients + coefficient_index;
+
+                full_domain_potential_cos_coeffs[radius_index]
+                [coefficient_index] =
+                  potential_scale
+                  * (surface_density_contrast
+                     * surface_height_cos[coefficient_index]
+                     * surface_kernel
+                     + cmb_density_contrast
+                     * cmb_height_cos[coefficient_index]
+                     * cmb_kernel
+                     + global_internal_cos[index]);
+                full_domain_potential_sin_coeffs[radius_index]
+                [coefficient_index] =
+                  potential_scale
+                  * (surface_density_contrast
+                     * surface_height_sin[coefficient_index]
+                     * surface_kernel
+                     + cmb_density_contrast
+                     * cmb_height_sin[coefficient_index]
+                     * cmb_kernel
+                     + global_internal_sin[index]);
+              }
+        }
+    }
+
+
     template <>
     Tensor<1,3>
     SelfGravitation<3>::compute_internal_density_mass_dipole() const
@@ -2101,6 +2854,7 @@ namespace aspect
       in(fe_values.n_quadrature_points, this->n_compositional_fields());
       MaterialModel::MaterialModelOutputs<3>
       out(fe_values.n_quadrature_points, this->n_compositional_fields());
+      this->get_density_source_manager().create_additional_material_model_outputs(out);
       in.requested_properties = MaterialModel::MaterialProperties::density;
 
       const double effective_tolerance =
@@ -2143,7 +2897,8 @@ namespace aspect
             Utilities::MPI::max(local_max_density_anomaly,
                                 this->get_mpi_communicator());
 
-          if (global_max_density_anomaly <= effective_tolerance)
+          if (global_max_density_anomaly <= effective_tolerance
+              && !this->get_density_source_manager().has_internal_density_jumps())
             return global_dipole;
         }
 
@@ -2177,6 +2932,80 @@ namespace aspect
                                      * fe_values.JxW(q);
               }
           }
+
+      if (this->get_density_source_manager().has_internal_density_jumps())
+        {
+          const QGauss<2> face_quadrature_formula(quadrature_degree);
+          FEFaceValues<3> face_values(this->get_mapping(),
+                                      this->get_fe(),
+                                      face_quadrature_formula,
+                                      update_values |
+                                      update_gradients |
+                                      update_quadrature_points |
+                                      update_JxW_values);
+          MaterialModel::MaterialModelInputs<3> face_inputs(
+            face_values.n_quadrature_points,
+            this->n_compositional_fields());
+
+          for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+            if (cell->is_locally_owned())
+              for (const unsigned int face_no : cell->face_indices())
+                {
+                  if (cell->at_boundary(face_no)
+                      || cell->has_periodic_neighbor(face_no))
+                    continue;
+
+                  const auto neighbor = cell->neighbor(face_no);
+                  if (cell->center().norm() >= neighbor->center().norm())
+                    continue;
+
+                  const auto face = cell->face(face_no);
+                  const double density_contrast =
+                    this->get_density_source_manager()
+                    .internal_density_jump_across_face(
+                      cell->center(),
+                      neighbor->center(),
+                      face->vertex(0).norm());
+                  if (density_contrast == 0.0)
+                    continue;
+
+                  bool all_vertices_match = true;
+                  for (unsigned int vertex = 1;
+                       vertex < face->n_vertices();
+                       ++vertex)
+                    all_vertices_match =
+                      all_vertices_match
+                      && (this->get_density_source_manager()
+                          .internal_density_jump_across_face(
+                            cell->center(),
+                            neighbor->center(),
+                            face->vertex(vertex).norm())
+                          == density_contrast);
+                  if (!all_vertices_match)
+                    continue;
+
+                  face_values.reinit(cell, face_no);
+
+                  face_inputs.reinit(face_values,
+                                     cell,
+                                     this->introspection(),
+                                     this->get_solution());
+
+                  for (unsigned int q = 0;
+                       q < face_values.n_quadrature_points;
+                       ++q)
+                    {
+                      const double surface_density =
+                        density_contrast
+                        * this->get_density_source_manager()
+                        .mechanical_radial_displacement(face_inputs, q);
+                      for (unsigned int d = 0; d < 3; ++d)
+                        local_dipole[d] += surface_density
+                                           * face_inputs.position[q][d]
+                                           * face_values.JxW(q);
+                    }
+                }
+        }
 
       std::vector<double> local_values(3);
       for (unsigned int d = 0; d < 3; ++d)
@@ -2260,6 +3089,7 @@ namespace aspect
 
       MaterialModel::MaterialModelInputs<3> in(fe_values.n_quadrature_points, this->n_compositional_fields());
       MaterialModel::MaterialModelOutputs<3> out(fe_values.n_quadrature_points, this->n_compositional_fields());
+      this->get_density_source_manager().create_additional_material_model_outputs(out);
       in.requested_properties = MaterialModel::MaterialProperties::density;
 
       const double effective_tolerance =
@@ -2299,7 +3129,8 @@ namespace aspect
             Utilities::MPI::max(local_max_density_anomaly,
                                 this->get_mpi_communicator());
 
-          if (global_max_density_anomaly <= effective_tolerance)
+          if (global_max_density_anomaly <= effective_tolerance
+              && !this->get_density_source_manager().has_internal_density_jumps())
             {
               return std::make_pair(SH_density_coecos, SH_density_coesin);
             }
@@ -2358,6 +3189,116 @@ namespace aspect
                   }
               }
           }
+
+      if (this->get_density_source_manager().has_internal_density_jumps())
+        {
+          const QGauss<2> face_quadrature_formula(quadrature_degree);
+          FEFaceValues<3> face_values(this->get_mapping(),
+                                      this->get_fe(),
+                                      face_quadrature_formula,
+                                      update_values |
+                                      update_gradients |
+                                      update_quadrature_points |
+                                      update_JxW_values);
+          MaterialModel::MaterialModelInputs<3> face_inputs(
+            face_values.n_quadrature_points,
+            this->n_compositional_fields());
+
+          for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+            if (cell->is_locally_owned())
+              for (const unsigned int face_no : cell->face_indices())
+                {
+                  if (cell->at_boundary(face_no)
+                      || cell->has_periodic_neighbor(face_no))
+                    continue;
+
+                  const auto neighbor = cell->neighbor(face_no);
+                  if (cell->center().norm() >= neighbor->center().norm())
+                    continue;
+
+                  const auto face = cell->face(face_no);
+                  const double density_contrast =
+                    this->get_density_source_manager()
+                    .internal_density_jump_across_face(
+                      cell->center(),
+                      neighbor->center(),
+                      face->vertex(0).norm());
+                  if (density_contrast == 0.0)
+                    continue;
+
+                  bool all_vertices_match = true;
+                  for (unsigned int vertex = 1;
+                       vertex < face->n_vertices();
+                       ++vertex)
+                    all_vertices_match =
+                      all_vertices_match
+                      && (this->get_density_source_manager()
+                          .internal_density_jump_across_face(
+                            cell->center(),
+                            neighbor->center(),
+                            face->vertex(vertex).norm())
+                          == density_contrast);
+                  if (!all_vertices_match)
+                    continue;
+
+                  face_values.reinit(cell, face_no);
+
+                  face_inputs.reinit(face_values,
+                                     cell,
+                                     this->introspection(),
+                                     this->get_solution());
+
+                  for (unsigned int q = 0;
+                       q < face_values.n_quadrature_points;
+                       ++q)
+                    {
+                      const Point<3> point = face_inputs.position[q];
+                      const double radius = point.norm();
+                      AssertThrow(radius > 0.0,
+                                  ExcMessage("Internal density jump potential is undefined at radius zero."));
+                      const double surface_density =
+                        density_contrast
+                        * this->get_density_source_manager()
+                        .mechanical_radial_displacement(face_inputs, q);
+                      const std::array<double,3> spherical_coordinates =
+                        aspect::Utilities::Coordinates::cartesian_to_spherical_coordinates(point);
+                      const double JxW = face_values.JxW(q);
+
+                      unsigned int coefficient_index = 0;
+                      for (unsigned int degree = min_degree;
+                           degree <= max_degree;
+                           ++degree)
+                        {
+#if DEAL_II_VERSION_GTE(9,6,0)
+                          const double radial_kernel =
+                            (1.0 / radius)
+                            * Utilities::pow(radius / outer_radius, degree + 1);
+#else
+                          const double radial_kernel =
+                            (1.0 / radius)
+                            * std::pow(radius / outer_radius, degree + 1);
+#endif
+                          for (unsigned int order = 0;
+                               order <= degree;
+                               ++order, ++coefficient_index)
+                            {
+                              const std::pair<double,double> spherical_harmonic =
+                                aspect::Utilities::real_spherical_harmonic(
+                                  degree,
+                                  order,
+                                  spherical_coordinates[2],
+                                  spherical_coordinates[1]);
+                              const double weighted_surface_density =
+                                surface_density * radial_kernel * JxW;
+                              SH_density_coecos[coefficient_index] +=
+                                weighted_surface_density * spherical_harmonic.first;
+                              SH_density_coesin[coefficient_index] +=
+                                weighted_surface_density * spherical_harmonic.second;
+                            }
+                        }
+                    }
+                }
+        }
 
       dealii::Utilities::MPI::sum(SH_density_coecos, this->get_mpi_communicator(), SH_density_coecos);
       dealii::Utilities::MPI::sum(SH_density_coesin, this->get_mpi_communicator(), SH_density_coesin);

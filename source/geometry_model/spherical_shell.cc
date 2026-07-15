@@ -334,7 +334,26 @@ namespace aspect
               // a new triangulation to extrude (this will be a 1D line in
               // 2d space, or a 2d surface in 3d space).
               Triangulation<dim-1,dim> sphere_mesh;
-              GridGenerator::hyper_sphere (sphere_mesh);
+              if (n_cells_along_circumference == 0)
+                GridGenerator::hyper_sphere (sphere_mesh);
+              else
+                {
+                  Triangulation<dim> unit_shell_mesh;
+                  GridGenerator::hyper_shell (unit_shell_mesh,
+                                              Point<dim>(),
+                                              0.5,
+                                              1.0,
+                                              n_cells_along_circumference,
+                                              true);
+                  GridGenerator::extract_boundary_mesh (unit_shell_mesh,
+                                                        sphere_mesh,
+                  {1});
+                }
+
+              const SphericalManifold<dim-1,dim> unit_sphere_manifold;
+              for (const auto &cell : sphere_mesh.active_cell_iterators())
+                cell->set_all_manifold_ids (0);
+              sphere_mesh.set_manifold (0, unit_sphere_manifold);
               sphere_mesh.refine_global (initial_lateral_refinement);
 
               // Calculate the number of R_values wrt custom mesh scheme
@@ -943,8 +962,10 @@ namespace aspect
                              "The parameter is best left at its default in 3d."
                              "\n\n"
                              "In either case, this parameter is ignored unless the opening "
-                             "angle of the domain is 360 degrees. This parameter is also "
-                             "ignored when using a custom mesh subdivision scheme.");
+                             "angle of the domain is 360 degrees. For a custom mesh "
+                             "subdivision, zero preserves the default six-cell coarse surface; "
+                             "a nonzero value generates the requested coarse full-shell mesh "
+                             "and extrudes its outer surface through the radial subdivisions.");
           prm.declare_entry ("Phi periodic", "false",
                              Patterns::Bool (),
                              "Whether the shell should be periodic in the phi direction.");
@@ -989,12 +1010,14 @@ namespace aspect
           // If we are using list of radial values for a custom mesh
           if (custom_mesh == list)
             {
+              AssertThrow(!R_values_list.empty(),
+                          ExcMessage("List of radial values must contain at least one value"));
               // Check that list is in ascending order
               for (unsigned int i = 1; i < R_values_list.size(); ++i)
                 AssertThrow(R_values_list[i] > R_values_list[i-1],
                             ExcMessage("Radial values must be strictly ascending"));
               // Check that first value is not smaller than the inner radius
-              AssertThrow(R_values_list[1] > R0,
+              AssertThrow(R_values_list.front() > R0,
                           ExcMessage("First value in List of radial values must be greater than inner radius"));
               // Check that last layer is not larger than the outer radius
               AssertThrow( *(R_values_list.end()-1) < R1,
@@ -1007,6 +1030,13 @@ namespace aspect
             {
               AssertThrow (n_slices > 0, ExcMessage("You must set a positive number of slices for extrusion"));
             }
+
+          if (custom_mesh != none && dim == 3 && n_cells_along_circumference != 0)
+            AssertThrow(n_cells_along_circumference == 6
+                        || n_cells_along_circumference == 12
+                        || n_cells_along_circumference == 96,
+                        ExcMessage("Custom three-dimensional spherical-shell meshes support "
+                                   "0, 6, 12, or 96 cells along circumference."));
 
           periodic = prm.get_bool ("Phi periodic");
           if (periodic)

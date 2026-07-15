@@ -240,6 +240,7 @@ namespace aspect
           reference_density_profile,
           implicit_reference_density_profile,
           incompressible,
+          elastic_pressure_evolution,
           projected_density_field,
           ask_material_model
         };
@@ -261,6 +262,8 @@ namespace aspect
             return Formulation::MassConservation::implicit_reference_density_profile;
           else if (input == "incompressible")
             return Formulation::MassConservation::incompressible;
+          else if (input == "elastic pressure evolution")
+            return Formulation::MassConservation::elastic_pressure_evolution;
           else if (input == "projected density field")
             return Formulation::MassConservation::projected_density_field;
           else if (input == "ask material model")
@@ -325,7 +328,8 @@ namespace aspect
         {
           none,
           constant,
-          frozen_initial_lateral_average
+          frozen_initial_lateral_average,
+          tabulated_radial
         };
 
         static
@@ -338,10 +342,38 @@ namespace aspect
             return ReferenceDensityModel::constant;
           else if (input == "frozen initial lateral average")
             return ReferenceDensityModel::frozen_initial_lateral_average;
+          else if (input == "tabulated radial")
+            return ReferenceDensityModel::tabulated_radial;
           else
             AssertThrow(false, ExcNotImplemented());
 
           return ReferenceDensityModel::Kind();
+        }
+      };
+
+      /**
+       * Interpolation schemes for a tabulated radial reference-density model.
+       */
+      struct TabulatedReferenceDensityInterpolation
+      {
+        enum Kind
+        {
+          linear,
+          piecewise_constant
+        };
+
+        static
+        Kind
+        parse(const std::string &input)
+        {
+          if (input == "linear")
+            return TabulatedReferenceDensityInterpolation::linear;
+          else if (input == "piecewise constant")
+            return TabulatedReferenceDensityInterpolation::piecewise_constant;
+          else
+            AssertThrow(false, ExcNotImplemented());
+
+          return TabulatedReferenceDensityInterpolation::Kind();
         }
       };
 
@@ -356,7 +388,8 @@ namespace aspect
           legacy,
           material_density,
           material_minus_reference,
-          zero_volume_perturbation
+          zero_volume_perturbation,
+          mechanical_mass_conservation
         };
 
         static
@@ -371,6 +404,8 @@ namespace aspect
             return DensitySourceLaw::material_minus_reference;
           else if (input == "zero volume perturbation")
             return DensitySourceLaw::zero_volume_perturbation;
+          else if (input == "mechanical mass conservation")
+            return DensitySourceLaw::mechanical_mass_conservation;
           else
             AssertThrow(false, ExcNotImplemented());
 
@@ -766,6 +801,38 @@ namespace aspect
 
     /** Number of depth bins in a frozen initial reference profile. */
     unsigned int                   frozen_reference_density_profile_slices;
+
+    /** Strictly increasing radii for the tabulated radial provider. Units: m. */
+    std::vector<double>            tabulated_reference_radii;
+
+    /** Densities corresponding to tabulated_reference_radii. Units: kg/m^3. */
+    std::vector<double>            tabulated_reference_densities;
+
+    /** Interpolation used by the tabulated radial reference-density model. */
+    typename Formulation::TabulatedReferenceDensityInterpolation::Kind
+    tabulated_reference_density_interpolation;
+
+    /**
+     * One mechanical-gravity magnitude per tabulated radial interval. An
+     * empty vector uses the selected gravity model at volume quadrature
+     * points. Units: m/s^2.
+     */
+    std::vector<double>            tabulated_mechanical_gravity_magnitudes;
+
+    /**
+     * Whether mechanical mass conservation may use the material model's
+     * finite viscoelastic response during the timestep-zero loaded solve.
+     */
+    bool                           allow_viscoelastic_initial_mechanical_response;
+
+    /** Radii of explicitly tracked internal density jumps. Units: m. */
+    std::vector<double>            internal_density_jump_radii;
+
+    /** Density below minus density above each internal interface. Units: kg/m^3. */
+    std::vector<double>            internal_density_jump_density_contrasts;
+
+    /** Radius tolerance used to match internal interfaces to mesh faces. Units: m. */
+    double                         internal_density_jump_face_tolerance;
 
     /**
      * Whether the Stokes pressure formulation uses dynamic (perturbation)

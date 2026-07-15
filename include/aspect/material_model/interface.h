@@ -1269,7 +1269,8 @@ namespace aspect
       public:
         ElasticOutputs(const unsigned int n_points)
           : elastic_force(n_points, numbers::signaling_nan<SymmetricTensor<2,dim>>()),
-            viscoelastic_strain_rate(n_points, numbers::signaling_nan<SymmetricTensor<2,dim>>())
+            viscoelastic_strain_rate(n_points, numbers::signaling_nan<SymmetricTensor<2,dim>>()),
+            elastic_bulk_moduli(n_points, numbers::signaling_nan<double>())
         {}
 
         ~ElasticOutputs() override
@@ -1295,6 +1296,12 @@ namespace aspect
          * required by the Newton solver.
          */
         std::vector<SymmetricTensor<2,dim>> viscoelastic_strain_rate;
+
+        /**
+         * Elastic bulk modulus at each evaluation point. A finite value is
+         * required by the elastic-pressure-evolution mass formulation.
+         */
+        std::vector<double> elastic_bulk_moduli;
     };
 
 

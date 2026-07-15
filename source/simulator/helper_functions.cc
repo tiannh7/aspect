@@ -1690,12 +1690,19 @@ namespace aspect
                                                    mpi_communicator);
 
     const unsigned int n_independent_components = (dim == 2 ? 3 : 6);
+    const bool use_radial_displacement_history =
+      parameters.density_source_law
+      == Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation;
+    const unsigned int radial_displacement_history_index =
+      use_radial_displacement_history
+      ? introspection.compositional_index_for_name("ve_radial_displacement")
+      : numbers::invalid_unsigned_int;
     const unsigned int component_idx_T = introspection.component_indices.temperature;
 
     double dt_elastic = parameters.initial_elastic_response_time_step;
     if (material_model->use_instantaneous_elastic_response_at_timestep_zero()
-        && material_model->fixed_elastic_time_step() > 0.0)
-      dt_elastic = material_model->fixed_elastic_time_step();
+        && material_model->initial_elastic_time_step() > 0.0)
+      dt_elastic = material_model->initial_elastic_time_step();
 
     std::vector<SymmetricTensor<2, dim>> strain_rates (n_q_points);
 
@@ -1745,6 +1752,17 @@ namespace aspect
 
                   cell_stress_update[q][stress_start_index + comp] = tau_comp;
                 }
+
+              if (use_radial_displacement_history)
+                {
+                  const Point<dim> position = fe_values.quadrature_point(q);
+                  const double radius = position.norm();
+                  AssertThrow(radius > 0.0,
+                              ExcMessage("The radial material-displacement history is undefined at radius zero."));
+                  const Tensor<1,dim> radial_unit = position / radius;
+                  cell_stress_update[q][radial_displacement_history_index] =
+                    dt_elastic * (in.velocity[q] * radial_unit);
+                }
             }
 
           cell->get_dof_indices (local_dof_indices);
@@ -1765,8 +1783,9 @@ namespace aspect
                       if (component_idx > component_idx_T)
                         {
                           const unsigned int composition = field_index - 1;
-                          if (composition >= stress_start_index
-                              && composition < stress_start_index + n_independent_components)
+                          if ((composition >= stress_start_index
+                               && composition < stress_start_index + n_independent_components)
+                              || composition == radial_displacement_history_index)
                             {
                               distributed_vector(local_dof_indices[dof_idx]) = cell_stress_update[point_idx][composition];
                             }
@@ -1781,7 +1800,8 @@ namespace aspect
 
     for (unsigned int i=0; i<introspection.n_compositional_fields; ++i)
       {
-        if (i >= stress_start_index && i < stress_start_index + n_independent_components)
+        if ((i >= stress_start_index && i < stress_start_index + n_independent_components)
+            || i == radial_displacement_history_index)
           {
             const unsigned int advection_block = introspection.block_indices.compositional_fields[i];
             solution.block(advection_block) = distributed_vector.block(advection_block);
@@ -1789,6 +1809,9 @@ namespace aspect
             current_linearization_point.block(advection_block) = distributed_vector.block(advection_block);
           }
       }
+
+    if (use_radial_displacement_history)
+      density_source_manager.mark_initial_mechanical_history_initialized();
 
   }
 
@@ -2323,13 +2346,55 @@ namespace aspect
     else if (parameters.formulation_mass_conservation == Parameters<dim>::Formulation::MassConservation::isentropic_compression
              || parameters.formulation_mass_conservation == Parameters<dim>::Formulation::MassConservation::reference_density_profile
              || parameters.formulation_mass_conservation == Parameters<dim>::Formulation::MassConservation::implicit_reference_density_profile
-             || parameters.formulation_mass_conservation == Parameters<dim>::Formulation::MassConservation::projected_density_field)
+             || parameters.formulation_mass_conservation == Parameters<dim>::Formulation::MassConservation::projected_density_field
+             || parameters.formulation_mass_conservation == Parameters<dim>::Formulation::MassConservation::elastic_pressure_evolution)
       {
         AssertThrow(material_model->is_compressible() == true,
                     ExcMessage("ASPECT detected an inconsistency in the provided input file. "
                                "The mass conservation equation was selected to be compressible, "
                                "but the provided material model reports that it is incompressible. "
                                "Please check the consistency of your material model and selected formulation."));
+      }
+
+    if (parameters.formulation_mass_conservation ==
+        Parameters<dim>::Formulation::MassConservation::elastic_pressure_evolution)
+      {
+        AssertThrow(parameters.enable_elasticity,
+                    ExcMessage("The `elastic pressure evolution' mass formulation requires "
+                               "<Formulation/Enable elasticity = true>."));
+        AssertThrow(parameters.pressure_normalization == "no",
+                    ExcMessage("The `elastic pressure evolution' mass formulation gives pressure "
+                               "a finite mass term and therefore requires <Pressure normalization = no>."));
+        AssertThrow(parameters.stokes_solver_type != Parameters<dim>::StokesSolverType::block_gmg,
+                    ExcMessage("The `elastic pressure evolution' mass formulation is not yet "
+                               "implemented in the matrix-free block GMG operator. Use block AMG "
+                               "or the direct Stokes solver."));
+
+        if (parameters.density_source_law ==
+            Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation)
+          {
+            AssertThrow(material_model->use_instantaneous_elastic_response_at_timestep_zero()
+                        || parameters.allow_viscoelastic_initial_mechanical_response,
+                        ExcMessage("Mechanical mass conservation requires an instantaneous "
+                                   "elastic response at timestep zero unless "
+                                   "<Formulation/Density sources/Allow viscoelastic initial "
+                                   "mechanical response = true> is selected explicitly."));
+            AssertThrow(material_model->initial_elastic_time_step() > 0.0,
+                        ExcMessage("Mechanical mass conservation requires a positive initial elastic time step."));
+            AssertThrow(parameters.use_operator_splitting,
+                        ExcMessage("Mechanical mass conservation requires operator splitting for radial displacement history."));
+            AssertThrow(!parameters.include_melt_transport,
+                        ExcMessage("Mechanical mass conservation does not support melt transport."));
+            AssertThrow(!parameters.enable_prescribed_dilation,
+                        ExcMessage("Mechanical mass conservation does not support prescribed plastic dilation."));
+            AssertThrow(!parameters.use_equal_order_interpolation_for_stokes,
+                        ExcMessage("Mechanical mass conservation does not support equal-order Stokes elements."));
+            AssertThrow(!Parameters<dim>::is_defect_correction(parameters.nonlinear_solver),
+                        ExcMessage("Mechanical mass conservation currently supports Picard Stokes solvers."));
+            AssertThrow(geometry_model->natural_coordinate_system()
+                        == Utilities::Coordinates::CoordinateSystem::spherical,
+                        ExcMessage("Mechanical mass conservation currently requires spherical geometry."));
+          }
       }
 
     // Ensure that the correct heating terms have been selected for the chosen combined formulation

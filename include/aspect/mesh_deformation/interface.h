@@ -314,6 +314,10 @@ namespace aspect
          * elastic displacement interval rather than Simulator::timestep=0. */
         double get_free_surface_stabilization_timestep () const;
 
+        /** Whether to add the restoring load from cumulative normal mesh
+         * displacement to the Stokes right-hand side. */
+        bool use_displacement_history_in_free_surface_stabilization () const;
+
         /** Whether a physical density jump was prescribed for this boundary. */
         bool has_free_surface_stabilization_density_contrast (
           const types::boundary_id boundary_id) const;
@@ -646,6 +650,9 @@ namespace aspect
         /** Optional timestep-zero displacement interval for the implicit
          * restoring matrix, stored in seconds. */
         double initial_surface_stabilization_timestep;
+
+        /** Add the cumulative boundary-displacement restoring load. */
+        bool use_displacement_history_in_surface_stabilization = false;
 
         /** Optional physical density jumps across deforming interfaces. */
         std::map<types::boundary_id,double>

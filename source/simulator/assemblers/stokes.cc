@@ -19,6 +19,8 @@
 */
 
 #include <aspect/simulator/assemblers/stokes.h>
+#include <aspect/boundary_traction/potential_feedback_traction.h>
+#include <aspect/potential_feedback/self_gravitation.h>
 #include <aspect/simulator.h>
 #include <aspect/utilities.h>
 
@@ -28,6 +30,32 @@ namespace aspect
 {
   namespace Assemblers
   {
+    namespace
+    {
+      template <int dim>
+      const PotentialFeedback::SelfGravitation<dim> *
+      active_self_gravity(
+        const BoundaryTraction::Manager<dim> &traction_manager)
+      {
+        for (const auto &plugin : traction_manager.get_active_plugins())
+          {
+            if (const auto *self_gravity =
+                  dynamic_cast<const PotentialFeedback::SelfGravitation<dim> *>(
+                    plugin.get()))
+              return self_gravity;
+
+            if (const auto *potential_feedback =
+                  dynamic_cast<const BoundaryTraction::PotentialFeedbackTraction<dim> *>(
+                    plugin.get()))
+              if (potential_feedback->has_self_gravity_feedback())
+                return &potential_feedback->get_self_gravity();
+          }
+
+        return nullptr;
+      }
+    }
+
+
     template <int dim>
     void
     StokesPreconditioner<dim>::
@@ -346,6 +374,18 @@ namespace aspect
           ? scratch.material_model_outputs.template get_additional_output_object<MaterialModel::PrescribedPlasticDilation<dim>>()
           : nullptr;
 
+      const bool use_mechanical_mass_conservation =
+        this->get_parameters().density_source_law
+        == Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation;
+      const PotentialFeedback::SelfGravitation<dim> *self_gravity =
+        (use_mechanical_mass_conservation
+         ? active_self_gravity(this->get_boundary_traction_manager())
+         : nullptr);
+      const unsigned int radial_displacement_history_index =
+        use_mechanical_mass_conservation
+        ? introspection.compositional_index_for_name("ve_radial_displacement")
+        : numbers::invalid_unsigned_int;
+
       // When using the Q1-Q1 equal order element, we need to compute the
       // projection of the Q1 pressure shape functions onto the constants
       // and use this projection in the computation of matrix terms.
@@ -409,6 +449,8 @@ namespace aspect
                   else if (this->get_parameters().enable_elasticity)
                     {
                       scratch.grads_phi_u[i_stokes] = scratch.finite_element_values[introspection.extractors.velocities].symmetric_gradient(i,q);
+                      if (use_mechanical_mass_conservation)
+                        scratch.div_phi_u[i_stokes] = scratch.finite_element_values[introspection.extractors.velocities].divergence(i,q);
                     }
                   ++i_stokes;
                 }
@@ -440,6 +482,49 @@ namespace aspect
               q);
           const double JxW = scratch.finite_element_values.JxW(q);
 
+          double bulk_modulus = numbers::signaling_nan<double>();
+          double reference_density = numbers::signaling_nan<double>();
+          double current_radial_restoring_coefficient = 0.0;
+          double history_radial_restoring_coefficient = 0.0;
+          double old_radial_displacement = 0.0;
+          Tensor<1,dim> radial_unit;
+          if (use_mechanical_mass_conservation)
+            {
+              AssertThrow(elastic_outputs != nullptr, ExcInternalError());
+              bulk_modulus =
+                this->get_density_source_manager().elastic_bulk_modulus(
+                  scratch.material_model_outputs,
+                  q);
+              const double mechanical_time_step =
+                this->get_density_source_manager().effective_mechanical_time_step();
+              const Point<dim> position =
+                scratch.finite_element_values.quadrature_point(q);
+              const double radius = position.norm();
+              AssertThrow(radius > 0.0,
+                          ExcMessage("Mechanical mass conservation is undefined at radius zero."));
+              radial_unit = position / radius;
+
+              reference_density =
+                this->get_density_source_manager().reference_density(position);
+              const double gravity_magnitude =
+                this->get_density_source_manager().mechanical_gravity_magnitude(
+                  position,
+                  gravity.norm());
+              current_radial_restoring_coefficient =
+                reference_density * gravity_magnitude * mechanical_time_step;
+              history_radial_restoring_coefficient =
+                reference_density * gravity_magnitude;
+              old_radial_displacement =
+                scratch.material_model_inputs.composition[q][radial_displacement_history_index];
+            }
+
+          const double full_domain_potential =
+            (self_gravity != nullptr
+             && self_gravity->has_full_domain_potential()
+             ? self_gravity->full_domain_potential(
+               scratch.finite_element_values.quadrature_point(q))
+             : 0.0);
+
           for (unsigned int i=0; i<stokes_dofs_per_cell; ++i)
             {
               data.local_rhs(i) += (density * gravity * scratch.phi_u[i])
@@ -461,6 +546,22 @@ namespace aspect
                                        * scratch.phi_p[i]
                                      ) * JxW;
 
+              if (use_mechanical_mass_conservation)
+                {
+                  data.local_rhs(i) +=
+                    history_radial_restoring_coefficient
+                    * scratch.div_phi_u[i]
+                    * old_radial_displacement
+                    * JxW;
+
+                  if (full_domain_potential != 0.0)
+                    data.local_rhs(i) -=
+                      reference_density
+                      * full_domain_potential
+                      * scratch.div_phi_u[i]
+                      * JxW;
+                }
+
               if (scratch.rebuild_stokes_matrix)
                 for (unsigned int j=0; j<stokes_dofs_per_cell; ++j)
                   {
@@ -479,6 +580,18 @@ namespace aspect
                                                    pressure_scaling * pressure_scaling *
                                                    prescribed_dilation->dilation_lhs_term[q] *
                                                    scratch.phi_p[i] * scratch.phi_p[j])
+                                                + (use_mechanical_mass_conservation
+                                                   ? pressure_scaling
+                                                   * history_radial_restoring_coefficient
+                                                   / bulk_modulus
+                                                   * (scratch.phi_u[i] * radial_unit)
+                                                   * scratch.phi_p[j]
+                                                   : 0.0)
+                                                - (use_mechanical_mass_conservation
+                                                   ? current_radial_restoring_coefficient
+                                                   * scratch.div_phi_u[i]
+                                                   * (scratch.phi_u[j] * radial_unit)
+                                                   : 0.0)
                                               )
                                               * JxW;
                   }
@@ -550,6 +663,8 @@ namespace aspect
              ||
              outputs.template get_additional_output_object<MaterialModel::ElasticOutputs<dim>>()->elastic_force.size()
              == n_points, ExcInternalError());
+
+      this->get_density_source_manager().create_additional_material_model_outputs(outputs);
     }
 
 
@@ -759,6 +874,78 @@ namespace aspect
                                     scratch.phi_p[i])
                                  )
                                  * JxW;
+        }
+    }
+
+
+
+    template <int dim>
+    void
+    StokesElasticPressureEvolutionTerm<dim>::
+    execute (internal::Assembly::Scratch::ScratchBase<dim>   &scratch_base,
+             internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const
+    {
+      internal::Assembly::Scratch::StokesSystem<dim> &scratch =
+        dynamic_cast<internal::Assembly::Scratch::StokesSystem<dim>&> (scratch_base);
+      internal::Assembly::CopyData::StokesSystem<dim> &data =
+        dynamic_cast<internal::Assembly::CopyData::StokesSystem<dim>&> (data_base);
+
+      Assert(this->get_parameters().formulation_mass_conservation ==
+             Parameters<dim>::Formulation::MassConservation::elastic_pressure_evolution,
+             ExcInternalError());
+
+      const std::shared_ptr<const MaterialModel::ElasticOutputs<dim>> elastic_outputs =
+        scratch.material_model_outputs.template get_additional_output_object<MaterialModel::ElasticOutputs<dim>>();
+      AssertThrow(elastic_outputs != nullptr,
+                  ExcMessage("Elastic pressure evolution requires elastic bulk-modulus material outputs."));
+
+      double effective_time_step = this->get_timestep();
+      if (this->get_timestep_number() == 0)
+        effective_time_step = this->get_material_model().initial_elastic_time_step();
+      AssertThrow(effective_time_step > 0.0,
+                  ExcMessage("Elastic pressure evolution requires a positive effective time step."));
+
+      const Introspection<dim> &introspection = this->introspection();
+      const FiniteElement<dim> &fe = this->get_fe();
+      const unsigned int stokes_dofs_per_cell = data.local_dof_indices.size();
+      const unsigned int n_q_points = scratch.finite_element_values.n_quadrature_points;
+      const double pressure_scaling = this->get_pressure_scaling();
+
+      std::vector<double> old_pressure(n_q_points, 0.0);
+      if (this->get_timestep_number() > 0)
+        scratch.finite_element_values[introspection.extractors.pressure].get_function_values(
+          this->get_old_solution(), old_pressure);
+
+      for (unsigned int q = 0; q < n_q_points; ++q)
+        {
+          for (unsigned int i = 0, i_stokes = 0;
+               i_stokes < stokes_dofs_per_cell;
+               ++i)
+            if (introspection.is_stokes_component(fe.system_to_component_index(i).first))
+              {
+                scratch.phi_p[i_stokes] =
+                  scratch.finite_element_values[introspection.extractors.pressure].value(i, q);
+                ++i_stokes;
+              }
+
+          const double bulk_modulus = elastic_outputs->elastic_bulk_moduli[q];
+          AssertThrow(std::isfinite(bulk_modulus) && bulk_modulus > 0.0,
+                      ExcMessage("Elastic pressure evolution requires a finite positive elastic bulk modulus."));
+
+          const double inverse_bulk_time = 1.0 / (bulk_modulus * effective_time_step);
+          const double JxW = scratch.finite_element_values.JxW(q);
+
+          for (unsigned int i = 0; i < stokes_dofs_per_cell; ++i)
+            {
+              data.local_rhs(i) -= pressure_scaling * inverse_bulk_time
+                                   * old_pressure[q] * scratch.phi_p[i] * JxW;
+
+              if (scratch.rebuild_stokes_matrix)
+                for (unsigned int j = 0; j < stokes_dofs_per_cell; ++j)
+                  data.local_matrix(i,j) -= pressure_scaling * pressure_scaling
+                                            * inverse_bulk_time
+                                            * scratch.phi_p[i] * scratch.phi_p[j] * JxW;
+            }
         }
     }
 
@@ -1114,6 +1301,133 @@ namespace aspect
     }
 
 
+
+    template <int dim>
+    void
+    StokesInternalDensityJumpRestoring<dim>::execute (
+      internal::Assembly::Scratch::ScratchBase<dim>   &scratch_base,
+      internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const
+    {
+      internal::Assembly::Scratch::StokesSystem<dim> &scratch =
+        dynamic_cast<internal::Assembly::Scratch::StokesSystem<dim>&> (scratch_base);
+      internal::Assembly::CopyData::StokesSystem<dim> &data =
+        dynamic_cast<internal::Assembly::CopyData::StokesSystem<dim>&> (data_base);
+
+      const auto &density_sources = this->get_density_source_manager();
+      if (!density_sources.has_internal_density_jumps())
+        return;
+      const PotentialFeedback::SelfGravitation<dim> *self_gravity =
+        active_self_gravity(this->get_boundary_traction_manager());
+
+      const Introspection<dim> &introspection = this->introspection();
+      const FiniteElement<dim> &fe = scratch.finite_element_values.get_fe();
+      const unsigned int stokes_dofs_per_cell = data.local_dof_indices.size();
+      const unsigned int displacement_index =
+        introspection.compositional_index_for_name("ve_radial_displacement");
+      const double mechanical_time_step =
+        density_sources.effective_mechanical_time_step();
+
+      std::vector<double> committed_displacements(
+        scratch.face_finite_element_values.n_quadrature_points);
+
+      for (const unsigned int face_no : scratch.cell->face_indices())
+        {
+          if (scratch.cell->at_boundary(face_no)
+              || scratch.cell->has_periodic_neighbor(face_no))
+            continue;
+
+          const auto neighbor = scratch.cell->neighbor(face_no);
+          if (scratch.cell->center().norm() >= neighbor->center().norm())
+            continue;
+
+          const auto face = scratch.cell->face(face_no);
+          const double density_contrast =
+            density_sources.internal_density_jump_across_face(
+              scratch.cell->center(),
+              neighbor->center(),
+              face->vertex(0).norm());
+          if (density_contrast == 0.0)
+            continue;
+
+          bool all_vertices_match = true;
+          for (unsigned int vertex = 1; vertex < face->n_vertices(); ++vertex)
+            all_vertices_match =
+              all_vertices_match
+              && (density_sources.internal_density_jump_across_face(
+                    scratch.cell->center(),
+                    neighbor->center(),
+                    face->vertex(vertex).norm()) == density_contrast);
+          if (!all_vertices_match)
+            continue;
+
+          scratch.face_finite_element_values.reinit(scratch.cell, face_no);
+
+          scratch.face_finite_element_values
+          [introspection.extractors.compositional_fields[displacement_index]]
+          .get_function_values(this->get_current_linearization_point(),
+                               committed_displacements);
+
+          for (unsigned int q = 0;
+               q < scratch.face_finite_element_values.n_quadrature_points;
+               ++q)
+            {
+              const Point<dim> point =
+                scratch.face_finite_element_values.quadrature_point(q);
+              const double radius = point.norm();
+              AssertThrow(radius > 0.0,
+                          ExcMessage("Internal density jump restoring is undefined at radius zero."));
+              const Tensor<1,dim> radial_unit = point / radius;
+              const double gravity_magnitude =
+                this->get_gravity_model().gravity_vector(point).norm();
+              const double potential =
+                (self_gravity != nullptr
+                 && self_gravity->has_full_domain_potential()
+                 ? self_gravity->full_domain_potential(point)
+                 : 0.0);
+              const double JxW = scratch.face_finite_element_values.JxW(q);
+
+              for (unsigned int i = 0, i_stokes = 0;
+                   i_stokes < stokes_dofs_per_cell;
+                   ++i)
+                if (introspection.is_stokes_component(
+                      fe.system_to_component_index(i).first))
+                  {
+                    const Tensor<1,dim> phi_i =
+                      scratch.face_finite_element_values
+                      [introspection.extractors.velocities].value(i, q);
+                    const double phi_i_radial = phi_i * radial_unit;
+
+                    data.local_rhs(i_stokes) -=
+                      density_contrast * gravity_magnitude
+                      * phi_i_radial * committed_displacements[q] * JxW;
+                    data.local_rhs(i_stokes) +=
+                      density_contrast * potential
+                      * phi_i_radial * JxW;
+
+                    if (scratch.rebuild_stokes_matrix)
+                      for (unsigned int j = 0, j_stokes = 0;
+                           j_stokes < stokes_dofs_per_cell;
+                           ++j)
+                        if (introspection.is_stokes_component(
+                              fe.system_to_component_index(j).first))
+                          {
+                            const Tensor<1,dim> phi_j =
+                              scratch.face_finite_element_values
+                              [introspection.extractors.velocities].value(j, q);
+                            data.local_matrix(i_stokes, j_stokes) +=
+                              density_contrast * gravity_magnitude
+                              * mechanical_time_step * phi_i_radial
+                              * (phi_j * radial_unit) * JxW;
+                            ++j_stokes;
+                          }
+
+                    ++i_stokes;
+                  }
+            }
+        }
+    }
+
+
   }
 } // namespace aspect
 
@@ -1130,11 +1444,13 @@ namespace aspect
   template class StokesReferenceDensityCompressibilityTerm<dim>; \
   template class StokesImplicitReferenceDensityCompressibilityTerm<dim>; \
   template class StokesIsentropicCompressionTerm<dim>; \
+  template class StokesElasticPressureEvolutionTerm<dim>; \
   template class StokesHydrostaticCompressionTerm<dim>; \
   template class StokesProjectedDensityFieldTerm<dim>; \
   template class StokesPressureRHSCompatibilityModification<dim>; \
   template class StokesBoundaryTraction<dim>; \
-  template class StokesCitcomStyleCMBRadialRestoring<dim>;
+  template class StokesCitcomStyleCMBRadialRestoring<dim>; \
+  template class StokesInternalDensityJumpRestoring<dim>;
 
     ASPECT_INSTANTIATE(INSTANTIATE)
 

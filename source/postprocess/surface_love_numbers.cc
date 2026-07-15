@@ -606,17 +606,78 @@ namespace aspect
                     -bottom_equivalent_height_from_total_traction_10;
                 }
 
+              const PotentialFeedback::SelfGravitation<dim> *self_gravity = nullptr;
+              const BoundaryTraction::PotentialFeedbackTraction<dim> *potential_feedback = nullptr;
+              bool use_boundary_potential = false;
+              unsigned int self_gravity_coefficient_min_degree = 0;
+              std::pair<std::vector<double>,std::vector<double>> SH_density_coes;
+              std::pair<double, std::pair<std::vector<double>,std::vector<double>>> SH_surface_topo_coes;
+              std::pair<double, std::pair<std::vector<double>,std::vector<double>>> SH_CMB_topo_coes;
+              double surface_radius = 0.0;
+              double surface_gravity = 0.0;
+              double inner_radius = 0.0;
+              double CMB_delta_rho = 0.0;
+
+              if (output_coefficients)
+                {
+                  const Point<dim> surface_point =
+                    this->get_geometry_model().representative_point(1.0);
+                  surface_radius = surface_point.norm();
+                  surface_gravity =
+                    this->get_gravity_model().gravity_vector(surface_point).norm();
+
+                  const auto &traction_manager = this->get_boundary_traction_manager();
+                  const bool use_self_gravity =
+                    traction_manager.template has_matching_active_plugin<
+                    PotentialFeedback::SelfGravitation<dim>>();
+                  const bool use_potential_feedback =
+                    traction_manager.template has_matching_active_plugin<
+                    BoundaryTraction::PotentialFeedbackTraction<dim>>();
+
+                  if (use_self_gravity)
+                    self_gravity = &traction_manager.template get_matching_active_plugin<
+                                   PotentialFeedback::SelfGravitation<dim>>();
+                  else if (use_potential_feedback)
+                    {
+                      const auto &pf = traction_manager.template get_matching_active_plugin<
+                                       BoundaryTraction::PotentialFeedbackTraction<dim>>();
+                      if (pf.has_self_gravity_feedback())
+                        {
+                          potential_feedback = &pf;
+                          self_gravity = &pf.get_self_gravity();
+                        }
+                    }
+
+                  if (self_gravity == nullptr)
+                    self_gravity = &self_gravity_helper;
+
+                  use_boundary_potential =
+                    use_self_gravity || potential_feedback != nullptr;
+                  self_gravity_coefficient_min_degree =
+                    self_gravity->minimum_degree();
+                  SH_density_coes =
+                    self_gravity->compute_internal_density_potential(surface_radius);
+
+                  const GeometryModel::SphericalShell<dim> &geometry_model =
+                    Plugins::get_plugin_as_type<const GeometryModel::SphericalShell<dim>> (this->get_geometry_model());
+                  inner_radius = geometry_model.inner_radius();
+                  CMB_delta_rho = self_gravity->cmb_density_jump();
+
+                  if (!use_boundary_potential)
+                    {
+                      const auto SH_topo_coes =
+                        self_gravity->compute_topography_potential(surface_radius, inner_radius);
+                      SH_surface_topo_coes = SH_topo_coes.first;
+                      SH_CMB_topo_coes = SH_topo_coes.second;
+                    }
+                }
+
               if (Utilities::MPI::this_mpi_process(this->get_mpi_communicator()) == 0)
                 {
                   const std::string timestep_suffix =
                     "." + Utilities::int_to_string(this->get_timestep_number(), 5);
                   const std::string output_directory =
                     this->get_output_directory() + "surface_love_numbers/";
-                  const Point<dim> surface_point =
-                    this->get_geometry_model().representative_point(1.0);
-                  const double surface_radius = surface_point.norm();
-                  const double surface_gravity =
-                    this->get_gravity_model().gravity_vector(surface_point).norm();
 
                   if (degree_one_boundary_traction_rhs_diagnostic
                       && min_degree <= 1
@@ -761,62 +822,6 @@ namespace aspect
 
                   if (output_coefficients)
                     {
-                      const auto &traction_manager = this->get_boundary_traction_manager();
-                      const bool use_self_gravity =
-                        traction_manager.template has_matching_active_plugin<
-                        PotentialFeedback::SelfGravitation<dim>>();
-                      const bool use_potential_feedback =
-                        traction_manager.template has_matching_active_plugin<
-                        BoundaryTraction::PotentialFeedbackTraction<dim>>();
-
-                      const PotentialFeedback::SelfGravitation<dim> *self_gravity = nullptr;
-                      const BoundaryTraction::PotentialFeedbackTraction<dim> *potential_feedback = nullptr;
-                      if (use_self_gravity)
-                        {
-                          self_gravity = &traction_manager.template get_matching_active_plugin<
-                                         PotentialFeedback::SelfGravitation<dim>>();
-                        }
-                      else if (use_potential_feedback)
-                        {
-                          const auto &pf = traction_manager.template get_matching_active_plugin<
-                                           BoundaryTraction::PotentialFeedbackTraction<dim>>();
-                          if (pf.has_self_gravity_feedback())
-                            {
-                              potential_feedback = &pf;
-                              self_gravity = &pf.get_self_gravity();
-                            }
-                        }
-
-                      if (self_gravity == nullptr)
-                        {
-                          self_gravity = &self_gravity_helper;
-                        }
-
-                      const bool use_boundary_potential =
-                        use_self_gravity || potential_feedback != nullptr;
-                      const unsigned int self_gravity_coefficient_min_degree =
-                        self_gravity->minimum_degree();
-
-                      // Compute density anomalies contribution using the helper
-                      std::pair<std::vector<double>,std::vector<double>> SH_density_coes =
-                        self_gravity->compute_internal_density_potential(surface_radius);
-
-                      std::pair<double, std::pair<std::vector<double>,std::vector<double>>> SH_surface_topo_coes;
-                      std::pair<double, std::pair<std::vector<double>,std::vector<double>>> SH_CMB_topo_coes;
-
-                      const GeometryModel::SphericalShell<dim> &geometry_model =
-                        Plugins::get_plugin_as_type<const GeometryModel::SphericalShell<dim>> (this->get_geometry_model());
-                      const double inner_radius = geometry_model.inner_radius();
-                      const double CMB_delta_rho = self_gravity->cmb_density_jump();
-
-                      // If self-gravity feedback is not active, compute topography potential coefficients.
-                      if (!use_boundary_potential)
-                        {
-                          const auto SH_topo_coes =
-                            self_gravity->compute_topography_potential(surface_radius, inner_radius);
-                          SH_surface_topo_coes = SH_topo_coes.first;
-                          SH_CMB_topo_coes = SH_topo_coes.second;
-                        }
                       const auto self_gravity_vector_coefficient =
                         [self_gravity_coefficient_min_degree]
                         (const std::pair<std::vector<double>, std::vector<double>> &coefficients,
