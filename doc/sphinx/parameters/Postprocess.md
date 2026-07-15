@@ -140,7 +140,7 @@ The file format then consists of lines with Euclidean coordinates followed by th
 
 &lsquo;stress statistics&rsquo;: A postprocessor that computes some statistics about the stress fields.
 
-&lsquo;surface love numbers&rsquo;: A postprocessor that writes the surface spherical-harmonic coefficients needed to compute load Love numbers. It combines the geoid postprocessor&rsquo;s geoid and surface mass-potential coefficients with the cumulative tangential displacement coefficients.
+&lsquo;surface love numbers&rsquo;: A postprocessor that writes the surface spherical-harmonic coefficients needed to compute load Love numbers. It computes h from cumulative radial displacement and combines it with geoid, surface mass-potential, and cumulative tangential displacement diagnostics.
 
 &lsquo;surface stress statistics&rsquo;: A postprocessor that computes min/avg/max statistics of the stress tensor on boundary faces (i.e., surface). Averages are area-weighted. If elasticity is enabled, the deviatoric stress from the material model is used; otherwise it is computed from viscosity and strain rate. If requested via the visualization manager, the tensor is converted to spherical coordinates before statistics are computed.
 
@@ -1152,7 +1152,7 @@ Units: years if the &rsquo;Use years instead of seconds&rsquo; parameter is set;
 
 **Pattern:** [Bool]
 
-**Documentation:** Whether to write one text file per output time with normalized h, k, and l load Love numbers followed by the raw geoid, surface mass-potential, and cumulative tangential displacement coefficients used to compute them.
+**Documentation:** Whether to write one text file per output time with normalized h, k, and l load Love numbers followed by the raw geoid, surface mass-potential, and cumulative radial and tangential displacement coefficients. The radial displacement defines h; the surface mass potential is an independent density-jump-dependent diagnostic.
 ::::
 
 ::::{dropdown} __Parameter:__ {ref}`Time between text output<parameters:Postprocess/Surface_20love_20numbers/Time_20between_20text_20output>`
