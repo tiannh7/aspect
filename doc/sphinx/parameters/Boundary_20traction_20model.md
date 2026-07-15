@@ -9,7 +9,7 @@
 :name: parameters:Boundary_20traction_20model/Prescribed_20traction_20boundary_20indicators
 **Default value:**
 
-**Pattern:** [Map of <[Anything]>:<[Selection ascii data|function|initial lithostatic pressure|zero traction ]> of length 0...4294967295 (inclusive)]
+**Pattern:** [Map of <[Anything]>:<[Selection ascii data|function|initial lithostatic pressure|potential feedback|spherical harmonic load|zero traction ]> of length 0...4294967295 (inclusive)]
 
 **Documentation:** A comma separated list denoting those boundaries on which the traction is prescribed, i.e., where unknown external forces act to prescribe a particular traction. This is often used to prescribe a traction that equals that of overlying plates.
 
@@ -28,6 +28,10 @@ The formula you describe in the mentioned section is a semicolon separated list 
 The lithostatic pressure is calculated by integrating the pressure downward based on the initial composition and temperature along the user-specified depth profile. The user-specified profile is given in terms of a point in Cartesian coordinates for box geometries and in spherical coordinates for all other geometries (radius, longitude, latitude), and the number of integration points. The lateral coordinates of the point are used to calculate the lithostatic pressure profile with depth. This means that the depth coordinate is not used. Note that when initial topography is included, the initial topography at the user-provided representative point is used to compute the profile. If at other points the (initial) topography is higher, the behavior of this plugin at later timesteps depends on the domain geometry. The depth returned by the geometry model does (box geometries) or does not (spherical geometries) include the initial topography. This depth is used to interpolate between the points of the reference pressure profile. Depths outside the reference profile get returned the pressure value of the closest profile depth. When only the bottom boundary is prescribed initial lithostatic pressure, the pressure value of the deepest depth of the profile is returned.
 
 Gravity is expected to point along the depth direction.
+
+&lsquo;potential feedback&rsquo;: Unified boundary traction model for potential-feedback-derived normal traction. The model is configured through the shared &ldquo;Potential feedback&rdquo; parameter hierarchy and dispatches the active self-gravity, rotational-feedback, and glacial-isostatic-adjustment mechanisms without requiring legacy per-plugin parameter blocks.
+
+&lsquo;spherical harmonic load&rsquo;: Implementation of a boundary traction model that prescribes a single real spherical harmonic load by harmonic degree, harmonic order, normalization, load magnitude, and positive load direction. This is useful for benchmarks where the intended forcing mode is naturally written as an &lsquo;(l,m)&rsquo; spherical harmonic rather than as Cartesian traction components.
 
 &lsquo;zero traction&rsquo;: Implementation of a model in which the boundary traction is zero. This is commonly referred to as an &ldquo;open boundary condition&rdquo;, indicating that the material experiences no forces in response to what might exist on the other side of the boundary. However, this is only true in the case where hydrostatic pressure is not relevant. If hydrostatic pressure is not negligible, for example at the sides of a regional model, the material at the other side of the boundary does exceed a force, namely the force normal to the boundary induced by the hydrostatic pressure.
 ::::
@@ -168,6 +172,24 @@ If the function you are describing represents a vector-valued function with mult
 
 (parameters:Boundary_20traction_20model/Initial_20lithostatic_20pressure)=
 ## **Subsection:** Boundary traction model / Initial lithostatic pressure
+::::{dropdown} __Parameter:__ {ref}`Disable after timestep zero<parameters:Boundary_20traction_20model/Initial_20lithostatic_20pressure/Disable_20after_20timestep_20zero>`
+:name: parameters:Boundary_20traction_20model/Initial_20lithostatic_20pressure/Disable_20after_20timestep_20zero
+**Default value:** false
+
+**Pattern:** [Bool]
+
+**Documentation:** Diagnostic switch that applies the initial lithostatic traction during the instantaneous elastic solve only, and returns zero traction from timestep one onward.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Force constant pressure at bottom boundary<parameters:Boundary_20traction_20model/Initial_20lithostatic_20pressure/Force_20constant_20pressure_20at_20bottom_20boundary>`
+:name: parameters:Boundary_20traction_20model/Initial_20lithostatic_20pressure/Force_20constant_20pressure_20at_20bottom_20boundary
+**Default value:** false
+
+**Pattern:** [Bool]
+
+**Documentation:** If true, the traction on the bottom boundary uses the deepest reference lithostatic pressure everywhere, independent of the current deformed boundary position. This avoids adding a geometry-dependent local pressure perturbation from the background lithostatic profile, which is useful for perturbation-style free-boundary benchmarks.
+::::
+
 ::::{dropdown} __Parameter:__ {ref}`Number of integration points<parameters:Boundary_20traction_20model/Initial_20lithostatic_20pressure/Number_20of_20integration_20points>`
 :name: parameters:Boundary_20traction_20model/Initial_20lithostatic_20pressure/Number_20of_20integration_20points
 **Default value:** 1000
@@ -184,4 +206,319 @@ If the function you are describing represents a vector-valued function with mult
 **Pattern:** [List of <[Double -MAX_DOUBLE...MAX_DOUBLE (inclusive)]> of length 0...4294967295 (inclusive)]
 
 **Documentation:** The point where the pressure profile will be calculated. Cartesian coordinates $(x,y,z)$ when geometry is a box, otherwise enter radius, longitude, and in 3d latitude. Note that the coordinate related to the depth ($y$ in 2d Cartesian, $z$ in 3d Cartesian and radius in spherical coordinates) is not used. Units: \si{\meter} or degrees.
+::::
+
+(parameters:Boundary_20traction_20model/Self_20gravitation)=
+## **Subsection:** Boundary traction model / Self gravitation
+::::{dropdown} __Parameter:__ {ref}`Center of mass correction<parameters:Boundary_20traction_20model/Self_20gravitation/Center_20of_20mass_20correction>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Center_20of_20mass_20correction
+**Default value:** false
+
+**Pattern:** [Bool]
+
+**Documentation:** Whether to apply the degree-1 center-of-mass reference-frame correction. This correction only affects degree 1 and is separate from ASPECT nullspace removal.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`CitcomSVE degree 1 load compensation<parameters:Boundary_20traction_20model/Self_20gravitation/CitcomSVE_20degree_201_20load_20compensation>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/CitcomSVE_20degree_201_20load_20compensation
+**Default value:** false
+
+**Pattern:** [Bool]
+
+**Documentation:** Whether to apply the CitcomSVE-style degree-1 center-of-mass compensating load before solving the displacement response. This diagnostic option is disabled by default and is separate from ASPECT nullspace removal and from the degree-1 geoid reference-frame correction.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Density above CMB<parameters:Boundary_20traction_20model/Self_20gravitation/Density_20above_20CMB>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Density_20above_20CMB
+**Default value:** 5500
+
+**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Density immediately above the CMB (lower mantle side) in kg/m^3. Earth: ~5500, Mars: ~3800.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Density above surface<parameters:Boundary_20traction_20model/Self_20gravitation/Density_20above_20surface>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Density_20above_20surface
+**Default value:** 0
+
+**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Density immediately above the deformed surface boundary in kg/m^3. For a free surface in vacuum or thin atmosphere, set to 0. For a seafloor under ocean, set to water density (e.g., 1030).
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Density below CMB<parameters:Boundary_20traction_20model/Self_20gravitation/Density_20below_20CMB>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Density_20below_20CMB
+**Default value:** 9900
+
+**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Density immediately below the CMB (outer core side) in kg/m^3. Earth: ~9900, Mars: ~6200.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Density below surface<parameters:Boundary_20traction_20model/Self_20gravitation/Density_20below_20surface>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Density_20below_20surface
+**Default value:** 3500
+
+**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Density immediately below the deformed surface boundary in kg/m^3. For rock topography, use crustal density (e.g., 3500). For an ice cap sitting on rock, use ice density (e.g., 917).
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Enable CMB potential traction<parameters:Boundary_20traction_20model/Self_20gravitation/Enable_20CMB_20potential_20traction>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Enable_20CMB_20potential_20traction
+**Default value:** true
+
+**Pattern:** [Bool]
+
+**Documentation:** Diagnostic switch controlling whether Phi/g is applied as a non-local traction at the CMB. The local CMB topography term is unaffected.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Enable surface potential traction<parameters:Boundary_20traction_20model/Self_20gravitation/Enable_20surface_20potential_20traction>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Enable_20surface_20potential_20traction
+**Default value:** true
+
+**Pattern:** [Bool]
+
+**Documentation:** Diagnostic switch controlling whether Phi/g is applied as a non-local traction at the outer surface. Harmonic analysis and output remain active when this switch is false.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Freeze potential after timestep zero<parameters:Boundary_20traction_20model/Self_20gravitation/Freeze_20potential_20after_20timestep_20zero>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Freeze_20potential_20after_20timestep_20zero
+**Default value:** false
+
+**Pattern:** [Bool]
+
+**Documentation:** Diagnostic switch that retains the converged timestep-zero non-local potential coefficients without recomputing them at later timesteps.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Full domain volume source discretization<parameters:Boundary_20traction_20model/Self_20gravitation/Full_20domain_20volume_20source_20discretization>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Full_20domain_20volume_20source_20discretization
+**Default value:** quadrature point
+
+**Pattern:** [Selection quadrature point|cell average|radial layer midpoint|mass lumped radial layer ]
+
+**Documentation:** Discretization of the mechanical volume-density source in the 3-D full-domain self-gravity potential. &lsquo;quadrature point&rsquo; preserves the existing pointwise integration. &lsquo;cell average&rsquo; uses one volume-weighted density perturbation per active cell before applying the spherical-harmonic Green kernel. &lsquo;radial layer midpoint&rsquo; additionally uses an arithmetic quadrature-point source average and evaluates the radial kernel and radial measure at the cell&rsquo;s midpoint radius. &lsquo;mass lumped radial layer&rsquo; first projects those cell averages to shared pressure vertices with a lumped Q1 mass matrix before applying the midpoint rule. The default is unchanged.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Include CMB contribution<parameters:Boundary_20traction_20model/Self_20gravitation/Include_20CMB_20contribution>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Include_20CMB_20contribution
+**Default value:** true
+
+**Pattern:** [Bool]
+
+**Documentation:** Whether to include the CMB topography contribution to the self-gravitational potential perturbation. Set to false if only surface topography feedback is needed.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Include internal density anomalies<parameters:Boundary_20traction_20model/Self_20gravitation/Include_20internal_20density_20anomalies>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Include_20internal_20density_20anomalies
+**Default value:** auto
+
+**Pattern:** [Selection true|false|auto ]
+
+**Documentation:** Whether to include the internal mantle density anomalies contribution to the gravitational potential. Default is auto.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Initial displacement time step<parameters:Boundary_20traction_20model/Self_20gravitation/Initial_20displacement_20time_20step>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Initial_20displacement_20time_20step
+**Default value:** 0
+
+**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Displacement interval used to convert the timestep-0 Stokes velocity into an incremental boundary displacement. Set this to the elastic time step for an instantaneously applied load. Units are years when &rsquo;Use years instead of seconds&rsquo; is enabled, otherwise seconds.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Internal density anomaly tolerance<parameters:Boundary_20traction_20model/Self_20gravitation/Internal_20density_20anomaly_20tolerance>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Internal_20density_20anomaly_20tolerance
+**Default value:** 0
+
+**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Density anomaly threshold below which the volume integral is skipped.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Iterate with Stokes<parameters:Boundary_20traction_20model/Self_20gravitation/Iterate_20with_20Stokes>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Iterate_20with_20Stokes
+**Default value:** true
+
+**Pattern:** [Bool]
+
+**Documentation:** Recompute the non-local surface/CMB potential from the current Stokes velocity after every Stokes solve. The updated traction is used by the next nonlinear iteration in the same time step.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Maximum degree<parameters:Boundary_20traction_20model/Self_20gravitation/Maximum_20degree>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Maximum_20degree
+**Default value:** 40
+
+**Pattern:** [Integer range 0...2147483647 (inclusive)]
+
+**Documentation:** Maximum spherical harmonic degree for the self-gravitation calculation.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Maximum potential iterations<parameters:Boundary_20traction_20model/Self_20gravitation/Maximum_20potential_20iterations>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Maximum_20potential_20iterations
+**Default value:** 10
+
+**Pattern:** [Integer range 1...2147483647 (inclusive)]
+
+**Documentation:** Maximum number of self-consistent potential updates per timestep. The iteration stops when the potential coefficient change reaches the tolerance or this limit is reached.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Minimum degree<parameters:Boundary_20traction_20model/Self_20gravitation/Minimum_20degree>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Minimum_20degree
+**Default value:** 0
+
+**Pattern:** [Integer range 0...2147483647 (inclusive)]
+
+**Documentation:** Minimum spherical harmonic degree for the self-gravitation calculation.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Potential convergence tolerance<parameters:Boundary_20traction_20model/Self_20gravitation/Potential_20convergence_20tolerance>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Potential_20convergence_20tolerance
+**Default value:** 1e-3
+
+**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Relative L2 change tolerance for the combined surface and CMB Phi/g spherical-harmonic coefficient vectors. Zhong et al. (2022) author inputfile10 uses 1e-3 for its self-gravity iteration cutoff.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Reference density for internal anomalies<parameters:Boundary_20traction_20model/Self_20gravitation/Reference_20density_20for_20internal_20anomalies>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Reference_20density_20for_20internal_20anomalies
+**Default value:** 0
+
+**Pattern:** [Double -MAX_DOUBLE...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Reference density used to define mantle density anomalies (kg/m^3).
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Time between text output<parameters:Boundary_20traction_20model/Self_20gravitation/Time_20between_20text_20output>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Time_20between_20text_20output
+**Default value:** 0.
+
+**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+
+**Documentation:** The time interval in years between text outputs for self-gravity diagnostics. If zero, this parameter is ignored.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Time steps between text output<parameters:Boundary_20traction_20model/Self_20gravitation/Time_20steps_20between_20text_20output>`
+:name: parameters:Boundary_20traction_20model/Self_20gravitation/Time_20steps_20between_20text_20output
+**Default value:** 0
+
+**Pattern:** [Integer range 0...2147483647 (inclusive)]
+
+**Documentation:** The number of time steps between self-gravity diagnostic text outputs. If zero, this parameter is ignored. If both output interval parameters are zero, no self-gravity diagnostic text is printed.
+::::
+
+(parameters:Boundary_20traction_20model/Spherical_20harmonic_20load)=
+## **Subsection:** Boundary traction model / Spherical harmonic load
+::::{dropdown} __Parameter:__ {ref}`Amplitude<parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Amplitude>`
+:name: parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Amplitude
+**Default value:** 1e300
+
+**Pattern:** [Double -MAX_DOUBLE...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Legacy parameter for scalar traction amplitude. Deprecated.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Coefficient type<parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Coefficient_20type>`
+:name: parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Coefficient_20type
+**Default value:** cosine
+
+**Pattern:** [Selection cosine|sine ]
+
+**Documentation:** Select the real spherical harmonic coefficient type. For m=0 only the cosine component is nonzero.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Component<parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Component>`
+:name: parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Component
+**Default value:** unspecified
+
+**Pattern:** [Selection normal|radial|unspecified ]
+
+**Documentation:** Legacy parameter for traction vector component. Deprecated.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Degree<parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Degree>`
+:name: parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Degree
+**Alias:** [Harmonic degree](parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Harmonic_20degree)
+
+**Deprecation Status:** false
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Harmonic degree<parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Harmonic_20degree>`
+:name: parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Harmonic_20degree
+**Default value:** 2
+
+**Pattern:** [Integer range 0...2147483647 (inclusive)]
+
+**Documentation:** Spherical harmonic degree l.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Harmonic order<parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Harmonic_20order>`
+:name: parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Harmonic_20order
+**Default value:** 0
+
+**Pattern:** [Integer range 0...2147483647 (inclusive)]
+
+**Documentation:** Spherical harmonic order m. Currently this plugin accepts non-negative orders and provides separate cosine and sine coefficient types.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Load density<parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Load_20density>`
+:name: parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Load_20density
+**Default value:** -1.0
+
+**Pattern:** [Double -MAX_DOUBLE...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Positive density contrast in kg/m^3 used with Load height to compute surface-load traction.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Load height<parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Load_20height>`
+:name: parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Load_20height
+**Default value:** -1.0
+
+**Pattern:** [Double -MAX_DOUBLE...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Positive harmonic load-height amplitude in meters. If this parameter is non-negative then the scalar traction amplitude is computed as Load density times the active gravity-model magnitude times Load height.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Load magnitude<parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Load_20magnitude>`
+:name: parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Load_20magnitude
+**Default value:** -1.0
+
+**Pattern:** [Double -MAX_DOUBLE...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Positive scalar traction amplitude in Pa multiplying the selected angular function. Alternatively, specify Load height and Load density to derive this traction amplitude from basic surface-load quantities and the active gravity model.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Normalization<parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Normalization>`
+:name: parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Normalization
+**Default value:** geodesy 4pi
+
+**Pattern:** [Selection geodesy 4pi|unnormalized legendre ]
+
+**Documentation:** Normalization of the angular load. The &rsquo;geodesy 4pi&rsquo; option uses ASPECT&rsquo;s Utilities::real_spherical_harmonic convention. The &rsquo;unnormalized legendre&rsquo; option evaluates P_l(cos theta) and is currently restricted to m=0.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Order<parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Order>`
+:name: parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Order
+**Alias:** [Harmonic order](parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Harmonic_20order)
+
+**Deprecation Status:** false
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Positive load direction<parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Positive_20load_20direction>`
+:name: parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Positive_20load_20direction
+**Default value:** unspecified
+
+**Pattern:** [Selection outward radial|inward radial|outward normal|inward normal|unspecified ]
+
+**Documentation:** The physical direction of positive harmonic load. For surface topographic load, if positive harmonic height represents a mountain/load high, recommended setting is: set Load magnitude = rho * g * h_amplitude and set Positive load direction = inward radial.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Sign<parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Sign>`
+:name: parameters:Boundary_20traction_20model/Spherical_20harmonic_20load/Sign
+**Default value:** 1e300
+
+**Pattern:** [Double -MAX_DOUBLE...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Legacy parameter for traction sign multiplier. Deprecated.
 ::::
