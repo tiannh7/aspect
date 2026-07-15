@@ -112,7 +112,9 @@ namespace aspect
              + dilation_derivative_wrt_pressure_table.memory_consumption()
              + dilation_derivative_wrt_strain_rate_table.memory_consumption()
              + free_surface_stabilization_term_table.memory_consumption()
-             + citcom_style_cmb_radial_restoring_coefficient_table.memory_consumption();
+             + citcom_style_cmb_radial_restoring_coefficient_table.memory_consumption()
+             + internal_density_jump_restoring_coefficient_table.memory_consumption()
+             + internal_density_jump_radial_unit_vector.memory_consumption();
     }
 
 
@@ -125,6 +127,7 @@ namespace aspect
       use_elastic_pressure_evolution = false;
       use_mechanical_mass_conservation = false;
       use_citcom_style_cmb_radial_restoring = false;
+      use_internal_density_jump_restoring = false;
       citcom_style_cmb_radial_restoring_boundary_indicator = numbers::invalid_boundary_id;
       citcom_style_cmb_radial_restoring_density_contrast = 0.0;
       citcom_style_cmb_radial_restoring_scale = 0.0;
@@ -140,6 +143,8 @@ namespace aspect
       dilation_derivative_wrt_strain_rate_table.clear();
       free_surface_stabilization_term_table.clear();
       citcom_style_cmb_radial_restoring_coefficient_table.clear();
+      internal_density_jump_restoring_coefficient_table.clear();
+      internal_density_jump_radial_unit_vector.clear();
     }
   }
 
@@ -395,11 +400,35 @@ namespace aspect
   template <int dim, int degree_v, typename number>
   void
   MatrixFreeStokesOperators::StokesOperator<dim, degree_v, number>
-  ::local_apply_face(const dealii::MatrixFree<dim, number> &,
-                     dealii::LinearAlgebra::distributed::BlockVector<number> &,
-                     const dealii::LinearAlgebra::distributed::BlockVector<number> &,
-                     const std::pair<unsigned int, unsigned int> &) const
+  ::local_apply_face(const dealii::MatrixFree<dim, number> &data,
+                     dealii::LinearAlgebra::distributed::BlockVector<number> &dst,
+                     const dealii::LinearAlgebra::distributed::BlockVector<number> &src,
+                     const std::pair<unsigned int, unsigned int> &face_range) const
   {
+    if (!cell_data->use_internal_density_jump_restoring)
+      return;
+
+    FEFaceEvaluation<dim, degree_v, degree_v + 1, dim, number> velocity(data, true);
+
+    for (unsigned int face = face_range.first; face < face_range.second; ++face)
+      {
+        velocity.reinit(face);
+        velocity.gather_evaluate(src.block(0), EvaluationFlags::values);
+
+        for (const unsigned int q : velocity.quadrature_point_indices())
+          {
+            const Tensor<1,dim,VectorizedArray<number>> radial_unit =
+              cell_data->internal_density_jump_radial_unit_vector(face,q);
+            const VectorizedArray<number> radial_velocity =
+              velocity.get_value(q) * radial_unit;
+            const VectorizedArray<number> coefficient =
+              cell_data->internal_density_jump_restoring_coefficient_table(face,q);
+
+            velocity.submit_value(coefficient * radial_velocity * radial_unit, q);
+          }
+
+        velocity.integrate_scatter(EvaluationFlags::values, dst.block(0));
+      }
   }
 
 
@@ -490,7 +519,8 @@ namespace aspect
   ::apply_add (dealii::LinearAlgebra::distributed::BlockVector<number> &dst,
                const dealii::LinearAlgebra::distributed::BlockVector<number> &src) const
   {
-    if (cell_data->apply_stabilization_free_surface_faces)
+    if (cell_data->apply_stabilization_free_surface_faces
+        || cell_data->use_internal_density_jump_restoring)
       MatrixFreeOperators::Base<dim, dealii::LinearAlgebra::distributed::BlockVector<number>>::
       data->loop(&StokesOperator::local_apply,
                  &StokesOperator::local_apply_face,
@@ -715,7 +745,7 @@ namespace aspect
     const unsigned int cell = pressure.get_current_cell_index();
     const unsigned int n_components_filled = this->get_matrix_free()->n_active_entries_per_cell_batch(cell);
 
-    VectorizedArray<number> prefactor;
+    VectorizedArray<number> prefactor = 0.0;
 
     for (const unsigned int q : pressure.quadrature_point_indices())
       {

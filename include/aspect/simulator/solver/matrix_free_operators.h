@@ -257,6 +257,22 @@ namespace aspect
       Table<2, VectorizedArray<number>> citcom_style_cmb_radial_restoring_coefficient_table;
 
       /**
+       * Whether internal density-jump restoring terms are active on the
+       * fine-grid interior-face operator.
+       */
+      bool use_internal_density_jump_restoring = false;
+
+      /**
+       * Product Delta rho * g * Delta t on every selected interior face.
+       */
+      Table<2, VectorizedArray<number>> internal_density_jump_restoring_coefficient_table;
+
+      /**
+       * Radial unit vector on every selected interior face.
+       */
+      Table<2, Tensor<1, dim, VectorizedArray<number>>> internal_density_jump_radial_unit_vector;
+
+      /**
        * Determine an estimate for the memory consumption (in bytes) of this
        * object.
        */
@@ -318,7 +334,7 @@ namespace aspect
                           const std::pair<unsigned int, unsigned int> &cell_range) const;
 
         /**
-         * This function doesn't do anything, it's created to use the matrixfree loop.
+         * Apply internal density-jump restoring terms.
          */
         void local_apply_face (const dealii::MatrixFree<dim, number> &data,
                                dealii::LinearAlgebra::distributed::BlockVector<number> &dst,

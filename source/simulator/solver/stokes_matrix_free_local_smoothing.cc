@@ -503,6 +503,115 @@ namespace aspect
     active_cell_data.citcom_style_cmb_radial_restoring_scale =
       this->get_parameters().citcom_style_cmb_radial_restoring_scale;
 
+    active_cell_data.use_internal_density_jump_restoring =
+      active_cell_data.use_mechanical_mass_conservation
+      && this->get_density_source_manager().has_internal_density_jumps();
+
+    if (active_cell_data.use_internal_density_jump_restoring)
+      {
+        const Quadrature<dim-1> &face_quadrature_formula =
+          this->introspection().face_quadratures.velocities;
+        const unsigned int n_face_q_points = face_quadrature_formula.size();
+        const unsigned int n_faces =
+          stokes_matrix.get_matrix_free()->n_inner_face_batches();
+        const double mechanical_time_step =
+          this->get_density_source_manager().effective_mechanical_time_step();
+
+        active_cell_data.internal_density_jump_restoring_coefficient_table.reinit(
+          TableIndices<2>(n_faces, n_face_q_points));
+        active_cell_data.internal_density_jump_radial_unit_vector.reinit(
+          TableIndices<2>(n_faces, n_face_q_points));
+        for (unsigned int face=0; face<n_faces; ++face)
+          for (unsigned int q=0; q<n_face_q_points; ++q)
+            {
+              active_cell_data.internal_density_jump_restoring_coefficient_table(face,q) = 0.0;
+              for (unsigned int d=0; d<dim; ++d)
+                active_cell_data.internal_density_jump_radial_unit_vector(face,q)[d] = 0.0;
+            }
+
+        FEFaceEvaluation<dim,velocity_degree,velocity_degree+1,dim,double>
+        face_evaluation(*stokes_matrix.get_matrix_free(), true);
+
+        for (unsigned int face=0; face<n_faces; ++face)
+          {
+            face_evaluation.reinit(face);
+            const unsigned int n_components_filled =
+              stokes_matrix.get_matrix_free()->n_active_entries_per_face_batch(face);
+
+            for (unsigned int i=0; i<n_components_filled; ++i)
+              {
+                const auto matrix_free_interior =
+                  stokes_matrix.get_matrix_free()->get_face_iterator(face, i, true);
+                const auto matrix_free_exterior =
+                  stokes_matrix.get_matrix_free()->get_face_iterator(face, i, false);
+
+                typename DoFHandler<dim>::active_cell_iterator simulator_interior(
+                  &this->get_triangulation(),
+                  matrix_free_interior.first->level(),
+                  matrix_free_interior.first->index(),
+                  &this->get_dof_handler());
+                if (simulator_interior->has_periodic_neighbor(matrix_free_interior.second))
+                  continue;
+
+                typename DoFHandler<dim>::active_cell_iterator simulator_exterior(
+                  &this->get_triangulation(),
+                  matrix_free_exterior.first->level(),
+                  matrix_free_exterior.first->index(),
+                  &this->get_dof_handler());
+
+                typename DoFHandler<dim>::active_cell_iterator inner_cell =
+                  simulator_interior;
+                typename DoFHandler<dim>::active_cell_iterator outer_cell =
+                  simulator_exterior;
+                if (inner_cell->center().norm() > outer_cell->center().norm())
+                  std::swap(inner_cell, outer_cell);
+                if (inner_cell->center().norm() >= outer_cell->center().norm())
+                  continue;
+
+                const auto geometric_face =
+                  simulator_interior->face(matrix_free_interior.second);
+                const double density_contrast =
+                  this->get_density_source_manager().internal_density_jump_across_face(
+                    inner_cell->center(),
+                    outer_cell->center(),
+                    geometric_face->vertex(0).norm());
+                if (density_contrast == 0.0)
+                  continue;
+
+                bool all_vertices_match = true;
+                for (unsigned int vertex=1; vertex<geometric_face->n_vertices(); ++vertex)
+                  all_vertices_match =
+                    all_vertices_match
+                    && (this->get_density_source_manager().internal_density_jump_across_face(
+                          inner_cell->center(),
+                          outer_cell->center(),
+                          geometric_face->vertex(vertex).norm()) == density_contrast);
+                if (!all_vertices_match)
+                  continue;
+
+                for (unsigned int q=0; q<n_face_q_points; ++q)
+                  {
+                    Point<dim> position;
+                    const auto quadrature_point = face_evaluation.quadrature_point(q);
+                    for (unsigned int d=0; d<dim; ++d)
+                      position[d] = quadrature_point[d][i];
+                    const double radius = position.norm();
+                    AssertThrow(radius > 0.0,
+                                ExcMessage("Internal density jump restoring is undefined at radius zero."));
+                    const Tensor<1,dim> radial_unit = position / radius;
+                    const double gravity_magnitude =
+                      this->get_gravity_model().gravity_vector(position).norm();
+
+                    active_cell_data.internal_density_jump_restoring_coefficient_table(face,q)[i] =
+                      density_contrast * gravity_magnitude * mechanical_time_step;
+                    for (unsigned int d=0; d<dim; ++d)
+                      active_cell_data.internal_density_jump_radial_unit_vector(face,q)[d][i] =
+                        radial_unit[d];
+                  }
+              }
+          }
+      }
+
     // Store viscosity tables and other data into the active level matrix-free objects.
     stokes_matrix.set_cell_data(active_cell_data);
     BT_block.set_cell_data(active_cell_data);
@@ -846,8 +955,11 @@ namespace aspect
 
       // TODO: implement multilevel surface terms for the free surface stabilization.
 
-      active_cell_data.free_surface_boundary_indicators =
-        this->get_mesh_deformation_handler().get_free_surface_boundary_indicators();
+      if (this->get_parameters().mesh_deformation_enabled)
+        active_cell_data.free_surface_boundary_indicators =
+          this->get_mesh_deformation_handler().get_free_surface_boundary_indicators();
+      else
+        active_cell_data.free_surface_boundary_indicators.clear();
 
       active_cell_data.apply_stabilization_free_surface_faces =
         (this->get_parameters().mesh_deformation_enabled
@@ -855,7 +967,10 @@ namespace aspect
         || active_cell_data.use_citcom_style_cmb_radial_restoring;
       if (active_cell_data.apply_stabilization_free_surface_faces == true)
         {
-          const double free_surface_theta = this->get_mesh_deformation_handler().get_free_surface_theta();
+          const double free_surface_theta =
+            this->get_parameters().mesh_deformation_enabled
+            ? this->get_mesh_deformation_handler().get_free_surface_theta()
+            : 0.0;
 
           const Quadrature<dim-1> &face_quadrature_formula = this->introspection().face_quadratures.velocities;
 
@@ -873,9 +988,6 @@ namespace aspect
 
           const unsigned int n_faces_boundary = stokes_matrix.get_matrix_free()->n_boundary_face_batches();
           const unsigned int n_faces_interior = stokes_matrix.get_matrix_free()->n_inner_face_batches();
-
-          active_cell_data.free_surface_boundary_indicators =
-            this->get_mesh_deformation_handler().get_free_surface_boundary_indicators();
 
           MaterialModel::MaterialModelInputs<dim> face_material_inputs(n_face_q_points, this->introspection().n_compositional_fields);
           face_material_inputs.requested_properties = MaterialModel::MaterialProperties::density;
@@ -1145,6 +1257,37 @@ namespace aspect
 
         pressure.integrate_scatter (EvaluationFlags::values,
                                     rhs_correction.block(1));
+      }
+
+    if (active_cell_data.use_internal_density_jump_restoring)
+      {
+        FEFaceEvaluation<dim,velocity_degree,velocity_degree+1,dim,double>
+        velocity_face(*stokes_matrix.get_matrix_free(), true);
+        const unsigned int n_faces =
+          stokes_matrix.get_matrix_free()->n_inner_face_batches();
+
+        for (unsigned int face=0; face<n_faces; ++face)
+          {
+            velocity_face.reinit(face);
+            velocity_face.read_dof_values_plain(u0.block(0));
+            velocity_face.evaluate(EvaluationFlags::values);
+
+            for (const unsigned int q : velocity_face.quadrature_point_indices())
+              {
+                const Tensor<1,dim,VectorizedArray<double>> radial_unit =
+                  active_cell_data.internal_density_jump_radial_unit_vector(face,q);
+                const VectorizedArray<double> radial_velocity =
+                  velocity_face.get_value(q) * radial_unit;
+                const VectorizedArray<double> coefficient =
+                  active_cell_data.internal_density_jump_restoring_coefficient_table(face,q);
+
+                velocity_face.submit_value(
+                  -coefficient * radial_velocity * radial_unit, q);
+              }
+
+            velocity_face.integrate_scatter(EvaluationFlags::values,
+                                            rhs_correction.block(0));
+          }
       }
 
     if (active_cell_data.apply_stabilization_free_surface_faces)
@@ -2062,12 +2205,27 @@ namespace aspect
       additional_data.tasks_parallel_scheme = MatrixFree<dim,double>::AdditionalData::none;
       additional_data.mapping_update_flags = (update_gradients | update_JxW_values);
 
-      if (this->get_parameters().mesh_deformation_enabled
-          && !this->get_mesh_deformation_handler().get_free_surface_boundary_indicators().empty())
+      const bool use_internal_density_jump_restoring =
+        (this->get_parameters().density_source_law
+         == Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation)
+        && this->get_density_source_manager().has_internal_density_jumps();
+      const bool use_boundary_face_operators =
+        (this->get_parameters().mesh_deformation_enabled
+         && !this->get_mesh_deformation_handler().get_free_surface_boundary_indicators().empty())
+        || this->get_parameters().use_citcom_style_cmb_radial_restoring
+        || use_internal_density_jump_restoring;
+
+      if (use_boundary_face_operators)
         additional_data.mapping_update_flags_boundary_faces =
           (update_values  |
            update_quadrature_points |
            update_normal_vectors |
+           update_JxW_values);
+
+      if (use_internal_density_jump_restoring)
+        additional_data.mapping_update_flags_inner_faces =
+          (update_values |
+           update_quadrature_points |
            update_JxW_values);
 
       std::vector<const DoFHandler<dim>*> stokes_dofs {&dof_handler_v, &dof_handler_p};
