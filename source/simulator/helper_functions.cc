@@ -1324,6 +1324,9 @@ namespace aspect
     // the user has forced the use of a different solver.
     if (mesh_deformation && mesh_deformation->get_boundary_indicators_requiring_stabilization().empty() == false)
       return false;
+    else if (parameters.density_source_law
+             == Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation)
+      return false;
     else if (parameters.force_nonsymmetric_A_block_solver)
       return false;
     else

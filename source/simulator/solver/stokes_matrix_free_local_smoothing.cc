@@ -355,6 +355,10 @@ namespace aspect
     active_cell_data.use_elastic_pressure_evolution =
       this->get_parameters().formulation_mass_conservation
       == Parameters<dim>::Formulation::MassConservation::elastic_pressure_evolution;
+    active_cell_data.use_mechanical_mass_conservation =
+      active_cell_data.use_elastic_pressure_evolution
+      && (this->get_parameters().density_source_law
+          == Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation);
 
     if (active_cell_data.use_elastic_pressure_evolution)
       {
@@ -365,12 +369,34 @@ namespace aspect
           elastic_time_step = this->get_material_model().initial_elastic_time_step();
         AssertThrow(elastic_time_step > 0.0,
                     ExcMessage("Elastic pressure evolution requires a positive effective time step."));
+        const double mechanical_time_step =
+          (active_cell_data.use_mechanical_mass_conservation
+           ? this->get_density_source_manager().effective_mechanical_time_step()
+           : 0.0);
 
         active_cell_data.elastic_bulk_modulus_times_timestep.reinit(
           TableIndices<2>(n_cells, n_q_points));
         for (unsigned int cell=0; cell<n_cells; ++cell)
           for (unsigned int q=0; q<n_q_points; ++q)
             active_cell_data.elastic_bulk_modulus_times_timestep(cell,q) = 1.0;
+
+        if (active_cell_data.use_mechanical_mass_conservation)
+          {
+            active_cell_data.radial_restoring_coefficient.reinit(
+              TableIndices<2>(n_cells, n_q_points));
+            active_cell_data.pressure_to_velocity_radial_coefficient.reinit(
+              TableIndices<2>(n_cells, n_q_points));
+            active_cell_data.radial_unit_vector.reinit(
+              TableIndices<2>(n_cells, n_q_points));
+            for (unsigned int cell=0; cell<n_cells; ++cell)
+              for (unsigned int q=0; q<n_q_points; ++q)
+                {
+                  active_cell_data.radial_restoring_coefficient(cell,q) = 0.0;
+                  active_cell_data.pressure_to_velocity_radial_coefficient(cell,q) = 0.0;
+                  for (unsigned int d=0; d<dim; ++d)
+                    active_cell_data.radial_unit_vector(cell,q)[d] = 0.0;
+                }
+          }
 
         FEValues<dim> elastic_fe_values(this->get_mapping(),
                                         this->get_fe(),
@@ -416,15 +442,41 @@ namespace aspect
 
                 for (unsigned int q=0; q<n_q_points; ++q)
                   {
-                    const double bulk_viscosity =
+                    const double bulk_modulus =
                       this->get_density_source_manager().elastic_bulk_modulus(
-                        elastic_outputs, q) * elastic_time_step;
+                        elastic_outputs, q);
+                    const double bulk_viscosity = bulk_modulus * elastic_time_step;
                     active_cell_data.elastic_bulk_modulus_times_timestep(cell,q)[i] =
                       bulk_viscosity;
                     minimum_bulk_viscosity_local =
                       std::min(minimum_bulk_viscosity_local, bulk_viscosity);
                     maximum_bulk_viscosity_local =
                       std::max(maximum_bulk_viscosity_local, bulk_viscosity);
+
+                    if (active_cell_data.use_mechanical_mass_conservation)
+                      {
+                        const Point<dim> position =
+                          elastic_fe_values.quadrature_point(q);
+                        const double radius = position.norm();
+                        AssertThrow(radius > 0.0,
+                                    ExcMessage("Mechanical mass conservation is undefined at radius zero."));
+                        const Tensor<1,dim> radial_unit = position / radius;
+                        const double gravity_magnitude =
+                          this->get_density_source_manager().mechanical_gravity_magnitude(
+                            position,
+                            this->get_gravity_model().gravity_vector(position).norm());
+                        const double reference_density_times_gravity =
+                          this->get_density_source_manager().reference_density(position)
+                          * gravity_magnitude;
+
+                        active_cell_data.radial_restoring_coefficient(cell,q)[i] =
+                          reference_density_times_gravity * mechanical_time_step;
+                        active_cell_data.pressure_to_velocity_radial_coefficient(cell,q)[i] =
+                          reference_density_times_gravity / bulk_modulus;
+                        for (unsigned int d=0; d<dim; ++d)
+                          active_cell_data.radial_unit_vector(cell,q)[d][i] =
+                            radial_unit[d];
+                      }
                   }
               }
           }
@@ -992,6 +1044,8 @@ namespace aspect
     // Therefore, we don't need to include Newton terms here.
 
     const bool is_compressible = this->get_material_model().is_compressible();
+    const bool use_mechanical_mass_conservation =
+      active_cell_data.use_mechanical_mass_conservation;
 
     dealii::LinearAlgebra::distributed::BlockVector<double> rhs_correction(2);
     dealii::LinearAlgebra::distributed::BlockVector<double> u0(2);
@@ -1024,6 +1078,10 @@ namespace aspect
 
     const bool use_viscosity_at_quadrature_points
       = (active_cell_data.viscosity.size(1) == velocity.n_q_points);
+    const EvaluationFlags::EvaluationFlags velocity_evaluation_flags =
+      use_mechanical_mass_conservation
+      ? EvaluationFlags::values | EvaluationFlags::gradients
+      : EvaluationFlags::gradients;
 
     const unsigned int n_cells = stokes_matrix.get_matrix_free()->n_cell_batches();
 
@@ -1038,7 +1096,7 @@ namespace aspect
         // with the zero boundary used by the stokes_matrix operator.
         velocity.reinit (cell);
         velocity.read_dof_values_plain (u0.block(0));
-        velocity.evaluate (EvaluationFlags::gradients);
+        velocity.evaluate (velocity_evaluation_flags);
 
         pressure.reinit (cell);
         pressure.read_dof_values_plain (u0.block(1));
@@ -1065,6 +1123,18 @@ namespace aspect
                 this->get_parameters().enable_prescribed_dilation)
               for (unsigned int d=0; d<dim; ++d)
                 sym_grad_u[d][d] -= viscosity_x_2/3.0*div;
+
+            if (use_mechanical_mass_conservation)
+              {
+                const Tensor<1,dim,VectorizedArray<double>> radial_unit =
+                  active_cell_data.radial_unit_vector(cell,q);
+                const VectorizedArray<double> radial_velocity =
+                  velocity.get_value(q) * radial_unit;
+                const VectorizedArray<double> radial_restoring =
+                  active_cell_data.radial_restoring_coefficient(cell,q);
+                for (unsigned int d=0; d<dim; ++d)
+                  sym_grad_u[d][d] -= radial_restoring * radial_velocity;
+              }
 
             velocity.submit_symmetric_gradient(-1.0*sym_grad_u, q);
           }

@@ -103,6 +103,12 @@ namespace aspect
       bool use_elastic_pressure_evolution = false;
 
       /**
+       * Whether mechanical mass conservation contributes radial cell terms
+       * to the Stokes operator.
+       */
+      bool use_mechanical_mass_conservation = false;
+
+      /**
        * Pressure scaling constant.
        */
       double pressure_scaling;
@@ -146,6 +152,23 @@ namespace aspect
        * This has the same units as viscosity.
        */
       Table<2, VectorizedArray<number>> elastic_bulk_modulus_times_timestep;
+
+      /**
+       * Product of reference density, gravity magnitude, and effective
+       * mechanical time step for radial volumetric restoring terms.
+       */
+      Table<2, VectorizedArray<number>> radial_restoring_coefficient;
+
+      /**
+       * Product of reference density and gravity magnitude divided by the
+       * elastic bulk modulus for pressure-to-velocity radial coupling.
+       */
+      Table<2, VectorizedArray<number>> pressure_to_velocity_radial_coefficient;
+
+      /**
+       * Radial unit vector at each active-cell quadrature point.
+       */
+      Table<2, Tensor<1, dim, VectorizedArray<number>>> radial_unit_vector;
 
       /**
        * Table which stores the strain rate for each cell to be used

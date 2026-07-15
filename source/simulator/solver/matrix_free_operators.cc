@@ -103,6 +103,9 @@ namespace aspect
     {
       return viscosity.memory_consumption()
              + elastic_bulk_modulus_times_timestep.memory_consumption()
+             + radial_restoring_coefficient.memory_consumption()
+             + pressure_to_velocity_radial_coefficient.memory_consumption()
+             + radial_unit_vector.memory_consumption()
              + newton_factor_wrt_pressure_table.memory_consumption()
              + strain_rate_table.memory_consumption()
              + newton_factor_wrt_strain_rate_table.memory_consumption()
@@ -120,12 +123,16 @@ namespace aspect
     {
       enable_newton_derivatives = false;
       use_elastic_pressure_evolution = false;
+      use_mechanical_mass_conservation = false;
       use_citcom_style_cmb_radial_restoring = false;
       citcom_style_cmb_radial_restoring_boundary_indicator = numbers::invalid_boundary_id;
       citcom_style_cmb_radial_restoring_density_contrast = 0.0;
       citcom_style_cmb_radial_restoring_scale = 0.0;
       viscosity.clear();
       elastic_bulk_modulus_times_timestep.clear();
+      radial_restoring_coefficient.clear();
+      pressure_to_velocity_radial_coefficient.clear();
+      radial_unit_vector.clear();
       newton_factor_wrt_pressure_table.clear();
       strain_rate_table.clear();
       newton_factor_wrt_strain_rate_table.clear();
@@ -190,6 +197,11 @@ namespace aspect
     FEEvaluation<dim,degree_v,degree_v+1,dim,number> u_eval(data, 0);
     FEEvaluation<dim,degree_v-1,degree_v+1,1,number> p_eval(data, /*dofh*/1);
 
+    const EvaluationFlags::EvaluationFlags velocity_evaluation_flags =
+      cell_data->use_mechanical_mass_conservation
+      ? EvaluationFlags::values | EvaluationFlags::gradients
+      : EvaluationFlags::gradients;
+
     const bool use_viscosity_at_quadrature_points
       = (cell_data->viscosity.size(1) == u_eval.n_q_points);
 
@@ -198,7 +210,7 @@ namespace aspect
         VectorizedArray<number> viscosity_x_2 = 2. * cell_data->viscosity(cell,0);
 
         u_eval.reinit(cell);
-        u_eval.gather_evaluate(src.block(0), EvaluationFlags::gradients);
+        u_eval.gather_evaluate(src.block(0), velocity_evaluation_flags);
 
         p_eval.reinit(cell);
         p_eval.gather_evaluate(src.block(1), EvaluationFlags::values);
@@ -290,6 +302,24 @@ namespace aspect
               for (unsigned int d=0; d<dim; ++d)
                 velocity_terms[d][d] -= viscosity_x_2 / 3. * div_u;
 
+            Tensor<1,dim,VectorizedArray<number>> velocity_values;
+            if (cell_data->use_mechanical_mass_conservation)
+              {
+                const Tensor<1,dim,VectorizedArray<number>> radial_unit =
+                  cell_data->radial_unit_vector(cell,q);
+                const VectorizedArray<number> radial_restoring =
+                  cell_data->radial_restoring_coefficient(cell,q);
+                const VectorizedArray<number> radial_velocity =
+                  u_eval.get_value(q) * radial_unit;
+
+                for (unsigned int d=0; d<dim; ++d)
+                  velocity_terms[d][d] -= radial_restoring * radial_velocity;
+
+                velocity_values += cell_data->pressure_scaling
+                                   * cell_data->pressure_to_velocity_radial_coefficient(cell,q)
+                                   * val_p * radial_unit;
+              }
+
             // Add the Newton derivatives if required.
             if (cell_data->enable_newton_derivatives)
               {
@@ -350,10 +380,12 @@ namespace aspect
               }
 
             u_eval.submit_symmetric_gradient(velocity_terms, q);
+            if (cell_data->use_mechanical_mass_conservation)
+              u_eval.submit_value(velocity_values, q);
             p_eval.submit_value(pressure_terms, q);
           }
 
-        u_eval.integrate_scatter(EvaluationFlags::gradients, dst.block(0));
+        u_eval.integrate_scatter(velocity_evaluation_flags, dst.block(0));
         p_eval.integrate_scatter(EvaluationFlags::values, dst.block(1));
       }
   }
@@ -525,6 +557,11 @@ namespace aspect
     FEEvaluation<dim,degree_v,degree_v+1,dim,number> u_eval(data, 0);
     FEEvaluation<dim,degree_v-1,degree_v+1,1,number> p_eval(data, /*dofh*/1);
 
+    const EvaluationFlags::EvaluationFlags velocity_integration_flags =
+      cell_data->use_mechanical_mass_conservation
+      ? EvaluationFlags::values | EvaluationFlags::gradients
+      : EvaluationFlags::gradients;
+
     for (unsigned int cell=cell_range.first; cell<cell_range.second; ++cell)
       {
         u_eval.reinit(cell);
@@ -543,9 +580,15 @@ namespace aspect
             for (unsigned int d=0; d<dim; ++d)
               velocity_terms[d][d] -= cell_data->pressure_scaling * val_p;
             u_eval.submit_symmetric_gradient(velocity_terms, q);
+
+            if (cell_data->use_mechanical_mass_conservation)
+              u_eval.submit_value(cell_data->pressure_scaling
+                                  * cell_data->pressure_to_velocity_radial_coefficient(cell,q)
+                                  * val_p * cell_data->radial_unit_vector(cell,q),
+                                  q);
           }
 
-        u_eval.integrate_scatter(EvaluationFlags::gradients, dst.block(0));
+        u_eval.integrate_scatter(velocity_integration_flags, dst.block(0));
       }
   }
 
@@ -829,6 +872,8 @@ namespace aspect
   {
     const bool use_viscosity_at_quadrature_points
       = (cell_data->viscosity.size(1) == velocity.n_q_points);
+    const bool apply_radial_restoring =
+      cell_data->radial_restoring_coefficient.size(0) != 0;
 
     const unsigned int cell = velocity.get_current_cell_index();
     VectorizedArray<number> viscosity_x_2 = 2.0*cell_data->viscosity(cell, 0);
@@ -851,6 +896,19 @@ namespace aspect
               sym_grad_u[d][d] -= 1.0/3.0*div;
           }
 
+        if (apply_radial_restoring)
+          {
+            const Tensor<1,dim,VectorizedArray<number>> radial_unit =
+              cell_data->radial_unit_vector(cell,q);
+            const VectorizedArray<number> radial_velocity =
+              velocity.get_value(q) * radial_unit;
+            const VectorizedArray<number> radial_restoring =
+              cell_data->radial_restoring_coefficient(cell,q);
+
+            for (unsigned int d=0; d<dim; ++d)
+              sym_grad_u[d][d] -= radial_restoring * radial_velocity;
+          }
+
         velocity.submit_symmetric_gradient(sym_grad_u, q);
       }
   }
@@ -866,7 +924,11 @@ namespace aspect
                    dim,
                    number> &velocity) const
   {
-    velocity.evaluate (EvaluationFlags::gradients);
+    const EvaluationFlags::EvaluationFlags evaluation_flags =
+      cell_data->radial_restoring_coefficient.size(0) != 0
+      ? EvaluationFlags::values | EvaluationFlags::gradients
+      : EvaluationFlags::gradients;
+    velocity.evaluate (evaluation_flags);
     this->inner_cell_operation(velocity);
     velocity.integrate(EvaluationFlags::gradients);
   }
@@ -882,6 +944,10 @@ namespace aspect
                  const std::pair<unsigned int, unsigned int>           &cell_range) const
   {
     FEEvaluation<dim,degree_v,degree_v+1,dim,number> velocity (data,0);
+    const EvaluationFlags::EvaluationFlags evaluation_flags =
+      cell_data->radial_restoring_coefficient.size(0) != 0
+      ? EvaluationFlags::values | EvaluationFlags::gradients
+      : EvaluationFlags::gradients;
 
     for (unsigned int cell=cell_range.first; cell<cell_range.second; ++cell)
       {
@@ -892,7 +958,7 @@ namespace aspect
         //   velocity.evaluate (EvaluationFlags::gradients);
         // (the latter by calling cell_operation()), we use the more efficient
         // combined gather_evaluate() and use inner_cell_operation().
-        velocity.gather_evaluate (src, EvaluationFlags::gradients);
+        velocity.gather_evaluate (src, evaluation_flags);
         this->inner_cell_operation(velocity);
         velocity.integrate_scatter (EvaluationFlags::gradients, dst);
       }
