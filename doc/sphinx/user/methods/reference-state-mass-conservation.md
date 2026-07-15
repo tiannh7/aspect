@@ -11,6 +11,16 @@ The scope is a smooth reference state and linearized mechanical density
 perturbations. PREM, tabulated profiles, sharp internal interfaces, total-field
 gravity, GIA, sea level, tides, and polar-wander changes are excluded.
 
+This original design scope predates the later tabulated-radial and matrix-free
+extensions. The current implementation includes the elastic pressure mass,
+mechanical radial cell couplings, and internal-density-jump face restoring term
+in both the assembled fine-grid operator and the local-smoothing `block GMG`
+fine-grid operator. The local-smoothing multigrid level operators deliberately
+remain simplified preconditioner approximations, and global-coarsening GMG is
+still rejected. This implementation status does not make PREM/VM5a models
+production-ready: a short scientific comparison with CitcomSVE on G2 is still
+required before large-scale runs are accepted.
+
 ## 1. Phase-I density-source architecture
 
 Material models own physical material-property evaluation. In particular,
@@ -103,9 +113,13 @@ pressure right-hand side. At timestep zero, `p'^{-1}=0` and the material
 model's initial elastic interval replaces the zero simulator timestep.
 
 Because this pressure mass term removes the constant-pressure nullspace, this
-formulation requires `Pressure normalization = no`. It initially supports the
-assembled AMG/direct solver paths; matrix-free GMG is rejected until the same
-operator is implemented and compared independently.
+formulation requires `Pressure normalization = no`. For the same reason, the
+pressure right-hand side is not subjected to the compatibility projection used
+by formulations with a constant-pressure nullspace. The assembled AMG/direct
+paths and local-smoothing `block GMG` are supported; global-coarsening GMG
+remains explicitly rejected. Elastic Stokes right-hand-side assembly requests
+viscosity even when only the right-hand side is rebuilt, so the viscoelastic
+elastic-force update uses the same material averaging in AMG and GMG runs.
 
 ## 4. Existing displacement-like quantities
 
@@ -348,9 +362,10 @@ end
 `Enable compressible Maxwell = false`, `Reference density model = none`, and
 `Density source law = legacy` preserve old PRMs. The Lamé option computes
 `K=lambda+2G/3`. Elastic pressure evolution requires elasticity, the
-viscoelastic bulk output, assembled Stokes, and no pressure normalization.
-Mechanical mass conservation additionally requires operator splitting and a
-generic discontinuous field named `ve_radial_displacement`.
+viscoelastic bulk output, no pressure normalization, and either an assembled
+AMG/direct Stokes solver or local-smoothing `block GMG`. Global-coarsening GMG
+is rejected. Mechanical mass conservation additionally requires operator
+splitting and a generic discontinuous field named `ve_radial_displacement`.
 Thermodynamic `isentropic compression` remains a separate existing option.
 
 ## 13. Tests and acceptance criteria
@@ -403,10 +418,12 @@ adjacent items only if separating them would leave an unbuildable public API.
 
 ## 15. Deferred work
 
-Phase III will add a tabulated radial provider, PREM density/gravity/pressure,
-radial elastic moduli, VM5a viscosity, and the Yuan2025 `(l,m)=(2,0)`
-perturbation benchmark. It will also implement restart serialization and AMR
-transfer before those features are enabled with long histories.
+The tabulated radial provider, radial elastic profiles, fine-grid mechanical
+cell couplings, and internal-density-jump face operator are now implemented.
+PREM/VM5a benchmark inputs still require a short G2 comparison against the
+canonical CitcomSVE 3.0 executable, including harmonic leakage, surface/CMB
+displacement, and stress, before this path can be called production-ready.
+Restart serialization and AMR transfer remain deferred for long histories.
 
 Phase T0 remains a separate later prototype. It will solve total potential on
 fixed geometry and compare

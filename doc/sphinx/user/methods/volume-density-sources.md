@@ -83,6 +83,14 @@ anomaly, L2 norm, maximum anomaly, and maximum depth-bin lateral-mean residual.
   compressible Stokes feedback uses the matching volume and internal-interface
   weak terms; it is therefore not limited to surface and CMB tractions.
 
+  These terms are implemented on the fine grid for assembled AMG/direct and
+  local-smoothing `block GMG`: the latter includes the elastic pressure mass,
+  mechanical radial cell couplings, and internal-density-jump face restoring
+  operator. Its multigrid level operators remain simplified preconditioner
+  approximations and may omit the mechanical radial and internal-face terms;
+  this changes preconditioning, not the fine-grid linear system.
+  Global-coarsening GMG remains explicitly rejected.
+
 The geoid internal volume contribution reuses the internal self-gravity
 calculation and consequently uses the same selected source. The
 `material density` option does not implement total-field self-gravity: the
@@ -212,9 +220,15 @@ end
 ```
 
 This configuration also requires operator splitting, no pressure
-normalization, assembled Stokes, spherical geometry, and a generic
-discontinuous `ve_radial_displacement` field. It is disabled unless explicitly
-selected and is distinct from thermodynamic isentropic compression.
+normalization, spherical geometry, a generic discontinuous
+`ve_radial_displacement` field, and either an assembled AMG/direct Stokes solver
+or local-smoothing `block GMG`. Global-coarsening GMG remains rejected. It is
+disabled unless explicitly selected and is distinct from thermodynamic
+isentropic compression. Elastic Stokes right-hand-side assembly requests
+viscosity explicitly so that viscoelastic material averaging is consistent
+between assembled AMG and matrix-free GMG runs. Because elastic pressure
+evolution has a finite pressure mass and no constant-pressure nullspace, its
+pressure right-hand side is not compatibility-projected.
 
 The optional `Tabulated mechanical gravity magnitudes` list contains one
 constant magnitude per interval in `Tabulated reference radii`. When the list
@@ -245,3 +259,8 @@ elastic limit should leave this option disabled.
 - Explicit internal density jumps require spherical, constant-radius,
   jump-aligned mesh faces. General non-radial tracked interfaces and
   composition-defined sheets are not implemented.
+- PREM/VM5a inputs have not yet passed the required short G2 scientific
+  comparison with canonical CitcomSVE 3.0. The available local-smoothing GMG
+  implementation must not be described as production-ready until that
+  comparison checks the target harmonic, leakage, surface/CMB displacement,
+  and stress.

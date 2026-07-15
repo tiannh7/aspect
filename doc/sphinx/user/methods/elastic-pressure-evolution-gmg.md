@@ -11,9 +11,11 @@ and
 It does not restore the retired `Allow experimental Citcom-style GMG` bypass
 or any retired elastic-bulk formulation API.
 
-The first supported backend is local-smoothing GMG. Global-coarsening GMG
-remains explicitly rejected until its separate coefficient-transfer path has
-been implemented and tested.
+Local-smoothing `block GMG` is implemented. Its fine-grid operator contains the
+elastic pressure mass, mechanical radial cell couplings, and
+internal-density-jump face restoring term. Global-coarsening GMG remains
+explicitly rejected until its separate coefficient-transfer path has been
+implemented and tested.
 
 ## Fine-grid operator
 
@@ -35,9 +37,9 @@ The existing assembled right-hand-side path already supplies
 -\int_\Omega \frac{s}{K\Delta t_m}\,q p^\mathrm{old}\,dV.
 ```
 
-Matrix-free assembly sets `rebuild_stokes_matrix = false`, so the right-hand
-side is retained while the pressure mass matrix is currently omitted. The
-fine-grid `StokesOperator` must therefore apply the pressure mass term directly.
+Matrix-free assembly sets `rebuild_stokes_matrix = false`, so the assembled
+right-hand side is retained while the pressure mass matrix is applied directly
+by the fine-grid `StokesOperator`.
 
 When `Density source law = mechanical mass conservation`, the fine-grid
 operator additionally applies
@@ -54,12 +56,17 @@ nonsymmetric velocity-block coupling. The assembled path remains responsible
 for the committed radial-displacement and full-domain-potential right-hand-side
 terms. The matrix-free path must not assemble them a second time.
 
-Active cell data therefore needs default-off selectors and quadrature data for
+Active cell data therefore uses default-off selectors and quadrature data for
 `K * Delta t_m`. Mechanical mass conservation additionally needs
 `rho_ref * g * Delta t_m` and `e_r`. Values must come from
 `DensitySourceManager` and the material model's `ElasticOutputs`, so timestep
 zero uses the same initial elastic interval and the same reference-density
 ownership as the assembled operator.
+
+Elastic Stokes right-hand-side assembly explicitly requests viscosity. This is
+required even when the matrix is not rebuilt because the viscoelastic
+elastic-force update depends on the selected material averaging; requesting it
+keeps assembled AMG and matrix-free GMG right-hand sides consistent.
 
 ## Block preconditioner
 
@@ -73,16 +80,17 @@ M_S \simeq \int_\Omega s^2
 The existing $s^2/\eta$ term is unchanged for all other formulations. The
 additional compliance term is enabled only for elastic pressure evolution.
 
-For mechanical mass conservation, the active `BTBlockOperator` must include
-the pressure-to-velocity radial coupling. The active `ABlockOperator` used by
-the expensive preconditioner must include the nonsymmetric radial velocity
-coupling. `stokes_A_block_is_symmetric()` must consequently return false for
-this density-source law so that an inner nonsymmetric solver is selected.
+For mechanical mass conservation, the active `BTBlockOperator` includes the
+pressure-to-velocity radial coupling. The active `ABlockOperator` used by the
+expensive preconditioner includes the nonsymmetric radial velocity coupling.
+`stokes_A_block_is_symmetric()` consequently returns false for this
+density-source law so that an inner nonsymmetric solver is selected.
 
 ## Local-smoothing levels
 
-The fine-grid operator is exact. Local-smoothing multigrid levels are allowed to
-remain preconditioner approximations:
+The fine-grid pressure, mechanical cell, and internal-face terms are
+implemented. Local-smoothing multigrid levels deliberately remain simplified
+preconditioner approximations:
 
 - use a positive representative `K * Delta t_m`, initially the geometric mean
   of the active minimum and maximum, in the pressure mass operators;
@@ -98,23 +106,23 @@ of the first implementation.
 ## Boundary-value and residual consistency
 
 `correct_stokes_rhs()` manually applies the negative fine-grid operator to the
-inhomogeneous constrained velocity. It must include the mechanical radial
-velocity term, and the internal-interface face term when present. The elastic
+inhomogeneous constrained velocity. It includes the mechanical radial velocity
+term and the internal-interface face term when present. The elastic
 pressure mass and pressure-to-velocity radial terms do not contribute when the
-constrained pressure is zero. An implementation may instead reject nonzero
-prescribed velocity data until this correction is present, but it must not run
-silently with an incomplete correction.
+constrained pressure is zero.
 
-The matrix-free solver's initial tolerance estimate must also use the computed
-pressure-row residual. Treating it as `norm(rhs_p)` assumes a zero pressure
+The matrix-free solver's initial tolerance estimate uses the computed
+pressure-row residual. Treating it as `norm(rhs_p)` would assume a zero pressure
 block and is not valid once elastic pressure evolution adds a finite pressure
-mass term.
+mass term. The finite pressure mass also removes the constant-pressure
+nullspace, so the elastic-pressure pressure right-hand side is deliberately not
+subjected to the compatibility projection used by singular pressure systems.
 
 ## Internal density jumps
 
 Piecewise-constant PREM/VM5a reference-density tables derive internal density
 jumps even when the explicit jump lists are empty. For each selected internal
-face, the fine-grid operator must apply
+face, the fine-grid operator applies
 
 ```{math}
 +\int_\Gamma \Delta\rho\,g\Delta t_m
@@ -122,20 +130,14 @@ face, the fine-grid operator must apply
 ```
 
 The assembled path already supplies the committed-displacement and potential
-right-hand-side terms on these faces. The matrix-free implementation should use
-the interior-face loop and active-face coefficient tables; multigrid levels may
-omit this term initially.
-
-Until this fine-grid face operator exists, local-smoothing GMG must continue to
-reject mechanical-mass-conservation models for which
-`DensitySourceManager::has_internal_density_jumps()` is true. Removing the
-general GMG guard without this narrower guard would silently omit PREM/VM5a
-physics.
+right-hand-side terms on these faces. The matrix-free implementation uses the
+interior-face loop and active-face coefficient tables. The fine-grid face
+operator is implemented; multigrid levels still omit this term as a documented
+preconditioner approximation.
 
 ## Compatibility and default behavior
 
-No new user-facing experimental switch is needed. After the corresponding
-operators are implemented, the consistency checks may allow only
+No new user-facing experimental switch is needed. The consistency checks allow
 
 ```text
 Mass conservation = elastic pressure evolution
@@ -147,26 +149,17 @@ Global coarsening remains rejected with an explicit message. Existing defaults,
 assembled AMG/direct behavior, all other mass-conservation formulations, and
 elasticity-disabled models remain unchanged.
 
-## Implementation and test gates
+## Implementation status and scientific gates
 
-Keep the implementation in small patches:
+The elastic pressure mass and Schur approximation, mechanical radial cell
+couplings, nonsymmetric A-block selection, pressure residual, boundary-value
+correction, and internal-density-jump fine-grid face operator are implemented.
+Focused assembled-AMG/local-GMG regressions cover both a finite bulk-modulus
+profile and a piecewise-constant internal density jump.
 
-1. Add the elastic pressure mass term, Schur mass approximation, and a
-   non-mechanical local-GMG regression.
-2. Add the mechanical radial cell couplings, nonsymmetric A-block selection,
-   pressure-row residual, and inhomogeneous-boundary correction.
-3. Add the internal-density-jump fine-grid face operator and its focused test.
-4. Enable the production PREM/VM5a local-GMG inputs only after the preceding
-   tests pass.
+These implementation regressions are necessary but are not sufficient to call
+PREM/VM5a production-ready. The remaining scientific acceptance gates are:
 
-Before removing each guard, require:
-
-- unchanged default/no-op regression output;
-- a small direct or assembled-AMG versus local-GMG comparison at timestep zero
-  and at a nonzero timestep, including pressure and radial displacement;
-- a nonzero mechanical radial-coupling test;
-- a nonzero piecewise-constant internal-jump face test;
-- an explicit failure test for global-coarsening GMG;
 - same-grid AMG/GMG Love numbers and harmonic leakage agreeing within
   0.5 percent;
 - the accepted uniform-compressible CitcomSVE trajectory remaining within
@@ -175,5 +168,6 @@ Before removing each guard, require:
   non-target leakage, surface/CMB displacement, and stress, before any
   large-scale run is called ready.
 
-Run `make indent`, compile the affected target, and execute only the focused
-tests before the short scientific comparisons.
+The PREM/VM5a comparison must be run on G2 against the canonical CitcomSVE 3.0
+executable. Until it passes, this backend is implemented and regression-tested
+but not production-ready for those models.
