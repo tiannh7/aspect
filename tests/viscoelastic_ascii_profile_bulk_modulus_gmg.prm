@@ -1,0 +1,12 @@
+# Exercise matrix-free block GMG elastic-pressure evolution on the same small
+# two-level mesh as the assembled diagnostic.
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/viscoelastic_ascii_profile_bulk_modulus_amg.prm
+
+subsection Solver parameters
+  subsection Stokes solver parameters
+    set Stokes GMG type    = local smoothing
+    set Stokes solver type = block GMG
+  end
+end

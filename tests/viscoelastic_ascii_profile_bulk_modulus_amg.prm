@@ -1,0 +1,44 @@
+# Provide an assembled block-AMG diagnostic for the matrix-free block-GMG
+# elastic-pressure-evolution test. This wrapper keeps the active mesh as small
+# as the underlying four-cell test, but constructs two mesh levels so the GMG
+# variant exercises a genuine multigrid hierarchy.
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/viscoelastic_ascii_profile_bulk_modulus.prm
+
+set End time                    = 1000
+set Nonlinear solver tolerance = 1e-10
+
+subsection Geometry model
+  subsection Box
+    set X repetitions = 1
+    set Y repetitions = 1
+  end
+end
+
+subsection Mesh refinement
+  set Initial adaptive refinement = 0
+  set Initial global refinement   = 1
+end
+
+subsection Material model
+  set Material averaging = harmonic average only viscosity
+end
+
+subsection Solver parameters
+  subsection Stokes solver parameters
+    set Linear solver tolerance = 1e-12
+    set Stokes solver type      = block AMG
+  end
+end
+
+subsection Postprocess
+  set List of postprocessors = basic statistics, composition statistics, point values, \
+                               pressure statistics, velocity statistics
+
+  subsection Point values
+    set Evaluation points = 0, 0; 50000, 0; 100000, 0; \
+                            0, 50000; 50000, 50000; 100000, 50000; \
+                            0, 100000; 50000, 100000; 100000, 100000
+  end
+end

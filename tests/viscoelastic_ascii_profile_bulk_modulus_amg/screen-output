@@ -1,0 +1,84 @@
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+
+WARNING: Parameter <Material model/Viscoelastic/Fixed elastic time step> is deprecated. Please use <Material model/Viscoelastic/Initial elastic time step> instead.
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+Number of active cells: 4 (on 2 levels)
+Number of degrees of freedom: 284 (50+9+9+36+36+36+36+36+36)
+
+*** Timestep 0:  t=0 years, dt=0 years
+   Solving temperature system... 0 iterations.
+   Skipping ve_stress_xx composition solve because RHS is zero.
+   Skipping ve_stress_yy composition solve because RHS is zero.
+   Skipping ve_stress_xy composition solve because RHS is zero.
+   Skipping ve_stress_xx_old composition solve because RHS is zero.
+   Skipping ve_stress_yy_old composition solve because RHS is zero.
+   Skipping ve_stress_xy_old composition solve because RHS is zero.
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... 18+0 iterations.
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 1: 1.000000e+00
+
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... 0+0 iterations.
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 2: 1.479478e-13
+
+
+   Postprocessing:
+     Compositions (min/max/mass):       [0 ("ve_stress_xx")]    : 0 / 0 / 0
+                                        [1 ("ve_stress_yy")]    : 0 / 0 / 0
+                                        [2 ("ve_stress_xy")]    : 0 / 0 / 0
+                                        [3 ("ve_stress_xx_old")]: 0 / 0 / 0
+                                        [4 ("ve_stress_yy_old")]: 0 / 0 / 0
+                                        [5 ("ve_stress_xy_old")]: 0 / 0 / 0
+                                        
+     Writing point values:              output-viscoelastic_ascii_profile_bulk_modulus_amg/point_values.txt
+     Pressure min/avg/max:              -2.48e+06 Pa, -8.188e+04 Pa, 1.942e+06 Pa
+     Velocity statistics (min/max/rms): x    : 0 / 0.03154 / 0.01821 m/year
+                                        y    : 0 / 0.03154 / 0.01836 m/year
+                                        total: 0 / 0.0446 / 0.02586 m/year
+                                        
+
+*** Timestep 1:  t=1000 years, dt=1000 years
+   Solving composition reactions... in 1 substep(s).
+   Solving temperature system... 0 iterations.
+   Solving ve_stress_xx system ... 1 iterations.
+   Solving ve_stress_yy system ... 1 iterations.
+   Solving ve_stress_xy system ... 1 iterations.
+   Solving ve_stress_xx_old system ... 1 iterations.
+   Solving ve_stress_yy_old system ... 1 iterations.
+   Solving ve_stress_xy_old system ... 1 iterations.
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... 5+0 iterations.
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 1: 9.215742e-03
+
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... 0+0 iterations.
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 2: 4.697601e-13
+
+
+   Postprocessing:
+     Compositions (min/max/mass):       [0 ("ve_stress_xx")]    : 7.247e+06 / 1.109e+07 / 9.073e+16
+                                        [1 ("ve_stress_yy")]    : -1.144e+07 / -6.994e+06 / -9.029e+16
+                                        [2 ("ve_stress_xy")]    : -4.86e-05 / 3.915e-05 / 2395
+                                        [3 ("ve_stress_xx_old")]: 7.247e+06 / 1.109e+07 / 9.073e+16
+                                        [4 ("ve_stress_yy_old")]: -1.144e+07 / -6.994e+06 / -9.029e+16
+                                        [5 ("ve_stress_xy_old")]: -4.857e-05 / 3.917e-05 / 2538
+                                        
+     Writing point values:              output-viscoelastic_ascii_profile_bulk_modulus_amg/point_values.txt
+     Pressure min/avg/max:              -4.537e+06 Pa, -1.398e+05 Pa, 3.014e+06 Pa
+     Velocity statistics (min/max/rms): x    : 0 / 0.03154 / 0.01821 m/year
+                                        y    : 0 / 0.03154 / 0.01833 m/year
+                                        total: 0 / 0.0446 / 0.02584 m/year
+                                        
+
+Termination requested by criterion: end time
+
+
++----------------------------------------------+------------+------------+
++----------------------------------+-----------+------------+------------+
++----------------------------------+-----------+------------+------------+
+
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
