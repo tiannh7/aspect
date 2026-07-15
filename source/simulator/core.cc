@@ -558,12 +558,17 @@ namespace aspect
     // We need to do the RHS compatibility modification, if the model is
     // compressible or compatible (in the case of melt transport), and
     // there is no open boundary to balance the pressure.
-    do_pressure_rhs_compatibility_modification = ((material_model->is_compressible() && !parameters.include_melt_transport)
-                                                  ||
-                                                  (parameters.include_melt_transport && !material_model->is_compressible())
-                                                  || parameters.enable_prescribed_dilation)
-                                                 &&
-                                                 (open_velocity_boundary_indicators.size() == 0);
+    // Elastic pressure evolution has a finite pressure mass term, so its
+    // pressure equation is solvable without projecting the right hand side.
+    const bool pressure_has_finite_mass_term =
+      parameters.formulation_mass_conservation ==
+      Parameters<dim>::Formulation::MassConservation::elastic_pressure_evolution;
+    do_pressure_rhs_compatibility_modification =
+      !pressure_has_finite_mass_term
+      && ((material_model->is_compressible() && !parameters.include_melt_transport)
+          || (parameters.include_melt_transport && !material_model->is_compressible())
+          || parameters.enable_prescribed_dilation)
+      && (open_velocity_boundary_indicators.size() == 0);
 
     // make sure that we don't have to fill every column of the statistics
     // object in each time step.
