@@ -405,8 +405,9 @@ namespace aspect
         std::vector<double> cmb_potential_sin_coeffs;
 
         // Phi/g_surface coefficients on radial support points. These vectors
-        // contain the self-gravity mass potential only; tidal, rotational,
-        // and reference-frame potentials remain separate.
+        // contain the self-gravity mass potential. The prescribed tidal
+        // potential is evaluated analytically by full_domain_potential();
+        // rotational and reference-frame potentials remain separate.
         std::vector<double> full_domain_potential_radii;
         std::vector<std::vector<double>> full_domain_potential_cos_coeffs;
         std::vector<std::vector<double>> full_domain_potential_sin_coeffs;

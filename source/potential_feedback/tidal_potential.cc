@@ -153,24 +153,7 @@ namespace aspect
         return;
 
       const unsigned int i_applied = sh_transform.index(degree, order);
-      double coefficient =
-        (potential_quantity == "potential height"
-         ? potential_height_amplitude
-         : potential_amplitude / reference_gravity);
-
-      if (time_dependence == "sinusoidal")
-        coefficient *= std::cos(angular_frequency * time + phase);
-
-      if (normalization == "unnormalized legendre")
-        {
-          const std::pair<double,double> pole_value =
-            Utilities::real_spherical_harmonic(degree, order, 0.0, 0.0);
-          AssertThrow(std::abs(pole_value.first) > 0.0,
-                      ExcMessage("Cannot convert the requested unnormalized "
-                                 "Legendre tidal potential to the internal "
-                                 "spherical-harmonic normalization."));
-          coefficient /= pole_value.first;
-        }
+      const double coefficient = surface_potential_height_coefficient(time);
 
       const double cmb_coefficient =
         coefficient * std::pow(radius_ratio, static_cast<int>(degree));
@@ -197,6 +180,73 @@ namespace aspect
           cmb_potential_sin_coeffs[i] +=
             tidal_cmb_potential_sin_coeffs[i];
         }
+    }
+
+
+
+    bool
+    TidalPotential::is_enabled() const
+    {
+      return enabled;
+    }
+
+
+
+    double
+    TidalPotential::full_domain_potential_height(const Point<3> &position,
+                                                 const double outer_radius,
+                                                 const double time) const
+    {
+      if (!enabled)
+        return 0.0;
+
+      AssertThrow(outer_radius > 0.0,
+                  ExcMessage("The tidal-potential outer radius must be positive."));
+
+      const double radius = position.norm();
+      AssertThrow(radius > 0.0,
+                  ExcMessage("The tidal potential is undefined at radius zero."));
+
+      const std::array<double,3> spherical_coordinates =
+        Utilities::Coordinates::cartesian_to_spherical_coordinates(position);
+      const std::pair<double,double> harmonic =
+        Utilities::real_spherical_harmonic(degree,
+                                           order,
+                                           spherical_coordinates[2],
+                                           spherical_coordinates[1]);
+      const double selected_harmonic =
+        (coefficient_type == "cosine" ? harmonic.first : harmonic.second);
+
+      return surface_potential_height_coefficient(time)
+             * std::pow(radius / outer_radius, static_cast<int>(degree))
+             * selected_harmonic;
+    }
+
+
+
+    double
+    TidalPotential::surface_potential_height_coefficient(const double time) const
+    {
+      double coefficient =
+        (potential_quantity == "potential height"
+         ? potential_height_amplitude
+         : potential_amplitude / reference_gravity);
+
+      if (time_dependence == "sinusoidal")
+        coefficient *= std::cos(angular_frequency * time + phase);
+
+      if (normalization == "unnormalized legendre")
+        {
+          const std::pair<double,double> pole_value =
+            Utilities::real_spherical_harmonic(degree, order, 0.0, 0.0);
+          AssertThrow(std::abs(pole_value.first) > 0.0,
+                      ExcMessage("Cannot convert the requested unnormalized "
+                                 "Legendre tidal potential to the internal "
+                                 "spherical-harmonic normalization."));
+          coefficient /= pole_value.first;
+        }
+
+      return coefficient;
     }
   }
 }

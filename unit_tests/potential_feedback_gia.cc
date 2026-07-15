@@ -23,6 +23,7 @@
 #include <aspect/potential_feedback/glacial_isostatic_adjustment.h>
 #include <aspect/potential_feedback/interface.h>
 #include <aspect/potential_feedback/surface_history.h>
+#include <aspect/potential_feedback/tidal_potential.h>
 
 
 TEST_CASE("Potential feedback GIA is disabled by default",
@@ -61,6 +62,38 @@ TEST_CASE("Potential feedback GIA requires self gravity",
   aspect::PotentialFeedback::Settings settings;
   REQUIRE_THROWS_WITH(settings.parse_parameters(prm),
                       Contains("requires `self gravity'"));
+}
+
+
+
+TEST_CASE("Tidal potential uses external solid-harmonic radial scaling",
+          "[potential_feedback][tidal]")
+{
+  aspect::PotentialFeedback::Settings settings;
+  settings.tidal_model_name = "spherical harmonic potential";
+  settings.tidal_harmonic_degree = 2;
+  settings.tidal_harmonic_order = 1;
+  settings.tidal_coefficient_type = "sine";
+  settings.tidal_potential_height_amplitude = 4.0;
+
+  aspect::PotentialFeedback::TidalPotential tidal_potential;
+  tidal_potential.configure_from_settings(settings, 1, 4, 3);
+
+  const double outer_radius = 10.0;
+  const double radius = 5.0;
+  const double theta = dealii::numbers::PI / 4.0;
+  const double phi = dealii::numbers::PI / 2.0;
+  const dealii::Point<3> position(radius * std::sin(theta) * std::cos(phi),
+                                  radius * std::sin(theta) * std::sin(phi),
+                                  radius * std::cos(theta));
+  const auto harmonic =
+    aspect::Utilities::real_spherical_harmonic(2, 1, theta, phi);
+
+  REQUIRE(tidal_potential.is_enabled());
+  REQUIRE(tidal_potential.full_domain_potential_height(position,
+                                                       outer_radius,
+                                                       0.0)
+          == Approx(4.0 * 0.25 * harmonic.second));
 }
 
 

@@ -64,7 +64,21 @@ namespace aspect
           std::vector<double> &tidal_cmb_potential_cos_coeffs,
           std::vector<double> &tidal_cmb_potential_sin_coeffs) const;
 
+        /** Return whether an external tidal potential is configured. */
+        bool is_enabled() const;
+
+        /**
+         * Evaluate Phi/g at an interior point. The prescribed surface
+         * coefficient is continued inward as the external solid harmonic
+         * (r/R)^l Y_lm.
+         */
+        double full_domain_potential_height(const Point<3> &position,
+                                            const double outer_radius,
+                                            const double time) const;
+
       private:
+        double surface_potential_height_coefficient(const double time) const;
+
         bool enabled = false;
         unsigned int degree = 2;
         unsigned int order = 0;

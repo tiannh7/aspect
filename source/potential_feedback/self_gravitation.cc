@@ -1434,7 +1434,23 @@ namespace aspect
                   + sine_coefficient * harmonics.second;
               }
 
-          return full_domain_reference_gravity * potential_height;
+          double potential = full_domain_reference_gravity * potential_height;
+          if (tidal_potential.is_enabled())
+            {
+              const GeometryModel::SphericalShell<dim> &geometry =
+                Plugins::get_plugin_as_type<const GeometryModel::SphericalShell<dim>>(
+                  this->get_geometry_model());
+              const double surface_gravity =
+                this->get_gravity_model()
+                .gravity_vector(geometry.representative_point(0.0)).norm();
+              potential += surface_gravity
+                           * tidal_potential.full_domain_potential_height(
+                             position,
+                             geometry.outer_radius(),
+                             this->get_time());
+            }
+
+          return potential;
         }
     }
 

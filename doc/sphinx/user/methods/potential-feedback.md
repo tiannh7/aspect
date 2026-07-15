@@ -55,8 +55,10 @@ CMB potential tractions, the Stokes weak form contains
 Together these terms reproduce the full-domain compressible potential forcing
 used by CitcomSVE. The cached mass potential contains the external surface
 load, surface and CMB deformation, the mechanical volume-density perturbation,
-and internal density sheets. Tidal, rotational, and reference-frame potentials
-remain separate and are not included in this volume term.
+and internal density sheets. An externally prescribed tidal potential is added
+analytically with its solid-harmonic radial dependence. Rotational and
+reference-frame potentials remain separate and are not included in this volume
+term.
 
 `Potential feedback/Self gravity/Full domain volume source discretization`
 controls how the mechanical volume-density perturbation enters this cache.
