@@ -1635,6 +1635,8 @@ namespace aspect
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
                                    "update multilevel mesh deformation");
       update_multilevel_deformation();
+      trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                   "completed multilevel mesh deformation update");
     }
 
 
@@ -1798,6 +1800,8 @@ namespace aspect
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
                                    "store ALE mesh velocity");
       mesh_velocity = distributed_mesh_velocity;
+      trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                   "completed ALE mesh velocity interpolation");
     }
 
 
