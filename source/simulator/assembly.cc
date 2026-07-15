@@ -651,7 +651,10 @@ namespace aspect
 
     // initialize the material model data on the cell
     const bool need_viscosity =
-      assemble_newton_stokes_system || this->parameters.enable_prescribed_dilation || rebuild_stokes_matrix;
+      assemble_newton_stokes_system
+      || this->parameters.enable_elasticity
+      || this->parameters.enable_prescribed_dilation
+      || rebuild_stokes_matrix;
 
     scratch.material_model_inputs.reinit  (scratch.finite_element_values,
                                            cell,
