@@ -22,6 +22,7 @@
 #define _aspect_potential_feedback_interface_h
 
 #include <aspect/global.h>
+#include <aspect/potential_feedback/surface_history.h>
 
 #include <deal.II/base/parameter_handler.h>
 
@@ -55,6 +56,57 @@ namespace aspect
       geoid_cancellation,
       center_of_mass,
       citcomsve_center_of_mass
+    };
+
+
+
+    /** Sea-level equation used by glacial isostatic adjustment. */
+    enum class SeaLevelEquation
+    {
+      zhong_2022,
+      yuan_2025
+    };
+
+
+
+    /** Method used to determine the current ocean function. */
+    enum class OceanFunctionModel
+    {
+      prescribed,
+      moving_shoreline
+    };
+
+
+
+    /** Reference state used for the grounded ice load. */
+    enum class IceLoadReference
+    {
+      first_history_file,
+      zero_thickness
+    };
+
+
+
+    /** Parsed settings for the coupled GIA surface load. */
+    struct GlacialIsostaticAdjustmentSettings
+    {
+      SeaLevelEquation sea_level_equation = SeaLevelEquation::zhong_2022;
+      OceanFunctionModel ocean_function_model =
+        OceanFunctionModel::prescribed;
+      IceLoadReference ice_load_reference =
+        IceLoadReference::first_history_file;
+
+      SurfaceHistoryConfiguration ice_history;
+      SurfaceHistoryConfiguration ocean_history;
+      std::string initial_topography_directory;
+      std::string initial_topography_file_name;
+
+      double density_ice = 917.4;
+      double density_water = 1000.0;
+      double ocean_function_threshold = 0.5;
+      unsigned int maximum_degree = 32;
+      unsigned int maximum_shoreline_iterations = 20;
+      double shoreline_relative_tolerance = 1e-8;
     };
 
 
@@ -125,6 +177,8 @@ namespace aspect
       double tidal_phase = 0.0;
 
       double rotational_fluid_love_number = 1.0;
+
+      GlacialIsostaticAdjustmentSettings gia;
 
       double relative_tolerance = 0.0;
       unsigned int maximum_iterations = 0;
