@@ -58,6 +58,23 @@ namespace aspect
                      const std::string &schedule_format,
                      const int first_data_file_number,
                      const bool times_are_years);
+
+      /**
+       * Structured data parsed from a canonical CitcomSVE regular-grid file.
+       * Coordinates are longitude and colatitude in radians. The returned
+       * grid includes periodic longitude ghosts and constant pole rows so it
+       * covers the complete spherical surface.
+       */
+      struct CitcomSVERegularGrid
+      {
+        std::vector<std::vector<double>> coordinate_values;
+        std::vector<Table<2,double>> data_tables;
+      };
+
+      /** Parse the canonical `nlon nlat' CitcomSVE surface-grid format. */
+      CitcomSVERegularGrid
+      parse_citcomsve_regular_grid(const std::string &contents,
+                                   const double scale_factor);
     }
 
 
@@ -71,6 +88,7 @@ namespace aspect
       std::string data_file_name;
       std::string schedule_file_name;
       std::string schedule_format = "elapsed time and file number";
+      std::string data_format = "aspect structured data";
       int first_data_file_number = 0;
       bool interpolate = true;
       double scale_factor = 1.0;

@@ -25,6 +25,7 @@
 #include <deal.II/base/patterns.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <sstream>
 
@@ -129,6 +130,164 @@ namespace aspect
                                  "strictly increasing."));
 
         return stages;
+      }
+
+
+
+      CitcomSVERegularGrid
+      parse_citcomsve_regular_grid(const std::string &contents,
+                                   const double scale_factor)
+      {
+        std::istringstream input(contents);
+        unsigned int n_longitudes = 0;
+        unsigned int n_latitudes = 0;
+        AssertThrow(input >> n_longitudes >> n_latitudes,
+                    ExcMessage("The CitcomSVE regular-grid file must begin "
+                               "with the longitude and latitude dimensions."));
+        AssertThrow(n_longitudes >= 2 && n_latitudes >= 2,
+                    ExcMessage("A CitcomSVE regular grid requires at least "
+                               "two points in each coordinate direction."));
+
+        std::vector<double> longitudes(n_longitudes);
+        std::vector<double> colatitudes(n_latitudes);
+        std::vector<double> values(n_longitudes * n_latitudes);
+
+        for (unsigned int latitude_index = 0;
+             latitude_index < n_latitudes;
+             ++latitude_index)
+          for (unsigned int longitude_index = 0;
+               longitude_index < n_longitudes;
+               ++longitude_index)
+            {
+              double longitude_degrees = 0.0;
+              double latitude_degrees = 0.0;
+              double value = 0.0;
+              AssertThrow(input >> longitude_degrees
+                          >> latitude_degrees
+                          >> value,
+                          ExcMessage("The CitcomSVE regular-grid file ended "
+                                     "before all declared values were read."));
+
+              const double longitude =
+                longitude_degrees * numbers::PI / 180.0;
+              const double colatitude =
+                (90.0 - latitude_degrees) * numbers::PI / 180.0;
+
+              if (latitude_index == 0)
+                longitudes[longitude_index] = longitude;
+              else
+                AssertThrow(std::abs(longitude
+                                     - longitudes[longitude_index])
+                            <= 1e-12,
+                            ExcMessage("CitcomSVE regular-grid longitudes "
+                                       "must repeat identically on every "
+                                       "latitude row."));
+
+              if (longitude_index == 0)
+                colatitudes[latitude_index] = colatitude;
+              else
+                AssertThrow(std::abs(colatitude
+                                     - colatitudes[latitude_index])
+                            <= 1e-12,
+                            ExcMessage("CitcomSVE regular-grid latitudes "
+                                       "must remain constant within a row."));
+
+              values[longitude_index
+                     + n_longitudes * latitude_index] = value * scale_factor;
+            }
+
+        std::string trailing_entry;
+        AssertThrow(!(input >> trailing_entry),
+                    ExcMessage("The CitcomSVE regular-grid file contains "
+                               "more values than its declared dimensions."));
+
+        const double longitude_spacing = longitudes[1] - longitudes[0];
+        const double colatitude_spacing = colatitudes[1] - colatitudes[0];
+        AssertThrow(longitude_spacing > 0.0 && colatitude_spacing > 0.0,
+                    ExcMessage("CitcomSVE regular-grid coordinates must "
+                               "increase in longitude and colatitude."));
+
+        for (unsigned int i = 1; i < n_longitudes; ++i)
+          AssertThrow(std::abs((longitudes[i] - longitudes[i-1])
+                               - longitude_spacing) <= 1e-12,
+                      ExcMessage("CitcomSVE regular-grid longitudes must be "
+                                 "uniformly spaced."));
+        for (unsigned int i = 1; i < n_latitudes; ++i)
+          AssertThrow(std::abs((colatitudes[i] - colatitudes[i-1])
+                               - colatitude_spacing) <= 1e-12,
+                      ExcMessage("CitcomSVE regular-grid latitudes must be "
+                                 "uniformly spaced."));
+
+        AssertThrow(std::abs(longitude_spacing * n_longitudes
+                             - 2.0 * numbers::PI) <= 1e-10
+                    && std::abs(colatitude_spacing * n_latitudes
+                                - numbers::PI) <= 1e-10,
+                    ExcMessage("The CitcomSVE regular grid must cover the "
+                               "complete sphere."));
+
+        CitcomSVERegularGrid result;
+        result.coordinate_values.resize(2);
+        result.coordinate_values[0].resize(n_longitudes + 2);
+        result.coordinate_values[1].resize(n_latitudes + 2);
+
+        result.coordinate_values[0][0] =
+          longitudes.front() - longitude_spacing;
+        for (unsigned int i = 0; i < n_longitudes; ++i)
+          result.coordinate_values[0][i+1] = longitudes[i];
+        result.coordinate_values[0][n_longitudes+1] =
+          longitudes.back() + longitude_spacing;
+
+        result.coordinate_values[1][0] = 0.0;
+        for (unsigned int i = 0; i < n_latitudes; ++i)
+          result.coordinate_values[1][i+1] = colatitudes[i];
+        result.coordinate_values[1][n_latitudes+1] = numbers::PI;
+
+        Table<2,double> data_table;
+        data_table.TableBase<2,double>::reinit(
+          TableIndices<2>(n_longitudes + 2, n_latitudes + 2));
+
+        for (unsigned int latitude_index = 0;
+             latitude_index < n_latitudes;
+             ++latitude_index)
+          {
+            for (unsigned int longitude_index = 0;
+                 longitude_index < n_longitudes;
+                 ++longitude_index)
+              data_table[longitude_index+1][latitude_index+1] =
+                values[longitude_index
+                       + n_longitudes * latitude_index];
+
+            data_table[0][latitude_index+1] =
+              values[n_longitudes-1
+                     + n_longitudes * latitude_index];
+            data_table[n_longitudes+1][latitude_index+1] =
+              values[n_longitudes * latitude_index];
+          }
+
+        double north_pole_value = 0.0;
+        double south_pole_value = 0.0;
+        for (unsigned int longitude_index = 0;
+             longitude_index < n_longitudes;
+             ++longitude_index)
+          {
+            north_pole_value += values[longitude_index];
+            south_pole_value +=
+              values[longitude_index
+                     + n_longitudes * (n_latitudes-1)];
+          }
+        north_pole_value /= n_longitudes;
+        south_pole_value /= n_longitudes;
+
+        for (unsigned int longitude_index = 0;
+             longitude_index < n_longitudes + 2;
+             ++longitude_index)
+          {
+            data_table[longitude_index][0] = north_pole_value;
+            data_table[longitude_index][n_latitudes+1] = south_pole_value;
+          }
+
+        result.data_tables.push_back(std::move(data_table));
+        return result;
       }
     }
 
@@ -287,11 +446,45 @@ namespace aspect
                   ExcMessage("Surface-history data file <" + filename
                              + "> was not found."));
 
-      auto lookup =
-        std::make_unique<Utilities::StructuredDataLookup<dim-1>>(
-          1, configuration.scale_factor);
-      lookup->load_file(filename, this->get_mpi_communicator());
-      return lookup;
+      if (configuration.data_format == "aspect structured data")
+        {
+          auto lookup =
+            std::make_unique<Utilities::StructuredDataLookup<dim-1>>(
+              1, configuration.scale_factor);
+          lookup->load_file(filename, this->get_mpi_communicator());
+          return lookup;
+        }
+
+      AssertThrow(configuration.data_format == "citcomsve regular grid",
+                  ExcInternalError());
+      AssertThrow(dim == 3,
+                  ExcMessage("CitcomSVE regular-grid surface histories are "
+                             "implemented only in 3D."));
+
+      if constexpr (dim == 3)
+        {
+          const unsigned int root_process = 0;
+          SurfaceHistoryUtilities::CitcomSVERegularGrid grid;
+          if (Utilities::MPI::this_mpi_process(
+                this->get_mpi_communicator()) == root_process)
+            grid = SurfaceHistoryUtilities::parse_citcomsve_regular_grid(
+                     Utilities::read_and_distribute_file_content(
+                       filename, MPI_COMM_SELF),
+                     configuration.scale_factor);
+          else
+            grid.data_tables.resize(1);
+
+          auto lookup =
+            std::make_unique<Utilities::StructuredDataLookup<dim-1>>(1, 1.0);
+          lookup->reinit({"surface value"},
+                         std::move(grid.coordinate_values),
+                         std::move(grid.data_tables),
+                         this->get_mpi_communicator(),
+                         root_process);
+          return lookup;
+        }
+
+      return nullptr;
     }
 
 
@@ -417,6 +610,13 @@ namespace aspect
                           Patterns::Anything(),
                           "File name or printf-style integer pattern for the "
                           "structured surface fields.");
+        prm.declare_entry("Data format", "aspect structured data",
+                          Patterns::Selection("aspect structured data|citcomsve regular grid"),
+                          "Input format. `aspect structured data' uses the "
+                          "standard ASPECT # POINTS format with coordinates "
+                          "in radians. `citcomsve regular grid' reads the "
+                          "canonical CitcomSVE nlon-by-nlat longitude/latitude "
+                          "grid in degrees.");
         prm.declare_entry("Schedule file name", "",
                           Patterns::Anything(),
                           "Schedule file. An empty value selects a single "
@@ -459,6 +659,7 @@ namespace aspect
       {
         parsed_configuration.data_directory = prm.get("Data directory");
         parsed_configuration.data_file_name = prm.get("Data file name");
+        parsed_configuration.data_format = prm.get("Data format");
         parsed_configuration.schedule_file_name =
           prm.get("Schedule file name");
         parsed_configuration.schedule_format = prm.get("Schedule format");

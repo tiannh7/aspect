@@ -141,6 +141,52 @@ TEST_CASE("Surface history parses elapsed nonuniform stages",
 
 
 
+TEST_CASE("Surface history parses canonical CitcomSVE regular grids",
+          "[potential_feedback][gia]")
+{
+  const std::string contents =
+    "4 2\n"
+    "45 45 1\n"
+    "135 45 2\n"
+    "225 45 3\n"
+    "315 45 4\n"
+    "45 -45 5\n"
+    "135 -45 6\n"
+    "225 -45 7\n"
+    "315 -45 8\n";
+
+  auto grid =
+    aspect::PotentialFeedback::SurfaceHistoryUtilities::
+    parse_citcomsve_regular_grid(contents, 2.0);
+
+  REQUIRE(grid.coordinate_values.size() == 2);
+  REQUIRE(grid.coordinate_values[0].size() == 6);
+  REQUIRE(grid.coordinate_values[1].size() == 4);
+
+  aspect::Utilities::StructuredDataLookup<2> lookup(1, 1.0);
+  lookup.reinit({"surface value"},
+                std::move(grid.coordinate_values),
+                std::move(grid.data_tables));
+
+  REQUIRE(lookup.get_data(dealii::Point<2>(dealii::numbers::PI / 4.0,
+                                           dealii::numbers::PI / 4.0), 0)
+          == Approx(2.0));
+  REQUIRE(lookup.get_data(dealii::Point<2>(0.0,
+                                           dealii::numbers::PI / 4.0), 0)
+          == Approx(5.0));
+  REQUIRE(lookup.get_data(dealii::Point<2>(2.0 * dealii::numbers::PI,
+                                           dealii::numbers::PI / 4.0), 0)
+          == Approx(5.0));
+  REQUIRE(lookup.get_data(dealii::Point<2>(dealii::numbers::PI,
+                                           0.0), 0)
+          == Approx(5.0));
+  REQUIRE(lookup.get_data(dealii::Point<2>(dealii::numbers::PI,
+                                           dealii::numbers::PI), 0)
+          == Approx(13.0));
+}
+
+
+
 TEST_CASE("Canonical CitcomSVE GIA sea level equation conserves water mass",
           "[potential_feedback][gia]")
 {
