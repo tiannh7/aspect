@@ -107,6 +107,107 @@ Rotational feedback is disabled unless `rotational feedback` is listed in
 `Potential feedback/List of feedback mechanisms` and the `potential feedback`
 boundary traction model is applied on the relevant boundary.
 
+## Glacial isostatic adjustment
+
+The `glacial isostatic adjustment` mechanism adds a coupled time-dependent ice
+and ocean surface load. It is implemented inside the unified potential-feedback
+adapter so that the traction applied to Stokes is also the mass source used by
+self-gravity, the degree-one center-of-mass correction, and rotational
+feedback. The feature is disabled by default and requires `self gravity` in the
+same mechanism list.
+
+Ice and prescribed ocean functions are read as structured longitude-colatitude
+histories. Their schedule may contain elapsed model time and file number, or use
+the CitcomSVE stage-age format. The latter starts with the number of stages and
+then lists age in ka and CitcomSVE time-step count. ASPECT uses the age column to
+construct elapsed stage times and numbers the data files sequentially; the
+CitcomSVE time-step count does not override ASPECT's time-step selection.
+
+At every surface quadrature point the model distinguishes grounded and floating
+ice. With ice thickness `I`, ice density `rho_i`, water density `rho_w`, and bed
+elevation `T` relative to the current sea surface, ice is grounded when
+
+```{math}
+\rho_i I > -\rho_w T.
+```
+
+Ice above sea level is grounded whenever its thickness is positive. Floating
+ice remains part of the ocean function and does not produce a separate grounded
+ice load.
+
+The Zhong et al. (2022) sea-level equation is
+
+```{math}
+L=O(N-U+c),
+```
+
+whereas the Yuan et al. (2025) option uses
+
+```{math}
+L=O(N-U+c)-T_0(O-O_0).
+```
+
+Here `N` is the current geoid-height perturbation, `U` is radial solid-surface
+displacement, `O` is the current ocean function, and `T_0` is initial
+topography. The spatially uniform constant `c` is recomputed from global water
+mass conservation. With ice-mass change defined as current grounded ice mass
+minus reference grounded ice mass, both formulations use
+`-Delta M_i/rho_w`; ice loss therefore adds ocean water.
+
+The `prescribed` ocean-function model reads a static or time-dependent mask.
+The `moving shoreline` model determines the mask from the current sea surface,
+bed elevation, and grounded ice. Grounding, shoreline position, and `c` are
+iterated at fixed geoid and displacement before the load is passed back to the
+common potential iteration.
+
+The total applied surface mass anomaly is
+
+```{math}
+\sigma_{\mathrm{GIA}}=\Delta\sigma_i+\rho_w L,
+```
+
+and its traction is `-g sigma_GIA n`. The load is stored as spherical-harmonic
+coefficients through `Glacial isostatic adjustment/Maximum degree`, which makes
+the same field available on the Stokes mesh after refinement and in restart
+files. The `sea level` postprocessor detects an active coupled GIA provider and
+outputs its sea-level change, ocean function, ice load, ocean load, total load,
+barystatic constant, and eustatic contribution.
+
+A coupled GIA configuration has the following form:
+
+```prm
+subsection Boundary traction model
+  set Prescribed traction boundary indicators = top: potential feedback, \
+                                                bottom: potential feedback
+end
+
+subsection Potential feedback
+  set List of feedback mechanisms = self gravity, \
+                                    rotational feedback, \
+                                    glacial isostatic adjustment
+
+  subsection Glacial isostatic adjustment
+    set Sea level equation = Yuan et al. 2025
+    set Ocean function model = moving shoreline
+    set Ice load reference = first history file
+    set Initial topography directory = /path/to/gia-data/
+    set Initial topography file name = initial_topography.txt
+    set Maximum degree = 32
+
+    subsection Ice history
+      set Data directory = /path/to/gia-data/
+      set Data file name = ice.%d.txt
+      set Schedule file name = ice_stages.txt
+      set Schedule format = citcomsve stage ages
+    end
+  end
+end
+```
+
+For the Zhong et al. formulation, select `prescribed` and configure the
+`Prescribed ocean function history` subsection. For the moving-shoreline model
+that history is not loaded.
+
 A CitcomSVE-style benchmark input uses the shared boundary-traction list for the
 interfaces and keeps the feedback block compact:
 

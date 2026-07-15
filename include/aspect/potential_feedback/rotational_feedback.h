@@ -42,8 +42,10 @@ namespace aspect
      * effective boundary mass, converts them to a small perturbation of the
      * rotation vector, and applies the induced centrifugal-potential
      * perturbation as an additional normal traction. It is intended as a
-     * benchmark-scale spherical-shell capability, not as a full GIA sea-level
-     * or rotational-Liouville implementation.
+     * quasi-static spherical-shell capability. When combined with the GIA
+     * mechanism it supplies the physical polar-wander feedback used by the
+     * Zhong and Yuan benchmarks, but it is not a general time-dependent
+     * rotational-Liouville solver.
      *
      * @ingroup BoundaryTractions
      */
