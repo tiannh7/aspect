@@ -72,9 +72,10 @@ coordinates, adds periodic longitude ghosts, and closes each pole with the
 mean value of its nearest latitude row. The default `aspect structured data`
 format remains available for standard ASPECT `# POINTS:` files. A schedule may
 contain increasing elapsed model times and file numbers, or use the CitcomSVE
-stage-age convention. CitcomSVE stage ages are converted to elapsed time from
-the first stage; the second column, which records the number of CitcomSVE time
-steps in a stage, does not control ASPECT's time step.
+stage-age convention. Its header gives the number of stage intervals and is
+followed by one more age row. CitcomSVE stage ages are converted to elapsed
+time from the first stage; the second column, which records the number of
+CitcomSVE time steps in a stage, does not control ASPECT's time step.
 
 At a model time between two stages, the history loader linearly interpolates
 the two gridded fields. It keeps the first field available as the reference

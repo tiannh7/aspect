@@ -123,10 +123,11 @@ radian longitude-colatitude coordinates, and closes the grid periodically at
 the longitude seam and continuously at the poles. The default
 `aspect structured data` format retains ASPECT's standard `# POINTS:` input.
 Their schedule may contain elapsed model time and file number, or use the
-CitcomSVE stage-age format. The latter starts with the number of stages and then
-lists age in ka and CitcomSVE time-step count. ASPECT uses the age column to
-construct elapsed stage times and numbers the data files sequentially; the
-CitcomSVE time-step count does not override ASPECT's time-step selection.
+CitcomSVE stage-age format. The latter starts with the number of stage intervals
+and then lists one more row of age in ka and CitcomSVE time-step count. ASPECT
+uses the age column to construct elapsed stage times and numbers the data files
+sequentially; the CitcomSVE time-step count does not override ASPECT's time-step
+selection.
 
 The implementation follows the single sea-level equation in the canonical
 CitcomSVE 3.0 source:
