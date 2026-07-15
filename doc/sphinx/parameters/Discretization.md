@@ -16,6 +16,15 @@
 For continuous elements, the value needs to be 1 or larger as $Q_1$ is the lowest order element, while $DGQ_0$ is a valid choice. Units: None.
 ::::
 
+::::{dropdown} __Parameter:__ {ref}`Mesh deformation polynomial degree<parameters:Discretization/Mesh_20deformation_20polynomial_20degree>`
+:name: parameters:Discretization/Mesh_20deformation_20polynomial_20degree
+**Default value:** 2
+
+**Pattern:** [Integer range 1...2147483647 (inclusive)]
+
+**Documentation:** The polynomial degree used for mesh deformation.
+::::
+
 ::::{dropdown} __Parameter:__ {ref}`Stokes velocity polynomial degree<parameters:Discretization/Stokes_20velocity_20polynomial_20degree>`
 :name: parameters:Discretization/Stokes_20velocity_20polynomial_20degree
 **Default value:** 2

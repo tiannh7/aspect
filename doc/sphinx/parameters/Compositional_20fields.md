@@ -61,6 +61,15 @@ The format of valid entries for this parameter is that of a map given as &ldquo;
 **Documentation:** The number of fields that will be advected along with the flow field, excluding velocity, pressure and temperature.
 ::::
 
+::::{dropdown} __Parameter:__ {ref}`Skip composition assembly at timestep<parameters:Compositional_20fields/Skip_20composition_20assembly_20at_20timestep>`
+:name: parameters:Compositional_20fields/Skip_20composition_20assembly_20at_20timestep
+**Default value:** -1
+
+**Pattern:** [List of <[Anything]> of length 0...4294967295 (inclusive)]
+
+**Documentation:** A list of values (one per compositional field, or a single value for all fields) that sets when to skip assembling and solving. Each value can be &lsquo;none&lsquo; (same as -1, never skip), &lsquo;all&lsquo; (same as -2, skip every timestep), or an integer timestep index (e.g., 0, 1, 2) to skip only that timestep. Any value less than -1 is treated like &lsquo;all&lsquo; and skips every timestep. This can be used to save computational time when certain fields do not need to be solved.
+::::
+
 ::::{dropdown} __Parameter:__ {ref}`Types of fields<parameters:Compositional_20fields/Types_20of_20fields>`
 :name: parameters:Compositional_20fields/Types_20of_20fields
 **Default value:** unspecified

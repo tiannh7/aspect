@@ -5,6 +5,15 @@
 ## **Subsection:** Temperature field
 
 
+::::{dropdown} __Parameter:__ {ref}`Skip temperature assembly at timestep<parameters:Temperature_20field/Skip_20temperature_20assembly_20at_20timestep>`
+:name: parameters:Temperature_20field/Skip_20temperature_20assembly_20at_20timestep
+**Default value:** -1
+
+**Pattern:** [Anything]
+
+**Documentation:** The timestep at which to skip assembling and solving the temperature system. Allowed values are &lsquo;none&lsquo; (same as -1, never skip), &lsquo;all&lsquo; (same as -2, skip every timestep), or an integer timestep index (e.g., 0, 1, 2) to skip only that timestep. Any value less than -1 is treated like &lsquo;all&lsquo; and skips every timestep. This can be used to save computational time when the temperature does not need to be solved.
+::::
+
 ::::{dropdown} __Parameter:__ {ref}`Temperature method<parameters:Temperature_20field/Temperature_20method>`
 :name: parameters:Temperature_20field/Temperature_20method
 **Default value:** field
