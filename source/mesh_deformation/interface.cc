@@ -1605,7 +1605,11 @@ namespace aspect
       if (this->simulator_is_past_initialization())
         {
           // during the simulation, we add dt*solution
+          trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                       "initialize GMG mesh displacement update vector");
           LinearAlgebra::Vector distributed_mesh_displacements(mesh_locally_owned, sim.mpi_communicator);
+          trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                       "copy stored mesh displacement into GMG update vector");
           distributed_mesh_displacements = mesh_displacements;
           double dt = this->get_timestep();
           if (dt == 0.0 && this->get_timestep_number() == 0)
@@ -1621,11 +1625,10 @@ namespace aspect
                                        "measure and add GMG mesh displacement update");
           if (this->get_timestep_number() == 1)
             this->get_pcout()
-                << "   Mesh displacement diagnostic: dt=" << dt
-                << ", velocity Linfty=" << solution_tmp.linfty_norm()
-                << ", old displacement Linfty=" << distributed_mesh_displacements.linfty_norm()
-                << std::endl;
+                << "   Mesh displacement diagnostic: dt=" << dt << std::endl;
           distributed_mesh_displacements.add(dt, solution_tmp);
+          trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                       "store updated mesh displacement");
           mesh_displacements = distributed_mesh_displacements;
         }
 
@@ -1725,29 +1728,75 @@ namespace aspect
             {
               cell->get_dof_indices (cell_dof_indices);
 
-              trace_mesh_deformation_stage(
-                sim.mpi_communicator,
-                this->get_timestep_number(),
-                "interpolate mesh velocity for ALE at cell level "
-                + std::to_string(cell->level()) + " index " + std::to_string(cell->index()));
-              fe_values.reinit (cell);
-              fs_fe_values.reinit (fscell);
-              fs_fe_values[extract_vel].get_function_values(fs_mesh_velocity, velocity_values);
-              for (unsigned int j=0; j<n_q_points; ++j)
-                for (unsigned int dir=0; dir<dim; ++dir)
-                  {
-                    const unsigned int support_point_index
-                      = sim.finite_element.component_to_system_index(/*velocity component=*/ sim.introspection.component_indices.velocities[dir],
-                                                                                             /*dof index within component=*/ j);
-                    distributed_mesh_velocity[cell_dof_indices[support_point_index]] = velocity_values[j][dir];
-                  }
+              std::string diagnostic_stage = "reinitialize solution FEValues";
+              try
+                {
+                  fe_values.reinit (cell);
+                  diagnostic_stage = "reinitialize mesh-deformation FEValues";
+                  fs_fe_values.reinit (fscell);
+                  diagnostic_stage = "evaluate mesh velocity";
+                  fs_fe_values[extract_vel].get_function_values(fs_mesh_velocity, velocity_values);
+                  diagnostic_stage = "store interpolated ALE mesh velocity";
+                  for (unsigned int j=0; j<n_q_points; ++j)
+                    for (unsigned int dir=0; dir<dim; ++dir)
+                      {
+                        const unsigned int support_point_index
+                          = sim.finite_element.component_to_system_index(/*velocity component=*/ sim.introspection.component_indices.velocities[dir],
+                                                                                                 /*dof index within component=*/ j);
+                        distributed_mesh_velocity[cell_dof_indices[support_point_index]] = velocity_values[j][dir];
+                      }
+                }
+              catch (const std::exception &exception)
+                {
+                  if (this->get_timestep_number() == 1)
+                    std::cerr << "Mesh deformation diagnostic on rank "
+                              << Utilities::MPI::this_mpi_process(sim.mpi_communicator)
+                              << ": ALE interpolation failed while attempting to "
+                              << diagnostic_stage << " at cell level " << cell->level()
+                              << " index " << cell->index() << ": " << exception.what()
+                              << std::endl;
+                  throw;
+                }
+              catch (const int error_code)
+                {
+                  if (this->get_timestep_number() == 1)
+                    std::cerr << "Mesh deformation diagnostic on rank "
+                              << Utilities::MPI::this_mpi_process(sim.mpi_communicator)
+                              << ": ALE interpolation failed with error code " << error_code
+                              << " while attempting to " << diagnostic_stage
+                              << " at cell level " << cell->level()
+                              << " index " << cell->index() << std::endl;
+                  throw;
+                }
+              catch (const char *message)
+                {
+                  if (this->get_timestep_number() == 1)
+                    std::cerr << "Mesh deformation diagnostic on rank "
+                              << Utilities::MPI::this_mpi_process(sim.mpi_communicator)
+                              << ": ALE interpolation failed while attempting to "
+                              << diagnostic_stage << " at cell level " << cell->level()
+                              << " index " << cell->index() << ": " << message << std::endl;
+                  throw;
+                }
+              catch (...)
+                {
+                  if (this->get_timestep_number() == 1)
+                    std::cerr << "Mesh deformation diagnostic on rank "
+                              << Utilities::MPI::this_mpi_process(sim.mpi_communicator)
+                              << ": ALE interpolation failed with a non-standard exception while attempting to "
+                              << diagnostic_stage << " at cell level " << cell->level()
+                              << " index " << cell->index() << std::endl;
+                  throw;
+                }
             }
           ++fscell;
         }
 
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
-                                   "compress and store ALE mesh velocity");
+                                   "compress ALE mesh velocity");
       distributed_mesh_velocity.compress(VectorOperation::insert);
+      trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                   "store ALE mesh velocity");
       mesh_velocity = distributed_mesh_velocity;
     }
 
@@ -1935,8 +1984,10 @@ namespace aspect
                                                                        this->get_mpi_communicator());
       dealii::LinearAlgebra::ReadWriteVector<double> rwv;
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
-                                   "copy mesh displacement to owned multigrid vector");
+                                   "copy mesh displacement to read-write vector");
       rwv.reinit(mesh_displacements);
+      trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                   "import mesh displacement to owned multigrid vector");
       displacements.import_elements(rwv, VectorOperation::insert);
 
       const unsigned int n_levels = sim.triangulation.n_global_levels();
