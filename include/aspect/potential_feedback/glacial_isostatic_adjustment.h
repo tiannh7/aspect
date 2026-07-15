@@ -24,7 +24,6 @@
 #include <aspect/potential_feedback/interface.h>
 #include <aspect/potential_feedback/surface_history.h>
 #include <aspect/simulator_access.h>
-#include <aspect/structured_data.h>
 #include <aspect/utilities.h>
 
 #include <functional>
@@ -39,30 +38,16 @@ namespace aspect
   {
     namespace GIA
     {
-      /** Return whether ice is grounded for the supplied local water depth. */
-      bool ice_is_grounded(const double ice_thickness,
-                           const double bed_elevation_relative_to_sea_level,
-                           const double density_ice,
-                           const double density_water);
-
-      /**
-       * Compute the spatially uniform sea-level constant from global
-       * integrals of the selected sea-level equation.
-       */
+      /** Compute the spatially uniform sea-level constant. */
       double barystatic_sea_level(
-        const SeaLevelEquation sea_level_equation,
         const double ocean_area,
         const double ice_mass_change,
         const double relative_sea_level_volume,
-        const double initial_topography_volume,
         const double density_water);
 
-      /** Evaluate the local Zhong or Yuan relative sea-level change. */
+      /** Evaluate the local canonical CitcomSVE relative sea-level change. */
       double sea_level_change(
-        const SeaLevelEquation sea_level_equation,
         const double ocean_function,
-        const double initial_ocean_function,
-        const double initial_topography,
         const double relative_geoid,
         const double barystatic_sea_level);
     }
@@ -102,7 +87,7 @@ namespace aspect
         /** Return current total GIA surface mass per unit area. */
         double surface_mass_density(const Point<dim> &position) const;
 
-        /** Return current grounded-ice load mass per unit area. */
+        /** Return current prescribed ice-load mass per unit area. */
         double ice_load_mass_density(const Point<dim> &position) const;
 
         /** Return current ocean-load mass per unit area. */
@@ -142,8 +127,6 @@ namespace aspect
                           const std::vector<double> &sin_coefficients,
                           const Point<dim> &position) const;
 
-        Point<dim-1> surface_coordinates(const Point<dim> &position) const;
-
         void relax_coefficients(std::vector<double> &stored_cos,
                                 std::vector<double> &stored_sin,
                                 const std::vector<double> &new_cos,
@@ -158,33 +141,23 @@ namespace aspect
         bool enabled = false;
         bool iterate_with_stokes = true;
         bool freeze_feedback_after_timestep_zero = false;
-        SeaLevelEquation sea_level_equation = SeaLevelEquation::zhong_2022;
-        OceanFunctionModel ocean_function_model =
-          OceanFunctionModel::prescribed;
         IceLoadReference ice_load_reference =
           IceLoadReference::first_history_file;
 
         double density_ice = 917.4;
         double density_water = 1000.0;
-        double ocean_function_threshold = 0.5;
         double initial_displacement_timestep = 0.0;
         double potential_convergence_tolerance = 1e-3;
         double potential_relaxation_factor = 1.0;
-        double shoreline_relative_tolerance = 1e-8;
         unsigned int maximum_degree = 32;
         unsigned int maximum_potential_iterations = 20;
-        unsigned int maximum_shoreline_iterations = 20;
 
         SurfaceHistoryConfiguration ice_history_configuration;
         SurfaceHistoryConfiguration ocean_history_configuration;
-        std::string initial_topography_directory;
-        std::string initial_topography_file_name;
 
         types::boundary_id top_boundary_id = numbers::invalid_boundary_id;
         SurfaceHistory<dim> ice_history;
         SurfaceHistory<dim> ocean_history;
-        std::unique_ptr<Utilities::StructuredDataLookup<dim-1>>
-        initial_topography;
         std::unique_ptr<Utilities::SphericalHarmonicTransform> sh_transform;
 
         std::function<double(const Point<dim> &)>

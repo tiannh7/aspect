@@ -50,34 +50,6 @@ namespace aspect
 
 
 
-      SeaLevelEquation
-      parse_sea_level_equation(const std::string &name)
-      {
-        if (name == "Zhong et al. 2022")
-          return SeaLevelEquation::zhong_2022;
-        if (name == "Yuan et al. 2025")
-          return SeaLevelEquation::yuan_2025;
-
-        AssertThrow(false, ExcInternalError());
-        return SeaLevelEquation::zhong_2022;
-      }
-
-
-
-      OceanFunctionModel
-      parse_ocean_function_model(const std::string &name)
-      {
-        if (name == "prescribed")
-          return OceanFunctionModel::prescribed;
-        if (name == "moving shoreline")
-          return OceanFunctionModel::moving_shoreline;
-
-        AssertThrow(false, ExcInternalError());
-        return OceanFunctionModel::prescribed;
-      }
-
-
-
       IceLoadReference
       parse_ice_load_reference(const std::string &name)
       {
@@ -195,56 +167,21 @@ namespace aspect
 
         prm.enter_subsection("Glacial isostatic adjustment");
         {
-          prm.declare_entry("Sea level equation", "Zhong et al. 2022",
-                            Patterns::Selection("Zhong et al. 2022|Yuan et al. 2025"),
-                            "Sea-level equation used for the coupled ocean "
-                            "load. The Yuan et al. formulation includes the "
-                            "initial-topography term for a changing ocean "
-                            "function.");
-          prm.declare_entry("Ocean function model", "prescribed",
-                            Patterns::Selection("prescribed|moving shoreline"),
-                            "Whether to read the ocean function from a "
-                            "surface history or determine it from current sea "
-                            "surface, bed elevation, and grounded ice.");
           prm.declare_entry("Ice load reference", "first history file",
                             Patterns::Selection("first history file|zero thickness"),
-                            "Reference grounded-ice load. `first history "
-                            "file' applies changes relative to the first "
-                            "stage; `zero thickness' applies the absolute "
-                            "grounded ice history.");
-          prm.declare_entry("Initial topography directory",
-                            "$ASPECT_SOURCE_DIR/data/potential-feedback/gia/",
-                            Patterns::DirectoryName(),
-                            "Directory containing the static initial "
-                            "topography/bathymetry field.");
-          prm.declare_entry("Initial topography file name", "",
-                            Patterns::Anything(),
-                            "Structured latitude-longitude initial "
-                            "topography file. Values are in meters relative "
-                            "to the initial sea-level datum.");
+                            "Reference ice load. `first history file' applies "
+                            "changes relative to the first stage; `zero "
+                            "thickness' applies the absolute ice history.");
           prm.declare_entry("Ice density", "917.4",
                             Patterns::Double(0.0),
                             "Ice density in kg/m^3.");
           prm.declare_entry("Water density", "1000.0",
                             Patterns::Double(0.0),
                             "Ocean-water density in kg/m^3.");
-          prm.declare_entry("Ocean function threshold", "0.5",
-                            Patterns::Double(0.0, 1.0),
-                            "Threshold used to convert prescribed ocean "
-                            "function values to zero or one.");
           prm.declare_entry("Maximum degree", "32",
                             Patterns::Integer(1),
                             "Maximum spherical-harmonic degree retained for "
                             "ice, ocean, and total GIA surface loads.");
-          prm.declare_entry("Maximum shoreline iterations", "20",
-                            Patterns::Integer(1),
-                            "Maximum fixed-point iterations for the grounded "
-                            "ice, moving-shoreline, and barystatic constant "
-                            "calculation at fixed geoid and displacement.");
-          prm.declare_entry("Shoreline relative tolerance", "1e-8",
-                            Patterns::Double(0.0),
-                            "Relative convergence tolerance for the "
-                            "barystatic constant during shoreline iteration.");
 
           SurfaceHistory<3>::declare_parameters(
             prm,
@@ -400,26 +337,11 @@ namespace aspect
 
         prm.enter_subsection("Glacial isostatic adjustment");
         {
-          gia.sea_level_equation =
-            parse_sea_level_equation(prm.get("Sea level equation"));
-          gia.ocean_function_model =
-            parse_ocean_function_model(prm.get("Ocean function model"));
           gia.ice_load_reference =
             parse_ice_load_reference(prm.get("Ice load reference"));
-          gia.initial_topography_directory =
-            Utilities::expand_ASPECT_SOURCE_DIR(
-              prm.get("Initial topography directory"));
-          gia.initial_topography_file_name =
-            prm.get("Initial topography file name");
           gia.density_ice = prm.get_double("Ice density");
           gia.density_water = prm.get_double("Water density");
-          gia.ocean_function_threshold =
-            prm.get_double("Ocean function threshold");
           gia.maximum_degree = prm.get_integer("Maximum degree");
-          gia.maximum_shoreline_iterations =
-            prm.get_integer("Maximum shoreline iterations");
-          gia.shoreline_relative_tolerance =
-            prm.get_double("Shoreline relative tolerance");
           gia.ice_history =
             SurfaceHistory<3>::parse_parameters(prm, "Ice history");
           gia.ocean_history =
@@ -505,8 +427,6 @@ namespace aspect
           AssertThrow(gia.density_ice > 0.0 && gia.density_water > 0.0,
                       ExcMessage("GIA ice and water densities must be "
                                  "positive."));
-          AssertThrow(!gia.initial_topography_file_name.empty(),
-                      ExcMessage("GIA requires an initial topography file."));
         }
     }
   }
