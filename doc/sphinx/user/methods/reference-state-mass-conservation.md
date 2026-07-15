@@ -298,16 +298,21 @@ it will not silently remove a constant pressure offset.
 
 ## 11. Boundary sources and total-ready views
 
-The smooth volume perturbation and boundary sheets remain distinct:
+The smooth radial volume perturbation and boundary sheets remain distinct:
 
 ```text
 volume:  -rho_ref div(u) - u dot grad(rho_ref)
 surface/CMB sheet: Delta rho * u_n
 ```
 
-No discontinuous radial profile is differentiated. Composition-defined
-internal contrasts remain volume material anomalies under the corresponding
-source law, and no duplicate sheet is created.
+With linear interpolation, the current mechanical law differentiates the
+selected tabulated radial profile piecewise. A sharp jump may instead be owned
+by an explicitly tracked sheet, in which case its narrow table interval is
+excluded from the volume gradient. With `Tabulated reference density
+interpolation = piecewise constant`, every interior table radius automatically
+owns the adjacent density difference as a sheet and the within-layer volume
+gradient is zero. Composition-defined internal contrasts remain volume
+material anomalies under the corresponding source law.
 
 `reconstructed_current_density = rho_ref + delta_rho` is diagnostic and
 prepares a future API. It does not enable total gravity. A total-potential
@@ -322,8 +327,11 @@ New choices are default-off:
 subsection Formulation
   set Mass conservation = elastic pressure evolution
   subsection Density sources
-    set Reference density model = analytical radial
-    set Density source law      = linearized mass conservation
+    set Reference density model = tabulated radial
+    set Density source law      = mechanical mass conservation
+    set Tabulated reference radii     = ...
+    set Tabulated reference densities = ...
+    set Tabulated reference density interpolation = piecewise constant
   end
 end
 
@@ -341,6 +349,8 @@ end
 `Density source law = legacy` preserve old PRMs. The Lamé option computes
 `K=lambda+2G/3`. Elastic pressure evolution requires elasticity, the
 viscoelastic bulk output, assembled Stokes, and no pressure normalization.
+Mechanical mass conservation additionally requires operator splitting and a
+generic discontinuous field named `ve_radial_displacement`.
 Thermodynamic `isentropic compression` remains a separate existing option.
 
 ## 13. Tests and acceptance criteria

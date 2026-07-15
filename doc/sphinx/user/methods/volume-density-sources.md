@@ -19,7 +19,12 @@ density model and density-source law are independent choices.
   reference-density accessor is queried;
 - `constant` returns `Constant reference density`, in kg/m3;
 - `frozen initial lateral average` computes a reference profile once from the
-  initial physical material density.
+  initial physical material density;
+- `tabulated radial` interpolates `Tabulated reference radii` and `Tabulated
+  reference densities` in spherical radius, with endpoint clamping. The
+  default `Tabulated reference density interpolation = linear` is continuous.
+  The default-off `piecewise constant` mode uses the density at the lower
+  radius in each outward interval.
 
 The frozen model is evaluated after initial temperature, composition, and
 pressure have been initialized on the final initial mesh, and before the first
@@ -36,9 +41,6 @@ linear interpolation with endpoint clamping:
 
 The profile remains frozen for the run. Initialization prints its integrated
 anomaly, L2 norm, maximum anomaly, and maximum depth-bin lateral-mean residual.
-
-Analytical radial and tabulated radial reference models are planned but are not
-implemented.
 
 ## Density-source laws
 
@@ -59,7 +61,27 @@ implemented.
 
   for both Stokes momentum and internal self-gravity/degree-1 volume
   calculations;
-- `zero volume perturbation` returns zero for those volume sources.
+- `zero volume perturbation` returns zero for those volume sources;
+- `mechanical mass conservation` is available with `elastic pressure
+  evolution`. It uses ASPECT's pressure as compressive elastic pressure and a
+  generic discontinuous field named `ve_radial_displacement` as committed
+  radial material-displacement history:
+
+  ```{math}
+  \delta\rho
+  = \frac{\rho_\mathrm{ref}}{K}p
+  - U_r\frac{d\rho_\mathrm{ref}}{dr}.
+  ```
+
+  The Stokes body-force selector returns zero for this law because the matching
+  local `rho g` terms are assembled directly in the elastic operator. Internal
+  self-gravity and degree-1 volume integrals consume the reconstructed
+  perturbation above.
+
+  When self gravity is active in 3-D, the same volume and sheet perturbations
+  also generate a potential cached on the radial reference points. The
+  compressible Stokes feedback uses the matching volume and internal-interface
+  weak terms; it is therefore not limited to surface and CMB tractions.
 
 The geoid internal volume contribution reuses the internal self-gravity
 calculation and consequently uses the same selected source. The
@@ -82,10 +104,41 @@ irregular internal interface such as a composition-defined Moho therefore
 remains a volumetric density anomaly and is automatically included in a
 selected nonzero volume-source law.
 
-An explicitly tracked sharp interface may instead be represented by a sheet
-source in a future implementation. The same physical interface must never be
-represented simultaneously as both a material/composition volume anomaly and
-an explicit sheet source.
+For a radial reference state, explicitly tracked sharp interfaces can be
+configured with `Internal density jump radii`, `Internal density jump density
+contrasts`, and `Internal density jump face tolerance`. These lists are empty
+by default. They are currently available only with `mechanical mass
+conservation` and a `tabulated radial` reference state, and every configured
+radius must coincide with a radial mesh face. Contrasts are defined as density
+below minus density above.
+
+Alternatively, `Tabulated reference density interpolation = piecewise
+constant` derives every internal contrast directly from adjacent table values.
+For an interior table radius `r_i`, the contrast is
+`rho_ref(r_i^-)-rho_ref(r_i^+)`. This mode requires `mechanical mass
+conservation`, requires the table radii to coincide with radial mesh faces,
+and requires the explicit jump lists to remain empty. It therefore gives the
+volume and sheet terms one consistent radial discretization and owner.
+
+Each interface contributes the local restoring operator
+
+```{math}
+\int_\Gamma \Delta\rho g\Delta t
+(\mathbf w\cdot\mathbf e_r)(\mathbf v\cdot\mathbf e_r)\,dS
+-\int_\Gamma \Delta\rho g
+(\mathbf w\cdot\mathbf e_r)U_r^\mathrm{old}\,dS.
+```
+
+When internal density anomalies are included in potential feedback, the same
+interface contributes sheet mass
+`sigma = Delta rho U_r` to the self-gravity potential and degree-one mass
+dipole. Piecewise-constant table interfaces use the same adjacent-cell identity
+for these non-local terms as for the local restoring operator, and therefore
+remain active after ALE mesh deformation. Explicit jumps retain the configured
+radius tolerance. A narrow tabulated interval containing an explicitly
+configured jump is excluded from the volume reference-density gradient,
+preventing double counting. The same physical interface must not also be
+represented as a material/composition volume anomaly.
 
 Existing surface-load, surface-topography, CMB-topography, and external-load
 sheet sources are unchanged. Surface and CMB restoring terms, including the
@@ -133,17 +186,62 @@ end
 The constant value documents the reference state in this combination; the zero
 law makes the volume source identically zero.
 
+A radial finite-bulk benchmark uses:
+
+```text
+subsection Formulation
+  set Enable elasticity = true
+  set Mass conservation = elastic pressure evolution
+  subsection Density sources
+    set Reference density model = tabulated radial
+    set Density source law      = mechanical mass conservation
+    set Tabulated reference radii     = ...
+    set Tabulated reference densities = ...
+    set Tabulated reference density interpolation = piecewise constant
+    set Tabulated mechanical gravity magnitudes   = ...
+    set Internal density jump face tolerance    = 1
+  end
+end
+
+subsection Material model
+  subsection Viscoelastic
+    set Enable compressible Maxwell = true
+    set Use ascii profile           = true
+  end
+end
+```
+
+This configuration also requires operator splitting, no pressure
+normalization, assembled Stokes, spherical geometry, and a generic
+discontinuous `ve_radial_displacement` field. It is disabled unless explicitly
+selected and is distinct from thermodynamic isentropic compression.
+
+The optional `Tabulated mechanical gravity magnitudes` list contains one
+constant magnitude per interval in `Tabulated reference radii`. When the list
+is empty, which is the default, the local mechanical volume couplings use the
+selected gravity model at each quadrature point. A nonempty list changes only
+those volume couplings. Free-surface, CMB, and internal-interface restoring
+terms still use the selected gravity model, so a layered benchmark can use
+face/node gravity there while reproducing an element-centre volume
+discretization. Values are in m/s^2.
+
+Mechanical mass conservation requires `Initial response mode = instantaneous
+elastic` at timestep zero by default. The default-false `Allow viscoelastic
+initial mechanical response` parameter relaxes this check only when an
+explicit time-integration discriminator needs the material model's finite
+Maxwell response during the initial loaded solve. Later viscoelastic steps are
+unchanged. Production benchmarks that define `t=0` as the instantaneous
+elastic limit should leave this option disabled.
+
 ## Limitations
 
 - Frozen reference profiles do not yet support pressure-dependent material
   density because a thermodynamic reference-pressure policy is not defined.
 - Frozen profiles are not serialized for checkpoint/restart.
 - Non-legacy laws are not yet supported with melt transport.
-- Analytical/tabulated radial profiles, PREM/VM5a, material-provided anomalies,
-  tracked internal interface sheets, and linearized mass conservation
-
-  ```{math}
-  \delta\rho=-\nabla\cdot(\rho_\mathrm{ref}\mathbf u)
-  ```
-
-  are future work.
+- The mechanical law currently supports constant or tabulated radial reference
+  states and a scalar radial displacement history. A future general model needs
+  an authoritative vector material displacement.
+- Explicit internal density jumps require spherical, constant-radius,
+  jump-aligned mesh faces. General non-radial tracked interfaces and
+  composition-defined sheets are not implemented.

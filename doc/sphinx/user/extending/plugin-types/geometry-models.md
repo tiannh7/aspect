@@ -22,6 +22,21 @@ model in 2d provides the map
 and we have consistently used these symbolic names in the input files used in
 this manual.
 
+## Custom spherical-shell extrusion
+
+The `spherical shell` geometry can construct a full-shell surface mesh first
+and then extrude it through either a list of radial values or a requested
+number of radial slices. `Initial lateral refinement` refines that surface
+before extrusion. By default, `Cells along circumference = 0` preserves the
+six-cell coarse surface used by this custom-mesh path. Setting a supported
+nonzero value selects the corresponding full hyper-shell topology and uses its
+outer boundary as the surface to extrude. In three dimensions the supported
+values are `6`, `12`, and `96`.
+
+This option controls only the coarse lateral topology. It does not change the
+radial values, material model, boundary conditions, or later adaptive mesh
+refinement, and it is inactive unless a custom mesh subdivision is selected.
+
 To implement a new geometry model, you need to overload the
 [aspect::GeometryModel::Interface](https://aspect.geodynamics.org/doc/doxygen/namespaceaspect_1_1GeometryModel.html)
 class and use the

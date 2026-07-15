@@ -17,6 +17,63 @@ interface relative to the reference spherical interface. For a future model with
 initial topography, the source height is therefore the current radius minus the
 reference radius, including both the initial relief and any ALE displacement.
 
+When `Mesh deformation/Use displacement history in free surface stabilization`
+is enabled, the free-surface stabilization assembler supplies the committed
+local restoring traction $\Delta\rho g h$ on each stabilized boundary. The
+self-gravity boundary traction then applies only the non-local potential term,
+so the committed displacement is not counted twice. The same committed relief
+still enters the self-gravity potential calculation, and the stabilization
+matrix still treats the displacement increment implicitly. The stabilization
+density contrasts should therefore match the corresponding interface densities
+under `Potential feedback/Interface properties`.
+
+With `Formulation/Density sources/Density source law = mechanical mass
+conservation`, radial internal density jumps contribute the sheet mass `Delta
+rho U_r` to both the internal self-gravity spherical-harmonic integral and the
+degree-one mass dipole. Jumps may be explicitly configured or derived from a
+piecewise-constant tabulated reference state. These terms are active only when
+`Include internal density anomalies` resolves to true and do not replace the
+separate surface or CMB relief terms. Table-derived interfaces are identified
+from the adjacent inner and outer radial cells in both the potential and
+degree-one integrations, so ALE motion does not detach them from their
+reference radii. Explicitly configured jumps retain radius-based matching with
+the configured face tolerance.
+
+For the 3-D `mechanical mass conservation` density-source law, self-gravity is
+not a boundary-only force. ASPECT caches the current mass-potential
+spherical-harmonic coefficients on the tabulated radial reference points and
+linearly interpolates them in radius. In addition to the existing surface and
+CMB potential tractions, the Stokes weak form contains
+
+```{math}
+-\int_\Omega \rho_\mathrm{ref}\Phi\,\nabla\cdot\mathbf w\,dV
++\sum_{\Gamma_\mathrm{internal}}
+\int_\Gamma \Delta\rho\Phi
+(\mathbf w\cdot\mathbf e_r)\,dS.
+```
+
+Together these terms reproduce the full-domain compressible potential forcing
+used by CitcomSVE. The cached mass potential contains the external surface
+load, surface and CMB deformation, the mechanical volume-density perturbation,
+and internal density sheets. Tidal, rotational, and reference-frame potentials
+remain separate and are not included in this volume term.
+
+`Potential feedback/Self gravity/Full domain volume source discretization`
+controls how the mechanical volume-density perturbation enters this cache.
+The default `quadrature point` value preserves the pointwise ASPECT integral.
+The default-off `cell average` value replaces the source within each active
+cell by its volume-weighted average before applying the spherical-harmonic
+Green kernel. `radial layer midpoint` additionally uses an arithmetic
+quadrature-point source average and evaluates the radial Green kernel and
+radial measure at the midpoint of the cell's inner and outer vertex radii.
+`mass lumped radial layer` first projects the arithmetic cell averages to the
+shared Q1 pressure vertices with a lumped mass matrix, then interpolates that
+nodal source while using the same radial midpoint rule. The mass-lumped mode
+requires vertex-supported continuous pressure shape functions. These options
+are useful for coarse cross-code comparisons with
+element-averaged radial-layer formulations; they do not change the Stokes
+finite-element pair or any interface-sheet source.
+
 The active feedback interfaces are inferred from the boundaries on which the
 `potential feedback` boundary traction plugin is prescribed in
 `Boundary traction model/Prescribed traction boundary indicators`. Applying
