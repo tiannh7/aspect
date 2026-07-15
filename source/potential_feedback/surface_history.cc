@@ -32,6 +32,108 @@ namespace aspect
 {
   namespace PotentialFeedback
   {
+    namespace SurfaceHistoryUtilities
+    {
+      std::vector<Stage>
+      parse_schedule(const std::string &contents,
+                     const std::string &schedule_format,
+                     const int first_data_file_number,
+                     const bool times_are_years)
+      {
+        std::vector<std::pair<double,int>> entries;
+        std::istringstream input(contents);
+        std::string line;
+        while (std::getline(input, line))
+          {
+            const std::size_t first_non_space =
+              line.find_first_not_of(" \t\r");
+            if (first_non_space == std::string::npos
+                || line[first_non_space] == '#')
+              continue;
+
+            std::istringstream line_stream(line);
+            double first_value = 0.0;
+            int second_value = 0;
+            if (line_stream >> first_value >> second_value)
+              entries.emplace_back(first_value, second_value);
+          }
+
+        AssertThrow(!entries.empty(),
+                    ExcMessage("The surface-history schedule contains no "
+                               "readable entries."));
+
+        std::vector<Stage> stages;
+        if (schedule_format == "citcomsve stage ages")
+          {
+            const double declared_stage_count_value = entries.front().first;
+            const unsigned int declared_stage_count =
+              static_cast<unsigned int>(declared_stage_count_value);
+            AssertThrow(declared_stage_count_value > 0.0
+                        && declared_stage_count_value
+                        == static_cast<double>(declared_stage_count),
+                        ExcMessage("The CitcomSVE surface-history stage "
+                                   "count must be a positive integer."));
+            entries.erase(entries.begin());
+
+            AssertThrow(entries.size() == declared_stage_count,
+                        ExcMessage("The CitcomSVE surface-history schedule "
+                                   "declares "
+                                   + Utilities::int_to_string(
+                                     declared_stage_count)
+                                   + " stages but contains "
+                                   + Utilities::int_to_string(
+                                     static_cast<unsigned int>(entries.size()))
+                                   + " stage rows."));
+            AssertThrow(!entries.empty(), ExcInternalError());
+
+            const double first_age_ka = entries.front().first;
+            const double chronological_direction =
+              (first_age_ka > 0.0 ? -1.0 : 1.0);
+            for (unsigned int index = 0; index < entries.size(); ++index)
+              {
+                const double elapsed_years =
+                  chronological_direction
+                  * (entries[index].first - first_age_ka) * 1000.0;
+                AssertThrow(elapsed_years >= 0.0,
+                            ExcMessage("CitcomSVE stage ages must progress "
+                                       "chronologically from the first "
+                                       "schedule age."));
+                stages.push_back(
+                {
+                  elapsed_years * year_in_seconds,
+                  first_data_file_number + static_cast<int>(index)
+                });
+              }
+          }
+        else
+          {
+            AssertThrow(schedule_format == "elapsed time and file number",
+                        ExcMessage("Unknown surface-history schedule format <"
+                                   + schedule_format + ">."));
+            for (const auto &entry : entries)
+              {
+                double time = entry.first;
+                if (times_are_years)
+                  time *= year_in_seconds;
+
+                stages.push_back({time, entry.second});
+              }
+          }
+
+        AssertThrow(stages.front().time == 0.0,
+                    ExcMessage("The first surface-history stage must start at "
+                               "elapsed model time zero."));
+        for (unsigned int index = 1; index < stages.size(); ++index)
+          AssertThrow(stages[index].time > stages[index-1].time,
+                      ExcMessage("Surface-history stage times must be "
+                                 "strictly increasing."));
+
+        return stages;
+      }
+    }
+
+
+
     template <int dim>
     void
     SurfaceHistory<dim>::configure(
@@ -97,83 +199,15 @@ namespace aspect
                              + configuration.schedule_file_name
                              + "> was not found."));
 
-      std::istringstream input(
+      const std::string schedule_contents =
         Utilities::read_and_distribute_file_content(
           configuration.schedule_file_name,
-          this->get_mpi_communicator()));
-
-      std::vector<std::pair<double,int>> entries;
-      std::string line;
-      while (std::getline(input, line))
-        {
-          const std::size_t first_non_space = line.find_first_not_of(" \t\r");
-          if (first_non_space == std::string::npos
-              || line[first_non_space] == '#')
-            continue;
-
-          std::istringstream line_stream(line);
-          double first_value = 0.0;
-          int second_value = 0;
-          if (line_stream >> first_value >> second_value)
-            entries.emplace_back(first_value, second_value);
-        }
-
-      AssertThrow(!entries.empty(),
-                  ExcMessage("Surface-history schedule file <"
-                             + configuration.schedule_file_name
-                             + "> contains no readable entries."));
-
-      if (configuration.schedule_format == "citcomsve stage ages")
-        {
-          const unsigned int declared_stage_count =
-            static_cast<unsigned int>(entries.front().first);
-          entries.erase(entries.begin());
-
-          AssertThrow(entries.size() == declared_stage_count,
-                      ExcMessage("The CitcomSVE surface-history schedule "
-                                 "declares "
-                                 + Utilities::int_to_string(declared_stage_count)
-                                 + " stages but contains "
-                                 + Utilities::int_to_string(
-                                   static_cast<unsigned int>(entries.size()))
-                                 + " stage rows."));
-          AssertThrow(!entries.empty(), ExcInternalError());
-
-          const double first_age_ka = entries.front().first;
-          for (unsigned int index = 0; index < entries.size(); ++index)
-            {
-              const double elapsed_years =
-                (entries[index].first - first_age_ka) * 1000.0;
-              AssertThrow(elapsed_years >= 0.0,
-                          ExcMessage("CitcomSVE stage ages must progress "
-                                     "forward from the first schedule age."));
-              stages.push_back(
-              {
-                elapsed_years * year_in_seconds,
-                configuration.first_data_file_number
-                + static_cast<int>(index)
-              });
-            }
-        }
-      else
-        {
-          for (const auto &entry : entries)
-            {
-              double time = entry.first;
-              if (this->convert_output_to_years())
-                time *= year_in_seconds;
-
-              stages.push_back({time, entry.second});
-            }
-        }
-
-      AssertThrow(stages.front().time == 0.0,
-                  ExcMessage("The first surface-history stage must start at "
-                             "elapsed model time zero."));
-      for (unsigned int index = 1; index < stages.size(); ++index)
-        AssertThrow(stages[index].time > stages[index-1].time,
-                    ExcMessage("Surface-history stage times must be strictly "
-                               "increasing."));
+          this->get_mpi_communicator());
+      stages = SurfaceHistoryUtilities::parse_schedule(
+                 schedule_contents,
+                 configuration.schedule_format,
+                 configuration.first_data_file_number,
+                 this->convert_output_to_years());
     }
 
 
@@ -191,7 +225,8 @@ namespace aspect
                            stages.begin(),
                            stages.end(),
                            current_time,
-                           [](const double time, const Stage &stage)
+                           [](const double time,
+                              const SurfaceHistoryUtilities::Stage &stage)
       {
         return time < stage.time;
       });

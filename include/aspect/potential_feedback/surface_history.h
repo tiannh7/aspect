@@ -34,6 +34,34 @@ namespace aspect
 {
   namespace PotentialFeedback
   {
+    namespace SurfaceHistoryUtilities
+    {
+      /** One time/file entry in a parsed surface history schedule. */
+      struct Stage
+      {
+        double time = 0.0;
+        int file_number = 0;
+      };
+
+      /**
+       * Parse a surface-history schedule without accessing simulator state.
+       *
+       * For an elapsed-time schedule, @p times_are_years determines whether
+       * the first column is converted from years to seconds. For a CitcomSVE
+       * stage-age schedule, ages may use either negative ka relative to the
+       * present (the canonical CitcomSVE files) or positive ka BP. In both
+       * cases elapsed time is the chronological age difference from the first
+       * stage and data files are numbered sequentially.
+       */
+      std::vector<Stage>
+      parse_schedule(const std::string &contents,
+                     const std::string &schedule_format,
+                     const int first_data_file_number,
+                     const bool times_are_years);
+    }
+
+
+
     /**
      * Configuration for a time-dependent structured surface field.
      */
@@ -91,12 +119,6 @@ namespace aspect
                          const std::string &subsection_name);
 
       private:
-        struct Stage
-        {
-          double time = 0.0;
-          int file_number = 0;
-        };
-
         void read_schedule();
 
         void load_bracketing_fields(const unsigned int lower_stage_index,
@@ -114,7 +136,7 @@ namespace aspect
 
         SurfaceHistoryConfiguration configuration;
         types::boundary_id surface_boundary_id = numbers::invalid_boundary_id;
-        std::vector<Stage> stages;
+        std::vector<SurfaceHistoryUtilities::Stage> stages;
 
         unsigned int current_lower_stage = numbers::invalid_unsigned_int;
         unsigned int current_upper_stage = numbers::invalid_unsigned_int;

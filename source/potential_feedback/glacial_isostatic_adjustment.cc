@@ -36,6 +36,75 @@ namespace aspect
 {
   namespace PotentialFeedback
   {
+    namespace GIA
+    {
+      bool
+      ice_is_grounded(const double ice_thickness,
+                      const double bed_elevation_relative_to_sea_level,
+                      const double density_ice,
+                      const double density_water)
+      {
+        AssertThrow(density_ice > 0.0 && density_water > 0.0,
+                    ExcMessage("GIA ice and water densities must be "
+                               "positive."));
+        if (ice_thickness <= 0.0)
+          return false;
+        if (bed_elevation_relative_to_sea_level >= 0.0)
+          return true;
+
+        return density_ice * ice_thickness
+               > -density_water * bed_elevation_relative_to_sea_level;
+      }
+
+
+
+      double
+      barystatic_sea_level(
+        const SeaLevelEquation sea_level_equation,
+        const double ocean_area,
+        const double ice_mass_change,
+        const double relative_sea_level_volume,
+        const double initial_topography_volume,
+        const double density_water)
+      {
+        AssertThrow(ocean_area > 0.0,
+                    ExcMessage("The GIA ocean function contains no ocean "
+                               "area at the current model time."));
+        AssertThrow(density_water > 0.0,
+                    ExcMessage("The GIA water density must be positive."));
+
+        const double topography_term =
+          (sea_level_equation == SeaLevelEquation::yuan_2025
+           ? initial_topography_volume
+           : 0.0);
+        return (-ice_mass_change / density_water
+                - relative_sea_level_volume
+                + topography_term)
+               / ocean_area;
+      }
+
+
+
+      double
+      sea_level_change(
+        const SeaLevelEquation sea_level_equation,
+        const double ocean_function,
+        const double initial_ocean_function,
+        const double initial_topography,
+        const double relative_geoid,
+        const double barystatic_sea_level)
+      {
+        double sea_level =
+          ocean_function * (relative_geoid + barystatic_sea_level);
+        if (sea_level_equation == SeaLevelEquation::yuan_2025)
+          sea_level -= initial_topography
+                       * (ocean_function - initial_ocean_function);
+        return sea_level;
+      }
+    }
+
+
+
     namespace
     {
       bool
@@ -399,11 +468,15 @@ namespace aspect
               - sea_level_offset;
 
             const bool current_grounded =
-              ice_is_grounded(current_ice_thickness[point_index],
-                              current_bed_relative_to_sea_level);
+              GIA::ice_is_grounded(current_ice_thickness[point_index],
+                                   current_bed_relative_to_sea_level,
+                                   density_ice,
+                                   density_water);
             const bool initial_grounded =
-              ice_is_grounded(initial_ice_thickness[point_index],
-                              initial_topography_value);
+              GIA::ice_is_grounded(initial_ice_thickness[point_index],
+                                   initial_topography_value,
+                                   density_ice,
+                                   density_water);
 
             double current_ocean = 0.0;
             double initial_ocean = 0.0;
@@ -480,19 +553,13 @@ namespace aspect
            ++iteration)
         {
           global_integrals = evaluate_state(sea_level_offset, false);
-          AssertThrow(global_integrals[0] > 0.0,
-                      ExcMessage("The GIA ocean function contains no ocean "
-                                 "area at the current model time."));
-
-          const double topography_term =
-            (sea_level_equation == SeaLevelEquation::yuan_2025
-             ? global_integrals[3]
-             : 0.0);
           const double new_sea_level_offset =
-            (-global_integrals[1] / density_water
-             - global_integrals[2]
-             + topography_term)
-            / global_integrals[0];
+            GIA::barystatic_sea_level(sea_level_equation,
+                                      global_integrals[0],
+                                      global_integrals[1],
+                                      global_integrals[2],
+                                      global_integrals[3],
+                                      density_water);
           const double relative_change =
             std::abs(new_sea_level_offset - sea_level_offset)
             / std::max(1.0, std::abs(new_sea_level_offset));
@@ -516,15 +583,14 @@ namespace aspect
           const double relative_geoid =
             current_geoid[point_index]
             - current_displacement[point_index];
-          double local_sea_level =
-            ocean_function_values[point_index]
-            * (relative_geoid + sea_level_offset);
-
-          if (sea_level_equation == SeaLevelEquation::yuan_2025)
-            local_sea_level -=
-              initial_topography_values[point_index]
-              * (ocean_function_values[point_index]
-                 - initial_ocean_function_values[point_index]);
+          const double local_sea_level =
+            GIA::sea_level_change(
+              sea_level_equation,
+              ocean_function_values[point_index],
+              initial_ocean_function_values[point_index],
+              initial_topography_values[point_index],
+              relative_geoid,
+              sea_level_offset);
 
           sea_level[point_index] = local_sea_level;
           ocean_load[point_index] = density_water * local_sea_level;
@@ -583,23 +649,6 @@ namespace aspect
       current_eustatic_sea_level +=
         potential_relaxation_factor
         * (new_eustatic_sea_level - current_eustatic_sea_level);
-    }
-
-
-
-    template <int dim>
-    bool
-    GlacialIsostaticAdjustment<dim>::ice_is_grounded(
-      const double ice_thickness,
-      const double bed_elevation_relative_to_sea_level) const
-    {
-      if (ice_thickness <= 0.0)
-        return false;
-      if (bed_elevation_relative_to_sea_level >= 0.0)
-        return true;
-
-      return density_ice * ice_thickness
-             > -density_water * bed_elevation_relative_to_sea_level;
     }
 
 

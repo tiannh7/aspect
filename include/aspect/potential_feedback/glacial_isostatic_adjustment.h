@@ -37,6 +37,38 @@ namespace aspect
 {
   namespace PotentialFeedback
   {
+    namespace GIA
+    {
+      /** Return whether ice is grounded for the supplied local water depth. */
+      bool ice_is_grounded(const double ice_thickness,
+                           const double bed_elevation_relative_to_sea_level,
+                           const double density_ice,
+                           const double density_water);
+
+      /**
+       * Compute the spatially uniform sea-level constant from global
+       * integrals of the selected sea-level equation.
+       */
+      double barystatic_sea_level(
+        const SeaLevelEquation sea_level_equation,
+        const double ocean_area,
+        const double ice_mass_change,
+        const double relative_sea_level_volume,
+        const double initial_topography_volume,
+        const double density_water);
+
+      /** Evaluate the local Zhong or Yuan relative sea-level change. */
+      double sea_level_change(
+        const SeaLevelEquation sea_level_equation,
+        const double ocean_function,
+        const double initial_ocean_function,
+        const double initial_topography,
+        const double relative_geoid,
+        const double barystatic_sea_level);
+    }
+
+
+
     /**
      * Coupled ice, ocean, and sea-level-equation surface load for GIA.
      */
@@ -111,9 +143,6 @@ namespace aspect
                           const Point<dim> &position) const;
 
         Point<dim-1> surface_coordinates(const Point<dim> &position) const;
-
-        bool ice_is_grounded(const double ice_thickness,
-                             const double bed_elevation_relative_to_sea_level) const;
 
         void relax_coefficients(std::vector<double> &stored_cos,
                                 std::vector<double> &stored_sin,

@@ -276,10 +276,8 @@ namespace aspect
                             Patterns::Bool(),
                             "If true, retain the converged timestep-zero "
                             "feedback potential at later timesteps.");
-          prm.declare_entry("Freeze after timestep zero", "false",
-                            Patterns::Bool(),
-                            "If true, retain the converged timestep-zero "
-                            "feedback potential at later timesteps.");
+          prm.declare_alias("Freeze feedback after timestep zero",
+                            "Freeze after timestep zero");
           prm.declare_entry("Iterate with Stokes", "true",
                             Patterns::Bool(),
                             "Recompute feedback potentials from the current "
@@ -435,7 +433,7 @@ namespace aspect
           relative_tolerance = prm.get_double("Relative tolerance");
           maximum_iterations = prm.get_integer("Maximum iterations");
           freeze_feedback_after_timestep_zero =
-            prm.get_bool("Freeze after timestep zero");
+            prm.get_bool("Freeze feedback after timestep zero");
           iterate_with_stokes = prm.get_bool("Iterate with Stokes");
           potential_iteration_relaxation_factor =
             prm.get_double("Relaxation factor");
