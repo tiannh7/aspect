@@ -56,9 +56,6 @@ TEST_CASE("Potential feedback GIA requires self gravity",
   aspect::PotentialFeedback::Settings::declare_parameters(prm);
   prm.enter_subsection("Potential feedback");
   prm.set("List of feedback mechanisms", "glacial isostatic adjustment");
-  prm.enter_subsection("Glacial isostatic adjustment");
-  prm.set("Initial topography file name", "topography.txt");
-  prm.leave_subsection();
   prm.leave_subsection();
 
   aspect::PotentialFeedback::Settings settings;
@@ -144,70 +141,38 @@ TEST_CASE("Surface history parses elapsed nonuniform stages",
 
 
 
-TEST_CASE("GIA grounding criterion", "[potential_feedback][gia]")
-{
-  using aspect::PotentialFeedback::GIA::ice_is_grounded;
-
-  REQUIRE_FALSE(ice_is_grounded(0.0, 100.0, 900.0, 1000.0));
-  REQUIRE(ice_is_grounded(1.0, 0.0, 900.0, 1000.0));
-  REQUIRE_FALSE(ice_is_grounded(100.0, -90.0, 900.0, 1000.0));
-  REQUIRE(ice_is_grounded(101.0, -90.0, 900.0, 1000.0));
-}
-
-
-
-TEST_CASE("GIA Zhong and Yuan sea level equations conserve water mass",
+TEST_CASE("Canonical CitcomSVE GIA sea level equation conserves water mass",
           "[potential_feedback][gia]")
 {
   using aspect::PotentialFeedback::GIA::barystatic_sea_level;
   using aspect::PotentialFeedback::GIA::sea_level_change;
-  using aspect::PotentialFeedback::SeaLevelEquation;
 
   const double ocean_area = 100.0;
   const double ice_mass_change = -2000.0;
   const double relative_sea_level_volume = 3.0;
-  const double initial_topography_volume = 5.0;
   const double density_water = 1000.0;
 
-  const double zhong_barystatic =
-    barystatic_sea_level(SeaLevelEquation::zhong_2022,
-                         ocean_area,
+  const double barystatic =
+    barystatic_sea_level(ocean_area,
                          ice_mass_change,
                          relative_sea_level_volume,
-                         initial_topography_volume,
                          density_water);
-  REQUIRE(zhong_barystatic == Approx(-0.01));
+  REQUIRE(barystatic == Approx(-0.01));
   REQUIRE(density_water
           * (relative_sea_level_volume
-             + zhong_barystatic * ocean_area)
+             + barystatic * ocean_area)
           == Approx(-ice_mass_change));
 
-  const double yuan_barystatic =
-    barystatic_sea_level(SeaLevelEquation::yuan_2025,
-                         ocean_area,
-                         ice_mass_change,
-                         relative_sea_level_volume,
-                         initial_topography_volume,
-                         density_water);
-  REQUIRE(yuan_barystatic == Approx(0.04));
-  REQUIRE(density_water
-          * (relative_sea_level_volume
-             + yuan_barystatic * ocean_area
-             - initial_topography_volume)
-          == Approx(-ice_mass_change));
-
-  REQUIRE(sea_level_change(SeaLevelEquation::zhong_2022,
-                           1.0,
-                           1.0,
-                           -2.0,
+  REQUIRE(sea_level_change(1.0,
                            0.5,
                            0.25)
           == Approx(0.75));
-  REQUIRE(sea_level_change(SeaLevelEquation::yuan_2025,
-                           1.0,
-                           0.0,
-                           -2.0,
+  REQUIRE(sea_level_change(0.0,
                            0.5,
                            0.25)
-          == Approx(2.75));
+          == Approx(0.0));
+  REQUIRE(sea_level_change(0.5,
+                           0.5,
+                           0.25)
+          == Approx(0.375));
 }
