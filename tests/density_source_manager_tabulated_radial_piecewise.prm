@@ -1,0 +1,117 @@
+# Piecewise-constant tabulated reference densities derive their jump sheets and
+# must register the internal-jump face assembler with explicit jump lists empty.
+# Enable if: QUICK_TEST
+
+set Additional shared libraries = ./libdensity_source_manager_tabulated_radial.so
+set Dimension                     = 2
+set End time                      = 0
+set Nonlinear solver scheme       = iterated Advection and Stokes
+set Output directory              = output-density-source-manager-tabulated-radial-piecewise
+set Pressure normalization        = no
+set Use operator splitting        = true
+set Use years instead of seconds  = false
+
+subsection Compositional fields
+  set Names of fields                       = ve_stress_xx, ve_stress_yy, ve_stress_xy, \
+                                              ve_stress_xx_old, ve_stress_yy_old, \
+                                              ve_stress_xy_old, ve_radial_displacement
+  set Number of fields                      = 7
+  set Skip composition assembly at timestep = 0
+  set Types of fields                       = stress, stress, stress, stress, stress, \
+                                              stress, generic
+end
+
+subsection Discretization
+  set Composition polynomial degree                = 1
+  set Use discontinuous composition discretization = true
+end
+
+subsection Formulation
+  set Enable elasticity = true
+  set Mass conservation = elastic pressure evolution
+
+  subsection Density sources
+    set Density source law                        = mechanical mass conservation
+    set Reference density model                   = tabulated radial
+    set Internal density jump face tolerance      = 0.01
+    set Tabulated reference density interpolation = piecewise constant
+    set Tabulated reference radii                 = 1, 1.5, 2
+    set Tabulated reference densities             = 4100, 4000, 3700
+  end
+end
+
+subsection Geometry model
+  set Model name = spherical shell
+
+  subsection Spherical shell
+    set Custom mesh subdivision    = list of radial values
+    set Initial lateral refinement = 0
+    set Inner radius               = 1
+    set List of radial values      = 1.5, 1.75
+    set Outer radius               = 2
+  end
+end
+
+subsection Gravity model
+  set Model name = radial constant
+
+  subsection Radial constant
+    set Magnitude = 0
+  end
+end
+
+subsection Initial composition model
+  set Model name = function
+
+  subsection Function
+    set Function expression = 0; 0; 0; 0; 0; 0; 0
+  end
+end
+
+subsection Initial temperature model
+  set Model name = function
+
+  subsection Function
+    set Function expression = 0
+  end
+end
+
+subsection Material model
+  set Model name = viscoelastic
+
+  subsection Viscoelastic
+    set Densities                   = 4000
+    set Elastic bulk moduli         = 2e11
+    set Elastic shear moduli        = 1e11
+    set Enable compressible Maxwell = true
+    set Initial elastic time step   = 1
+    set Initial response mode       = instantaneous elastic
+    set Use fixed elastic time step = false
+    set Viscosities                 = 1e21
+  end
+end
+
+subsection Boundary velocity model
+  set Zero velocity boundary indicators = inner, outer
+end
+
+subsection Mesh refinement
+  set Initial adaptive refinement = 0
+  set Initial global refinement   = 0
+end
+
+subsection Postprocess
+  set List of postprocessors = density source manager tabulated radial
+end
+
+subsection Solver parameters
+  subsection Operator splitting parameters
+    set Reaction solver type                   = fixed step
+    set Reaction time step                     = 1
+    set Reaction time steps per advection step = 1
+  end
+
+  subsection Stokes solver parameters
+    set Stokes solver type = direct solver
+  end
+end

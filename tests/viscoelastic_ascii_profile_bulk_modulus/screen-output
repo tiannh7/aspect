@@ -1,0 +1,30 @@
+
+WARNING: Parameter <Material model/Viscoelastic/Fixed elastic time step> is deprecated. Please use <Material model/Viscoelastic/Initial elastic time step> instead.
+Number of active cells: 4 (on 1 levels)
+Number of degrees of freedom: 284 (59+9+36+36+36+36+36+36)
+
+*** Timestep 0:  t=0 years, dt=0 years
+   Solving temperature system... 0 iterations.
+   Skipping ve_stress_xx composition solve because RHS is zero.
+   Skipping ve_stress_yy composition solve because RHS is zero.
+   Skipping ve_stress_xy composition solve because RHS is zero.
+   Skipping ve_stress_xx_old composition solve because RHS is zero.
+   Skipping ve_stress_yy_old composition solve because RHS is zero.
+   Skipping ve_stress_xy_old composition solve because RHS is zero.
+   Solving Stokes system (direct)... done.
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 1: 1.000000e+00
+
+   Solving Stokes system (direct)... done.
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 2: 2.160884e-16
+
+
+   Postprocessing:
+     Velocity statistics (min/max/rms): x    : 0 / 0.03154 / 0.01821 m/year
+                                        y    : 0 / 0.03154 / 0.0184 m/year
+                                        total: 0 / 0.0446 / 0.02588 m/year
+                                        
+
+Termination requested by criterion: end time
+
+
+

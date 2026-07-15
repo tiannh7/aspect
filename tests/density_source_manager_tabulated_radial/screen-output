@@ -1,0 +1,19 @@
+
+Loading shared library <./libdensity_source_manager_tabulated_radial.release.so>
+
+Internal density jump restoring assembler: not registered
+Number of active cells: 3 (on 1 levels)
+Number of degrees of freedom: 71 (42+8+21)
+
+*** Timestep 0:  t=0 seconds, dt=0 seconds
+   Skipping temperature solve because RHS is zero.
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... 0+0 iterations.
+
+   Postprocessing:
+     Radial reference density: rho 4.100000e+03 / 4.050000e+03 / 3.850000e+03 / 3.700000e+03, scale 4.100000e+03, default mechanical g 9.810000e+00
+
+Termination requested by criterion: end time
+
+
+# Time = normalized trailing newline

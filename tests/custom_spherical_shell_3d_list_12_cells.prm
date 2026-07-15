@@ -1,0 +1,18 @@
+# Verify that a custom radially extruded spherical shell can use a 12-cell
+# coarse surface while the default zero value remains unchanged.
+
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/custom_spherical_shell_3d_list.prm
+
+subsection Geometry model
+  subsection Spherical shell
+    set Cells along circumference = 12
+  end
+end
+
+subsection Solver parameters
+  subsection Stokes solver parameters
+    set Stokes solver type = direct solver
+  end
+end

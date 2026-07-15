@@ -1,0 +1,50 @@
+# Verify that a viscoelastic ASCII profile supplies the elastic bulk modulus
+# used by the elastic-pressure-evolution assembler. The parameter-list bulk
+# modulus is deliberately zero, so this test fails unless the profile value is
+# used. Both profile conventions are present and must be mutually consistent.
+
+include $ASPECT_SOURCE_DIR/benchmarks/viscoelastic_stress_build_up/viscoelastic_stress_build_up.prm
+
+set End time                  = 0
+set Output directory          = output-viscoelastic-ascii-profile-bulk-modulus
+set Pressure normalization    = no
+set Nonlinear solver scheme   = single Advection, iterated Stokes
+set Use operator splitting    = true
+
+subsection Solver parameters
+  subsection Stokes solver parameters
+    set Stokes solver type = direct solver
+  end
+end
+
+subsection Geometry model
+  subsection Box
+    set X repetitions = 2
+    set Y repetitions = 2
+  end
+end
+
+subsection Formulation
+  set Enable elasticity = true
+  set Mass conservation = elastic pressure evolution
+end
+
+subsection Material model
+  set Model name = viscoelastic
+
+  subsection Viscoelastic
+    set Use ascii profile           = true
+    set Enable compressible Maxwell = true
+    set Elastic bulk moduli         = 0
+    set Initial elastic time step   = 1e3
+
+    subsection Ascii profile
+      set Data directory = $ASPECT_SOURCE_DIR/tests/
+      set Data file name = viscoelastic_ascii_profile_bulk_modulus.txt
+    end
+  end
+end
+
+subsection Postprocess
+  set List of postprocessors = basic statistics, velocity statistics
+end
