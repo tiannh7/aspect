@@ -647,7 +647,7 @@ namespace aspect
       "potential feedback",
       "Unified boundary traction model for potential-feedback-derived normal "
       "traction. The model is configured through the shared ``Potential "
-      "feedback'' parameter hierarchy and dispatches the active self-gravity "
+      "feedback'' parameter hierarchy and dispatches the active self-gravity, "
       "rotational-feedback, and glacial-isostatic-adjustment mechanisms "
       "without requiring legacy per-plugin parameter blocks.")
   }

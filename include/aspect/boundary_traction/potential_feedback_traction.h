@@ -36,12 +36,10 @@ namespace aspect
      * Thin boundary-traction adapter for potential-feedback-derived normal
      * traction.
      *
-     * This class establishes the user-facing boundary traction model name
-     * `potential feedback traction' and parses the new shared
-     * `Potential feedback' hierarchy. The first migration step keeps the
-     * existing self-gravity and rotational-feedback physics in their legacy
-     * boundary traction plugins; provider-backed traction evaluation will be
-     * connected in the next step.
+     * This class implements the user-facing `potential feedback' boundary
+     * traction model and dispatches self-gravity, tidal, rotational, and GIA
+     * mechanisms configured through the shared `Potential feedback'
+     * hierarchy.
      *
      * @ingroup BoundaryTractions
      */

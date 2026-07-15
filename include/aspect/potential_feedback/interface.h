@@ -138,10 +138,6 @@ namespace aspect
 
     /**
      * Parsed settings for the top-level Potential feedback hierarchy.
-     *
-     * This structure is intentionally limited to shared configuration. The
-     * first migration step keeps the existing feedback physics in the legacy
-     * boundary traction plugins while establishing the new parameter surface.
      */
     struct Settings
     {
