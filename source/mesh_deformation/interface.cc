@@ -227,6 +227,19 @@ namespace aspect
 
   namespace MeshDeformation
   {
+    namespace
+    {
+      void trace_mesh_deformation_stage(const MPI_Comm communicator,
+                                        const unsigned int timestep_number,
+                                        const std::string &stage)
+      {
+        if (timestep_number == 1)
+          std::cerr << "Mesh deformation diagnostic on rank "
+                    << Utilities::MPI::this_mpi_process(communicator)
+                    << ": " << stage << std::endl;
+      }
+    }
+
     template <int dim>
     bool
     Interface<dim>::needs_surface_stabilization () const
@@ -1569,15 +1582,23 @@ namespace aspect
 
       this->get_pcout() << solver_control_mf.last_step() << " iterations." << std::endl;
 
+      trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                   "distribute GMG mesh velocity constraints");
       mesh_velocity_constraints.distribute(solution);
+      trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                   "update GMG mesh velocity ghost values");
       solution.update_ghost_values();
 
       // copy solution:
       LinearAlgebra::Vector solution_tmp;
       solution_tmp.reinit(mesh_locally_owned, sim.mpi_communicator);
+      trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                   "copy GMG mesh velocity to ASPECT vector");
       internal::ChangeVectorTypes::copy(solution_tmp, solution);
 
       // Update the mesh velocity vector
+      trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                   "store GMG mesh velocity");
       fs_mesh_velocity = solution_tmp;
 
       // Update the mesh displacement vector
@@ -1596,10 +1617,20 @@ namespace aspect
                   && this->get_material_model().fixed_elastic_time_step() > 0.0)
                 dt = this->get_material_model().fixed_elastic_time_step();
             }
+          trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                       "measure and add GMG mesh displacement update");
+          if (this->get_timestep_number() == 1)
+            this->get_pcout()
+                << "   Mesh displacement diagnostic: dt=" << dt
+                << ", velocity Linfty=" << solution_tmp.linfty_norm()
+                << ", old displacement Linfty=" << distributed_mesh_displacements.linfty_norm()
+                << std::endl;
           distributed_mesh_displacements.add(dt, solution_tmp);
           mesh_displacements = distributed_mesh_displacements;
         }
 
+      trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                   "update multilevel mesh deformation");
       update_multilevel_deformation();
     }
 
@@ -1694,6 +1725,11 @@ namespace aspect
             {
               cell->get_dof_indices (cell_dof_indices);
 
+              trace_mesh_deformation_stage(
+                sim.mpi_communicator,
+                this->get_timestep_number(),
+                "interpolate mesh velocity for ALE at cell level "
+                + std::to_string(cell->level()) + " index " + std::to_string(cell->index()));
               fe_values.reinit (cell);
               fs_fe_values.reinit (fscell);
               fs_fe_values[extract_vel].get_function_values(fs_mesh_velocity, velocity_values);
@@ -1709,6 +1745,8 @@ namespace aspect
           ++fscell;
         }
 
+      trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                   "compress and store ALE mesh velocity");
       distributed_mesh_velocity.compress(VectorOperation::insert);
       mesh_velocity = distributed_mesh_velocity;
     }
@@ -1896,6 +1934,8 @@ namespace aspect
       dealii::LinearAlgebra::distributed::Vector<double> displacements(mesh_deformation_dof_handler.locally_owned_dofs(),
                                                                        this->get_mpi_communicator());
       dealii::LinearAlgebra::ReadWriteVector<double> rwv;
+      trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                   "copy mesh displacement to owned multigrid vector");
       rwv.reinit(mesh_displacements);
       displacements.import_elements(rwv, VectorOperation::insert);
 
@@ -1905,10 +1945,14 @@ namespace aspect
           level_displacements[level].zero_out_ghost_values();
         }
 
+      trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                   "interpolate mesh displacement to multigrid levels");
       mg_transfer.interpolate_to_mg(mesh_deformation_dof_handler,
                                     level_displacements,
                                     displacements);
 
+      trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                   "update multilevel mesh displacement ghost values");
       for (unsigned int level = 0; level < n_levels; ++level)
         {
           level_displacements[level].update_ghost_values();
