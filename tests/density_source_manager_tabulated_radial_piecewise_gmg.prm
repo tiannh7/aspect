@@ -1,0 +1,13 @@
+# Exercise the matrix-free internal density-jump response on the same small
+# two-level mesh as the assembled diagnostic. This is the primary solver path.
+# Enable if: QUICK_TEST
+# DEPENDS-ON: density_source_manager_tabulated_radial_piecewise
+
+include $ASPECT_SOURCE_DIR/tests/density_source_manager_tabulated_radial_piecewise_amg.prm
+
+subsection Solver parameters
+  subsection Stokes solver parameters
+    set Stokes GMG type    = local smoothing
+    set Stokes solver type = block GMG
+  end
+end
