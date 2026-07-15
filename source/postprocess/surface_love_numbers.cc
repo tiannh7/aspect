@@ -24,6 +24,7 @@
 #include <aspect/global.h>
 #include <aspect/boundary_traction/potential_feedback_traction.h>
 #include <aspect/boundary_traction/spherical_harmonic_load.h>
+#include <aspect/gravity_model/interface.h>
 #include <aspect/utilities.h>
 
 #include <deal.II/base/parameter_handler.h>
