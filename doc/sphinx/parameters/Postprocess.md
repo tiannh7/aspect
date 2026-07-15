@@ -9,15 +9,23 @@
 :name: parameters:Postprocess/List_20of_20postprocessors
 **Default value:**
 
-**Pattern:** [MultipleSelection ODE statistics|Stokes residual|basic statistics|boundary densities|boundary pressures|boundary strain rate residual statistics|boundary velocity residual statistics|command|composition statistics|composition velocity statistics|core statistics|crystal preferred orientation|current surface|depth average|domain volume statistics|dynamic topography|entropy statistics|entropy viscosity statistics|fluid velocity statistics|geoid|global statistics|gravity calculation|heat flux densities|heat flux map|heat flux statistics|heating statistics|load balance statistics|mass flux statistics|material statistics|matrix statistics|maximum depth of field|melt statistics|memory statistics|mesh geometry statistics|mobility statistics|particle count statistics|particle distribution score|particle distribution statistics|particles|point values|pressure statistics|rotation statistics|sea level|spherical velocity statistics|temperature statistics|timing statistics|topography|velocity boundary statistics|velocity statistics|viscous dissipation statistics|visualization|volume of fluid statistics ]
+**Pattern:** [MultipleSelection Composition density|Composition velocity|Composition viscosity|ODE statistics|Stokes residual|Velocity boundary|basic statistics|boundary densities|boundary pressures|boundary strain rate residual statistics|boundary velocity residual statistics|command|composition statistics|core statistics|crystal preferred orientation|current surface|depth average|domain volume statistics|dynamic topography|entropy statistics|entropy viscosity statistics|fluid velocity statistics|geoid|global statistics|gravity calculation|heat flux densities|heat flux map|heat flux statistics|heating statistics|load balance statistics|mass flux statistics|material statistics|matrix statistics|maximum depth of field|melt statistics|memory statistics|mesh geometry statistics|mobility statistics|particle count statistics|particle distribution score|particle distribution statistics|particles|point values|pressure statistics|rotation statistics|sea level|spherical velocity statistics|stress statistics|surface love numbers|surface stress statistics|temperature statistics|timing statistics|topography|velocity statistics|viscous dissipation statistics|visualization|volume of fluid statistics ]
 
 **Documentation:** A comma separated list of postprocessor objects that should be run at the end of each time step. Some of these postprocessors will declare their own parameters which may, for example, include that they will actually do something only every so many time steps or years. Alternatively, the text &lsquo;all&rsquo; indicates that all available postprocessors should be run after each time step.
 
 The following postprocessors are available:
 
+&lsquo;Composition density&rsquo;: A postprocessor that computes min/max/average density over the area spanned by each compositional field (i.e. where the field values are larger or equal to 0.5).
+
+&lsquo;Composition velocity&rsquo;: A postprocessor that computes the root mean square velocity over the area spanned by each compositional field (i.e. where the field values are larger or equal to 0.5.
+
+&lsquo;Composition viscosity&rsquo;: A postprocessor that computes min/max/average viscosity over the area spanned by each compositional field (i.e. where the field values are larger or equal to 0.5).
+
 &lsquo;ODE statistics&rsquo;: A postprocessor that computes some statistics about ODEs solved during the model evolution, specifically, how many iterations are needed to solve these ODEs on average.
 
 &lsquo;Stokes residual&rsquo;: A postprocessor that outputs the Stokes residuals during the iterative solver algorithm into a file stokes_residuals.txt in the output directory.
+
+&lsquo;Velocity boundary&rsquo;: A postprocessor that computes some statistics about the velocity along the boundaries. For each boundary indicator (see your geometry description for which boundary indicators are used), the min and max velocity magnitude is computed.
 
 &lsquo;basic statistics&rsquo;: A postprocessor that outputs some simplified statistics like the Rayleigh number and other quantities that only make sense in certain model setups. The output is written after completing initial adaptive refinement steps. The postprocessor assumes a point at the surface at the adiabatic surface temperature and pressure is a reasonable reference condition for computing these properties. Furthermore, the Rayleigh number is computed using the model depth (i.e. not the radius of the Earth), as we need a definition that is geometry independent. Take care when comparing these values to published studies and make sure they use the same definitions.
 
@@ -32,8 +40,6 @@ The following postprocessors are available:
 &lsquo;command&rsquo;: A postprocessor that executes a command line process.
 
 &lsquo;composition statistics&rsquo;: A postprocessor that computes some statistics about the compositional fields, if present in this simulation. In particular, it computes maximal and minimal values of each field, as well as the total mass contained in this field as defined by the integral $m_i(t) = \int_\Omega c_i(\mathbf x,t) \; \text{d}x$.
-
-&lsquo;composition velocity statistics&rsquo;: A postprocessor that computes the root mean square velocity over the area spanned by each compositional field (i.e. where the field values are larger or equal to 0.5.
 
 &lsquo;core statistics&rsquo;: A postprocessor that computes some statistics about the core evolution. (Working only with dynamic core boundary temperature plugin)
 
@@ -132,6 +138,12 @@ The file format then consists of lines with Euclidean coordinates followed by th
 
 &lsquo;spherical velocity statistics&rsquo;: A postprocessor that computes radial, tangential and total RMS velocity.
 
+&lsquo;stress statistics&rsquo;: A postprocessor that computes some statistics about the stress fields.
+
+&lsquo;surface love numbers&rsquo;: A postprocessor that writes the surface spherical-harmonic coefficients needed to compute load Love numbers. It combines the geoid postprocessor&rsquo;s geoid and surface mass-potential coefficients with the cumulative tangential displacement coefficients.
+
+&lsquo;surface stress statistics&rsquo;: A postprocessor that computes min/avg/max statistics of the stress tensor on boundary faces (i.e., surface). Averages are area-weighted. If elasticity is enabled, the deviatoric stress from the material model is used; otherwise it is computed from viscosity and strain rate. If requested via the visualization manager, the tensor is converted to spherical coordinates before statistics are computed.
+
 &lsquo;temperature statistics&rsquo;: A postprocessor that computes some statistics about the temperature field.
 
 &lsquo;timing statistics&rsquo;: A postprocessor that outputs timing information in the statistics file, in particular the total wall time spent in the different timing sections until the current timestep. Note that this postprocessor cannot report accurate timings for the postprocessing section as it is executed before postprocessing is complete.
@@ -141,8 +153,6 @@ The file format then consists of lines with Euclidean coordinates followed by th
 
 It is worth comparing this postprocessor with the visualization postprocessor called &ldquo;surface elevation&rdquo;. The latter is used to *visualize* the surface elevation in graphical form, by outputting it into the same files that the solution and other postprocessed variables are written, to then be used for visualization using programs such as VisIt or Paraview. In contrast, the current postprocessor generates the same *kind* of information, but instead writes it as a point cloud that can then more easily be processed using tools other than visualization programs.
 
-&lsquo;velocity boundary statistics&rsquo;: A postprocessor that computes some statistics about the velocity along the boundaries. For each boundary indicator (see your geometry description for which boundary indicators are used), the min and max velocity magnitude is computed.
-
 &lsquo;velocity statistics&rsquo;: A postprocessor that computes the root mean square and maximum velocity in the computational domain.
 
 &lsquo;viscous dissipation statistics&rsquo;: A postprocessor that outputs the viscous rate of dissipation of energy for each compositional field (where the field has a value of 0.5 or more) as well as over the whole domain. When all the fields represent lithologies and there is no background field, the sum of the individual field&rsquo;s dissipation should equal that over the whole domain. The viscous dissipation is computed as: $\int_{V}\left(\sigma^\prime \dot{\epsilon}^\prime \right)$, where $\sigma^\prime$  is the deviatoric stress and $\dot{\epsilon}^\prime$ the deviatoric strain rate.Note then when shear heating is included in the temperature equation, it is better to use the &rsquo;heating statistics&rsquo; postprocessor.
@@ -150,6 +160,15 @@ It is worth comparing this postprocessor with the visualization postprocessor ca
 &lsquo;visualization&rsquo;: A postprocessor that takes the solution and writes it into files that can be read by a graphical visualization program. Additional run time parameters are read from the parameter subsection &rsquo;Visualization&rsquo;.
 
 &lsquo;volume of fluid statistics&rsquo;: A postprocessor that computes some statistics about the volume-of-fluid fields.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Output in spherical coordinates<parameters:Postprocess/Output_20in_20spherical_20coordinates>`
+:name: parameters:Postprocess/Output_20in_20spherical_20coordinates
+**Default value:** false
+
+**Pattern:** [Bool]
+
+**Documentation:** Whether to output vector and tensor fields in spherical coordinates instead of Cartesian coordinates. This affects postprocessors that output velocity, stress, or other vector/tensor quantities.
 ::::
 
 ::::{dropdown} __Parameter:__ {ref}`Run postprocessors on nonlinear iterations<parameters:Postprocess/Run_20postprocessors_20on_20nonlinear_20iterations>`
@@ -266,10 +285,10 @@ It is worth comparing this postprocessor with the visualization postprocessor ca
 **Documentation:** Select whether ASPECT should terminate if the command returns a non-zero exit status.
 ::::
 
-(parameters:Postprocess/Composition_20velocity_20statistics)=
-## **Subsection:** Postprocess / Composition velocity statistics
-::::{dropdown} __Parameter:__ {ref}`Names of selected compositional fields<parameters:Postprocess/Composition_20velocity_20statistics/Names_20of_20selected_20compositional_20fields>`
-:name: parameters:Postprocess/Composition_20velocity_20statistics/Names_20of_20selected_20compositional_20fields
+(parameters:Postprocess/Composition_20velocity)=
+## **Subsection:** Postprocess / Composition velocity
+::::{dropdown} __Parameter:__ {ref}`Names of selected compositional fields<parameters:Postprocess/Composition_20velocity/Names_20of_20selected_20compositional_20fields>`
+:name: parameters:Postprocess/Composition_20velocity/Names_20of_20selected_20compositional_20fields
 **Default value:**
 
 **Pattern:** [List of <[Anything]> of length 0...4294967295 (inclusive)]
@@ -484,22 +503,22 @@ all|temperature|composition|adiabatic temperature|adiabatic pressure|adiabatic d
 **Deprecation Status:** false
 ::::
 
-::::{dropdown} __Parameter:__ {ref}`Density above<parameters:Postprocess/Geoid/Density_20above>`
-:name: parameters:Postprocess/Geoid/Density_20above
-**Default value:** 0.
+::::{dropdown} __Parameter:__ {ref}`Density anomaly contribution mode<parameters:Postprocess/Geoid/Density_20anomaly_20contribution_20mode>`
+:name: parameters:Postprocess/Geoid/Density_20anomaly_20contribution_20mode
+**Default value:** unspecified
 
-**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+**Pattern:** [Selection auto|always|never|unspecified ]
 
-**Documentation:** The density value above the surface boundary.
+**Documentation:** Deprecated.
 ::::
 
-::::{dropdown} __Parameter:__ {ref}`Density below<parameters:Postprocess/Geoid/Density_20below>`
-:name: parameters:Postprocess/Geoid/Density_20below
-**Default value:** 9900.
+::::{dropdown} __Parameter:__ {ref}`Density anomaly tolerance<parameters:Postprocess/Geoid/Density_20anomaly_20tolerance>`
+:name: parameters:Postprocess/Geoid/Density_20anomaly_20tolerance
+**Default value:** -1e300
 
-**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+**Pattern:** [Double -MAX_DOUBLE...MAX_DOUBLE (inclusive)]
 
-**Documentation:** The density value below the CMB boundary.
+**Documentation:** Deprecated.
 ::::
 
 ::::{dropdown} __Parameter:__ {ref}`Include CMB topography contribution<parameters:Postprocess/Geoid/Include_20CMB_20topography_20contribution>`
@@ -590,6 +609,42 @@ all|temperature|composition|adiabatic temperature|adiabatic pressure|adiabatic d
 **Pattern:** [Bool]
 
 **Documentation:** Option to output the spherical harmonic coefficients of the surface topography contribution to the maximum degree. The default is false.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Output text files<parameters:Postprocess/Geoid/Output_20text_20files>`
+:name: parameters:Postprocess/Geoid/Output_20text_20files
+**Default value:** true
+
+**Pattern:** [Bool]
+
+**Documentation:** Whether this postprocessor writes its own geoid text files. The spherical-harmonic coefficients are still computed and kept in memory for dependent postprocessors.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Reference density for anomaly<parameters:Postprocess/Geoid/Reference_20density_20for_20anomaly>`
+:name: parameters:Postprocess/Geoid/Reference_20density_20for_20anomaly
+**Default value:** -1e300
+
+**Pattern:** [Double -MAX_DOUBLE...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Deprecated.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Time between text output<parameters:Postprocess/Geoid/Time_20between_20text_20output>`
+:name: parameters:Postprocess/Geoid/Time_20between_20text_20output
+**Default value:** 0.
+
+**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+
+**Documentation:** The simulation time interval between text file outputs.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Time steps between text output<parameters:Postprocess/Geoid/Time_20steps_20between_20text_20output>`
+:name: parameters:Postprocess/Geoid/Time_20steps_20between_20text_20output
+**Default value:** 1
+
+**Pattern:** [Integer range 0...2147483647 (inclusive)]
+
+**Documentation:** The number of time steps between text file outputs.
 ::::
 
 (parameters:Postprocess/Global_20statistics)=
@@ -1017,6 +1072,118 @@ Units: years if the &rsquo;Use years instead of seconds&rsquo; parameter is set;
 **Documentation:** The density of water [kg/m3]
 ::::
 
+(parameters:Postprocess/Surface_20love_20numbers)=
+## **Subsection:** Postprocess / Surface love numbers
+::::{dropdown} __Parameter:__ {ref}`Degree 1 boundary traction RHS diagnostic<parameters:Postprocess/Surface_20love_20numbers/Degree_201_20boundary_20traction_20RHS_20diagnostic>`
+:name: parameters:Postprocess/Surface_20love_20numbers/Degree_201_20boundary_20traction_20RHS_20diagnostic
+**Default value:** false
+
+**Pattern:** [Bool]
+
+**Documentation:** Whether to write a default-off diagnostic that projects the actual top and bottom boundary traction returned by the boundary-traction manager onto the normalized Y10 spherical harmonic. This is intended to compare ASPECT&rsquo;s solve-stage Neumann RHS against CitcomSVE&rsquo;s post-append load[1]/load[3] coefficients.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Degree 1 center of mass displacement scale<parameters:Postprocess/Surface_20love_20numbers/Degree_201_20center_20of_20mass_20displacement_20scale>`
+:name: parameters:Postprocess/Surface_20love_20numbers/Degree_201_20center_20of_20mass_20displacement_20scale
+**Default value:** 1.0
+
+**Pattern:** [Double -MAX_DOUBLE...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Scale factor applied to the diagnosed center-of-mass displacement when using the &rsquo;citcomsve-deformation-cm&rsquo; degree-1 displacement reference frame. This diagnostic parameter is ignored for other reference frames.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Degree 1 displacement reference frame<parameters:Postprocess/Surface_20love_20numbers/Degree_201_20displacement_20reference_20frame>`
+:name: parameters:Postprocess/Surface_20love_20numbers/Degree_201_20displacement_20reference_20frame
+**Default value:** solution
+
+**Pattern:** [Selection solution|nullspace-restored|citcomsve-deformation-cm ]
+
+**Documentation:** Reference frame used for degree-1 tangential displacement diagnostics. The default &rsquo;solution&rsquo; uses the ASPECT velocity after nullspace removal. The &rsquo;nullspace-restored&rsquo; option adds the uniform translation removed by ASPECT&rsquo;s net-translation nullspace removal back to degree-1 poloidal displacement coefficients before computing l; this is intended only as a diagnostic. The &rsquo;citcomsve-deformation-cm&rsquo; option subtracts the deformation-only center-of-mass increment diagnosed by the self-gravity feedback from degree-1 radial and poloidal displacement coefficients, matching CitcomSVE&rsquo;s shift_to_CM output-frame operation.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Degree 1 mass moment projection poloidal ratio<parameters:Postprocess/Surface_20love_20numbers/Degree_201_20mass_20moment_20projection_20poloidal_20ratio>`
+:name: parameters:Postprocess/Surface_20love_20numbers/Degree_201_20mass_20moment_20projection_20poloidal_20ratio
+**Default value:** -1.0
+
+**Pattern:** [Double -MAX_DOUBLE...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Diagnostic ratio dV_10/dU_10 used by the degree-1 mass-moment projection prototype. The default uses opposite radial and poloidal coefficient corrections and is ignored unless the prototype is enabled.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Degree 1 mass moment projection prototype<parameters:Postprocess/Surface_20love_20numbers/Degree_201_20mass_20moment_20projection_20prototype>`
+:name: parameters:Postprocess/Surface_20love_20numbers/Degree_201_20mass_20moment_20projection_20prototype
+**Default value:** false
+
+**Pattern:** [Bool]
+
+**Documentation:** Whether to run a default-off l=1,m=0 diagnostic prototype that projects the degree-1 radial and poloidal displacement coefficients toward zero pre-reference-frame-cancellation Phi_10/g. This does not modify the Stokes solve or production degree >= 2 Love-number diagnostics.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Initial elastic displacement time<parameters:Postprocess/Surface_20love_20numbers/Initial_20elastic_20displacement_20time>`
+:name: parameters:Postprocess/Surface_20love_20numbers/Initial_20elastic_20displacement_20time
+**Default value:** 0
+
+**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Time interval used to convert the timestep-zero instantaneous elastic tangential velocity to an initial tangential displacement. Units follow the model time setting.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Maximum degree<parameters:Postprocess/Surface_20love_20numbers/Maximum_20degree>`
+:name: parameters:Postprocess/Surface_20love_20numbers/Maximum_20degree
+**Default value:** 32
+
+**Pattern:** [Integer range 0...2147483647 (inclusive)]
+
+**Documentation:** Maximum spherical-harmonic degree for the tangential surface-displacement projection.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Minimum degree<parameters:Postprocess/Surface_20love_20numbers/Minimum_20degree>`
+:name: parameters:Postprocess/Surface_20love_20numbers/Minimum_20degree
+**Default value:** 0
+
+**Pattern:** [Integer range 0...2147483647 (inclusive)]
+
+**Documentation:** Minimum spherical-harmonic degree for the tangential surface-displacement projection.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Output coefficients<parameters:Postprocess/Surface_20love_20numbers/Output_20coefficients>`
+:name: parameters:Postprocess/Surface_20love_20numbers/Output_20coefficients
+**Default value:** true
+
+**Pattern:** [Bool]
+
+**Documentation:** Whether to write one text file per output time with normalized h, k, and l load Love numbers followed by the raw geoid, surface mass-potential, and cumulative tangential displacement coefficients used to compute them.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Time between text output<parameters:Postprocess/Surface_20love_20numbers/Time_20between_20text_20output>`
+:name: parameters:Postprocess/Surface_20love_20numbers/Time_20between_20text_20output
+**Default value:** 0
+
+**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Time interval between text outputs. A value of zero disables time-based output control.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Time steps between text output<parameters:Postprocess/Surface_20love_20numbers/Time_20steps_20between_20text_20output>`
+:name: parameters:Postprocess/Surface_20love_20numbers/Time_20steps_20between_20text_20output
+**Default value:** 1
+
+**Pattern:** [Integer range 0...2147483647 (inclusive)]
+
+**Documentation:** Number of time steps between text outputs. A value of zero disables timestep-based output control.
+::::
+
+(parameters:Postprocess/Surface_20stress_20statistics)=
+## **Subsection:** Postprocess / Surface stress statistics
+::::{dropdown} __Parameter:__ {ref}`Output unified coefficients<parameters:Postprocess/Surface_20stress_20statistics/Output_20unified_20coefficients>`
+:name: parameters:Postprocess/Surface_20stress_20statistics/Output_20unified_20coefficients
+**Default value:** true
+
+**Pattern:** [Bool]
+
+**Documentation:** Whether to write one surface-stress spherical-harmonic coefficient file per timestep containing all tensor components.
+::::
+
 (parameters:Postprocess/Topography)=
 ## **Subsection:** Postprocess / Topography
 ::::{dropdown} __Parameter:__ {ref}`Output to file<parameters:Postprocess/Topography/Output_20to_20file>`
@@ -1070,7 +1237,7 @@ Of course, activating this option also greatly increases the amount of data ASPE
 :name: parameters:Postprocess/Visualization/List_20of_20output_20variables
 **Default value:**
 
-**Pattern:** [MultipleSelection ISA rotation timescale|Vp anomaly|Vs anomaly|adiabat|artificial viscosity|artificial viscosity composition|boundary indicators|boundary strain rate residual|boundary velocity residual|compositional vector|darcy velocity|density anomaly|depth|depth including mesh deformation|dynamic topography|entropy average|error indicator|geoid|grain lag angle|gravity|heat flux map|heating|material properties|maximum horizontal compressive stress|melt fraction|melt material properties|named additional outputs|nonadiabatic pressure|nonadiabatic temperature|particle count|partition|principal stress|shear stress|spd factor|spherical velocity components|strain rate|strain rate tensor|stress|stress residual|stress second invariant|surface dynamic topography|surface elevation|surface strain rate tensor|surface stress|temperature anomaly|vertical heat flux|volume of fluid values|volumetric strain rate ]
+**Pattern:** [MultipleSelection ISA rotation timescale|Vp anomaly|Vs anomaly|adiabat|artificial viscosity|artificial viscosity composition|boundary indicators|boundary strain rate residual|boundary velocity residual|compositional vector|darcy velocity|density anomaly|depth|depth including mesh deformation|dynamic topography|entropy average|error indicator|geoid|grain lag angle|gravity|heat flux map|heating|material properties|maximum horizontal compressive stress|melt fraction|melt material properties|named additional outputs|nonadiabatic pressure|nonadiabatic temperature|particle count|partition|principal stress|shear stress|spd factor|spherical velocity components|strain rate|strain rate tensor|stress|stress residual|stress second invariant|surface dynamic topography|surface elevation|surface geoid|surface gravity anomaly|surface strain rate tensor|surface stress|temperature anomaly|vertical heat flux|volume of fluid values|volumetric strain rate ]
 
 **Documentation:** A comma separated list of visualization objects that should be run whenever writing graphical output. By default, the graphical output files will always contain the primary variables velocity, pressure, and temperature. However, one frequently wants to also visualize derived quantities, such as the thermodynamic phase that corresponds to a given temperature-pressure value, or the corresponding seismic wave speeds. The visualization objects do exactly this: they compute such derived quantities and place them into the output file. The current parameter is the place where you decide which of these additional output variables you want to have in your output file.
 
@@ -1281,6 +1448,14 @@ It is worth comparing this visualization postprocessor with the one called &ldqu
 Finally, it is worth pointing out the &ldquo;topography&rdquo; postprocessor (not a visualization postprocessor) that returns the surface elevation as a point cloud into a text file. The information is comparable to what the current object creates, but it is not as easily used to visualize information.
 
 Physical units: $\text{m}$.
+
+&lsquo;surface geoid&rsquo;: Visualization for the surface geoid solution. The geoid is given by the equivalent water column height due to a gravity perturbation.
+
+Physical units: $\text{m}$.
+
+&lsquo;surface gravity anomaly&rsquo;: Visualization for the surface gravity anomaly. The gravity anomaly is the deviation of the gravity field from a reference gravity field. This postprocessor computes the free-air gravity anomaly at the surface using spherical harmonic expansion. The gravity anomaly is physically meaningful primarily at the surface.
+
+Physical units: $\text{mGal}$.
 
 &lsquo;surface strain rate tensor&rsquo;: A visualization output object that generates output on the surface of the domain for the 4 (in 2d) or 9 (in 3d) components of the strain rate tensor, i.e., for the components of the tensor $\varepsilon(\mathbf u)$ in the incompressible case and $\varepsilon(\mathbf u)-\tfrac 13(\textrm{tr}\;\varepsilon(\mathbf u))\mathbf I$ in the compressible case.Note that both in 2d and in 3d the output tensor will have 9 elements, but that in 2d, only 4 are filled.
 
@@ -1670,6 +1845,17 @@ viscosity|density|thermal expansivity|specific heat|thermal conductivity|thermal
 **Documentation:** A comma separated list of melt properties that should be written whenever writing graphical output. The following material properties are available:
 
 compaction viscosity|fluid viscosity|permeability|fluid density|fluid density gradient|is melt cell|darcy coefficient|darcy coefficient no cutoff|compaction length
+::::
+
+(parameters:Postprocess/Visualization/Named_20additional_20outputs)=
+## **Subsection:** Postprocess / Visualization / Named additional outputs
+::::{dropdown} __Parameter:__ {ref}`List of named outputs<parameters:Postprocess/Visualization/Named_20additional_20outputs/List_20of_20named_20outputs>`
+:name: parameters:Postprocess/Visualization/Named_20additional_20outputs/List_20of_20named_20outputs
+**Default value:**
+
+**Pattern:** [MultipleSelection current cohesions|current friction angles|current yield stresses|plastic yielding|elastic shear modulus|elastic viscosity|prescribed shear heating rates|current diffusion viscosity|current dislocation viscosity|reaction rate C0|reaction rate C1|reaction rate Cn ]
+
+**Documentation:** A comma separated list of named additional outputs that should be written whenever writing graphical output. By default, all available named additional outputs will be written. If this parameter is set, only the specified outputs will be written. The available outputs depend on the material model in use. Alternatively, the text &lsquo;all&rsquo; indicates that all available named additional outputs should be written.
 ::::
 
 (parameters:Postprocess/Visualization/Principal_20stress)=
