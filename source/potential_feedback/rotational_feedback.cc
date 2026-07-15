@@ -223,7 +223,8 @@ namespace aspect
 
       const auto load_traction_on_boundary =
         [&plugins,
-         &plugin_boundaries]
+         &plugin_boundaries,
+         this]
         (const types::boundary_id boundary_id,
          const Point<dim> &position,
          const Tensor<1,dim> &face_normal)
@@ -246,6 +247,11 @@ namespace aspect
 
             ++plugin_index;
           }
+
+        if (additional_load_traction_function)
+          load_traction += additional_load_traction_function(boundary_id,
+                                                             position,
+                                                             face_normal);
 
         return load_traction;
       };
@@ -576,6 +582,50 @@ namespace aspect
             this->get_pcout()
                 << "        status=maximum iterations reached" << std::endl;
         }
+    }
+
+
+
+    template <int dim>
+    double
+    RotationalFeedback<dim>::potential_height(
+      const types::boundary_id boundary_indicator,
+      const Point<dim> &position) const
+    {
+      if (!enabled || surface_potential_cos_coeffs.empty())
+        return 0.0;
+
+      const bool is_surface = boundary_indicator == top_boundary_id;
+      const bool is_cmb = boundary_indicator == bottom_boundary_id;
+      if (!is_surface && !is_cmb)
+        return 0.0;
+
+      const std::array<double,dim> spherical_coordinates =
+        Utilities::Coordinates::cartesian_to_spherical_coordinates(position);
+      const std::vector<double> &cos_coefficients =
+        (is_surface ? surface_potential_cos_coeffs : cmb_potential_cos_coeffs);
+      const std::vector<double> &sin_coefficients =
+        (is_surface ? surface_potential_sin_coeffs : cmb_potential_sin_coeffs);
+
+      if constexpr (dim == 3)
+        return sh_transform->synthesize(cos_coefficients,
+                                        sin_coefficients,
+        {spherical_coordinates[2]},
+        {spherical_coordinates[1]})[0];
+
+      return 0.0;
+    }
+
+
+
+    template <int dim>
+    void
+    RotationalFeedback<dim>::set_additional_load_traction_function(
+      const std::function<Tensor<1,dim>(const types::boundary_id,
+                                        const Point<dim> &,
+                                        const Tensor<1,dim> &)> &function)
+    {
+      additional_load_traction_function = function;
     }
 
 

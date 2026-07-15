@@ -22,6 +22,7 @@
 #define _aspect_boundary_traction_potential_feedback_traction_h
 
 #include <aspect/boundary_traction/interface.h>
+#include <aspect/potential_feedback/glacial_isostatic_adjustment.h>
 #include <aspect/potential_feedback/rotational_feedback.h>
 #include <aspect/potential_feedback/self_gravitation.h>
 #include <aspect/potential_feedback/interface.h>
@@ -58,6 +59,24 @@ namespace aspect
         boundary_traction(const types::boundary_id boundary_indicator,
                           const Point<dim> &position,
                           const Tensor<1,dim> &normal_vector) const override;
+
+        double surface_potential_height(const Point<dim> &position) const;
+
+        bool has_glacial_isostatic_adjustment() const;
+
+        double gia_surface_mass_density(const Point<dim> &position) const;
+
+        double gia_ice_load_mass_density(const Point<dim> &position) const;
+
+        double gia_ocean_load_mass_density(const Point<dim> &position) const;
+
+        double gia_sea_level_change(const Point<dim> &position) const;
+
+        double gia_ocean_function(const Point<dim> &position) const;
+
+        double gia_barystatic_sea_level() const;
+
+        double gia_eustatic_sea_level() const;
 
         bool has_self_gravity_feedback() const;
 
@@ -114,6 +133,10 @@ namespace aspect
         static void declare_parameters(ParameterHandler &prm);
         void parse_parameters(ParameterHandler &prm) override;
 
+        void save(std::map<std::string, std::string> &status_strings) const override;
+
+        void load(const std::map<std::string, std::string> &status_strings) override;
+
       private:
         bool mechanism_is_active(const std::string &name) const;
 
@@ -128,9 +151,12 @@ namespace aspect
         PotentialFeedback::Settings settings;
         bool self_gravity_active = false;
         bool rotational_feedback_active = false;
+        bool glacial_isostatic_adjustment_active = false;
 
         PotentialFeedback::SelfGravitation<dim> self_gravity;
         PotentialFeedback::RotationalFeedback<dim> rotational_feedback;
+        PotentialFeedback::GlacialIsostaticAdjustment<dim>
+        glacial_isostatic_adjustment;
     };
   }
 }

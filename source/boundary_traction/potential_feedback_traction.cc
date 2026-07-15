@@ -21,6 +21,7 @@
 #include <aspect/boundary_traction/potential_feedback_traction.h>
 
 #include <algorithm>
+#include <sstream>
 
 namespace aspect
 {
@@ -132,12 +133,42 @@ namespace aspect
         self_gravity.configure_from_potential_feedback_settings(settings);
       if (rotational_feedback_active)
         rotational_feedback.configure_from_potential_feedback_settings(settings);
+      if (glacial_isostatic_adjustment_active)
+        glacial_isostatic_adjustment
+        .configure_from_potential_feedback_settings(settings);
+
+      if (glacial_isostatic_adjustment_active)
+        {
+          const auto gia_traction =
+            [this](const types::boundary_id boundary_indicator,
+                   const Point<dim> &position,
+                   const Tensor<1,dim> &normal_vector)
+          {
+            return glacial_isostatic_adjustment.boundary_traction(
+                     boundary_indicator, position, normal_vector);
+          };
+
+          self_gravity.set_additional_load_traction_function(gia_traction);
+          if (rotational_feedback_active)
+            rotational_feedback.set_additional_load_traction_function(
+              gia_traction);
+
+          glacial_isostatic_adjustment
+          .set_surface_potential_height_function(
+            [this](const Point<dim> &position)
+          {
+            return this->surface_potential_height(position);
+          });
+        }
 
       if (self_gravity_active)
         self_gravity.initialize();
 
       if (rotational_feedback_active)
         rotational_feedback.initialize();
+
+      if (glacial_isostatic_adjustment_active)
+        glacial_isostatic_adjustment.initialize();
     }
 
 
@@ -149,11 +180,17 @@ namespace aspect
       if (&primary_provider() != this)
         return;
 
+      if (glacial_isostatic_adjustment_active)
+        glacial_isostatic_adjustment.update();
+
       if (self_gravity_active)
         self_gravity.update();
 
       if (rotational_feedback_active)
         rotational_feedback.update();
+
+      if (glacial_isostatic_adjustment_active)
+        glacial_isostatic_adjustment.update_load_from_current_potential();
     }
 
 
@@ -172,6 +209,10 @@ namespace aspect
 
       Tensor<1,dim> traction;
 
+      if (glacial_isostatic_adjustment_active)
+        traction += glacial_isostatic_adjustment.boundary_traction(
+                      boundary_indicator, position, normal_vector);
+
       if (self_gravity_active)
         traction += self_gravity.boundary_traction(boundary_indicator,
                                                    position,
@@ -183,6 +224,135 @@ namespace aspect
                                                           normal_vector);
 
       return traction;
+    }
+
+
+
+    template <int dim>
+    double
+    PotentialFeedbackTraction<dim>::surface_potential_height(
+      const Point<dim> &position) const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().surface_potential_height(position);
+
+      const types::boundary_id top_boundary_id =
+        this->get_geometry_model().translate_symbolic_boundary_name_to_id("top");
+      double potential_height = 0.0;
+      if (self_gravity_active)
+        potential_height += self_gravity.potential_height(top_boundary_id,
+                                                           position);
+      if (rotational_feedback_active)
+        potential_height += rotational_feedback.potential_height(
+                              top_boundary_id, position);
+      return potential_height;
+    }
+
+
+
+    template <int dim>
+    bool
+    PotentialFeedbackTraction<dim>::has_glacial_isostatic_adjustment() const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().has_glacial_isostatic_adjustment();
+      return glacial_isostatic_adjustment_active;
+    }
+
+
+
+    template <int dim>
+    double
+    PotentialFeedbackTraction<dim>::gia_surface_mass_density(
+      const Point<dim> &position) const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().gia_surface_mass_density(position);
+      AssertThrow(glacial_isostatic_adjustment_active,
+                  ExcMessage("GIA is not active."));
+      return glacial_isostatic_adjustment.surface_mass_density(position);
+    }
+
+
+
+    template <int dim>
+    double
+    PotentialFeedbackTraction<dim>::gia_ice_load_mass_density(
+      const Point<dim> &position) const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().gia_ice_load_mass_density(position);
+      AssertThrow(glacial_isostatic_adjustment_active,
+                  ExcMessage("GIA is not active."));
+      return glacial_isostatic_adjustment.ice_load_mass_density(position);
+    }
+
+
+
+    template <int dim>
+    double
+    PotentialFeedbackTraction<dim>::gia_ocean_load_mass_density(
+      const Point<dim> &position) const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().gia_ocean_load_mass_density(position);
+      AssertThrow(glacial_isostatic_adjustment_active,
+                  ExcMessage("GIA is not active."));
+      return glacial_isostatic_adjustment.ocean_load_mass_density(position);
+    }
+
+
+
+    template <int dim>
+    double
+    PotentialFeedbackTraction<dim>::gia_sea_level_change(
+      const Point<dim> &position) const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().gia_sea_level_change(position);
+      AssertThrow(glacial_isostatic_adjustment_active,
+                  ExcMessage("GIA is not active."));
+      return glacial_isostatic_adjustment.sea_level_change(position);
+    }
+
+
+
+    template <int dim>
+    double
+    PotentialFeedbackTraction<dim>::gia_ocean_function(
+      const Point<dim> &position) const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().gia_ocean_function(position);
+      AssertThrow(glacial_isostatic_adjustment_active,
+                  ExcMessage("GIA is not active."));
+      return glacial_isostatic_adjustment.ocean_function(position);
+    }
+
+
+
+    template <int dim>
+    double
+    PotentialFeedbackTraction<dim>::gia_barystatic_sea_level() const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().gia_barystatic_sea_level();
+      AssertThrow(glacial_isostatic_adjustment_active,
+                  ExcMessage("GIA is not active."));
+      return glacial_isostatic_adjustment.barystatic_sea_level();
+    }
+
+
+
+    template <int dim>
+    double
+    PotentialFeedbackTraction<dim>::gia_eustatic_sea_level() const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().gia_eustatic_sea_level();
+      AssertThrow(glacial_isostatic_adjustment_active,
+                  ExcMessage("GIA is not active."));
+      return glacial_isostatic_adjustment.eustatic_sea_level();
     }
 
 
@@ -364,7 +534,10 @@ namespace aspect
       return (!self_gravity_active || self_gravity.potential_is_converged())
              &&
              (!rotational_feedback_active
-              || rotational_feedback.potential_is_converged());
+              || rotational_feedback.potential_is_converged())
+             &&
+             (!glacial_isostatic_adjustment_active
+              || glacial_isostatic_adjustment.potential_is_converged());
     }
 
 
@@ -389,6 +562,8 @@ namespace aspect
                             || mechanism_is_active("tidal potential");
       rotational_feedback_active =
         mechanism_is_active("rotational feedback");
+      glacial_isostatic_adjustment_active =
+        mechanism_is_active("glacial isostatic adjustment");
 
       AssertThrow(settings.has_active_mechanisms(),
                   ExcMessage("The `potential feedback' boundary traction "
@@ -407,6 +582,57 @@ namespace aspect
           rotational_feedback.initialize_simulator(this->get_simulator());
           rotational_feedback.configure_from_potential_feedback_settings(
             settings);
+        }
+
+      if (glacial_isostatic_adjustment_active)
+        {
+          AssertThrow(settings.include_surface_feedback,
+                      ExcMessage("Glacial isostatic adjustment requires the "
+                                 "`potential feedback' traction model on the "
+                                 "top boundary."));
+          glacial_isostatic_adjustment.initialize_simulator(
+            this->get_simulator());
+          glacial_isostatic_adjustment
+          .configure_from_potential_feedback_settings(settings);
+        }
+    }
+
+
+
+    template <int dim>
+    void
+    PotentialFeedbackTraction<dim>::save(
+      std::map<std::string, std::string> &status_strings) const
+    {
+      if (&primary_provider() != this
+          || !glacial_isostatic_adjustment_active)
+        return;
+
+      std::ostringstream output;
+      {
+        aspect::oarchive archive(output);
+        archive << glacial_isostatic_adjustment;
+      }
+      status_strings["PotentialFeedbackTractionGIA"] = output.str();
+    }
+
+
+
+    template <int dim>
+    void
+    PotentialFeedbackTraction<dim>::load(
+      const std::map<std::string, std::string> &status_strings)
+    {
+      if (&primary_provider() != this
+          || !glacial_isostatic_adjustment_active)
+        return;
+
+      const auto state = status_strings.find("PotentialFeedbackTractionGIA");
+      if (state != status_strings.end())
+        {
+          std::istringstream input(state->second);
+          aspect::iarchive archive(input);
+          archive >> glacial_isostatic_adjustment;
         }
     }
   }

@@ -355,6 +355,11 @@ namespace aspect
             ++plugin_index;
           }
 
+        if (additional_load_traction_function)
+          load_traction += additional_load_traction_function(boundary_id,
+                                                             position,
+                                                             face_normal);
+
         return load_traction;
       };
 
@@ -1652,6 +1657,53 @@ namespace aspect
     {
       return citcomsve_degree_one_load_replay_diagnostic.cmb_final_rhs_10;
     }
+
+
+    template <int dim>
+    double
+    SelfGravitation<dim>::potential_height(
+      const types::boundary_id boundary_indicator,
+      const Point<dim> &position) const
+    {
+      if (surface_potential_cos_coeffs.empty())
+        return 0.0;
+
+      const bool is_surface = boundary_indicator == top_boundary_id;
+      const bool is_cmb = boundary_indicator == bottom_boundary_id;
+      if (!is_surface && !is_cmb)
+        return 0.0;
+
+      const std::vector<double> &potential_cos =
+        (is_surface ? surface_potential_cos_coeffs : cmb_potential_cos_coeffs);
+      const std::vector<double> &potential_sin =
+        (is_surface ? surface_potential_sin_coeffs : cmb_potential_sin_coeffs);
+      const std::array<double,dim> spherical_coordinates =
+        Utilities::Coordinates::cartesian_to_spherical_coordinates(position);
+
+      if constexpr (dim == 3)
+        return timed_spherical_harmonic_synthesis(
+                 potential_cos,
+                 potential_sin,
+        {spherical_coordinates[2]},
+        {spherical_coordinates[1]})[0];
+
+      return fourier_transform->synthesize(potential_cos,
+                                           potential_sin,
+      {spherical_coordinates[1]})[0];
+    }
+
+
+
+    template <int dim>
+    void
+    SelfGravitation<dim>::set_additional_load_traction_function(
+      const std::function<Tensor<1,dim>(const types::boundary_id,
+                                        const Point<dim> &,
+                                        const Tensor<1,dim> &)> &function)
+    {
+      additional_load_traction_function = function;
+    }
+
 
 
     template <int dim>

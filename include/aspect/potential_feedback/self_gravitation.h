@@ -27,6 +27,7 @@
 #include <aspect/simulator_access.h>
 #include <aspect/utilities.h>
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -92,6 +93,16 @@ namespace aspect
         boundary_traction(const types::boundary_id boundary_indicator,
                           const Point<dim> &position,
                           const Tensor<1,dim> &normal_vector) const override;
+
+        /** Return the current non-local potential height Phi/g. */
+        double potential_height(const types::boundary_id boundary_indicator,
+                                const Point<dim> &position) const;
+
+        /** Add a load owned by the unified potential-feedback adapter. */
+        void set_additional_load_traction_function(
+          const std::function<Tensor<1,dim>(const types::boundary_id,
+                                            const Point<dim> &,
+                                            const Tensor<1,dim> &)> &function);
 
         /** Return the cosine/sine coefficient of Phi/g at the surface due
          * to the effective surface mass (external load plus topography). */
@@ -373,6 +384,11 @@ namespace aspect
         types::boundary_id bottom_boundary_id;
 
         bool configured_from_potential_feedback = false;
+
+        std::function<Tensor<1,dim>(const types::boundary_id,
+                                    const Point<dim> &,
+                                    const Tensor<1,dim> &)>
+        additional_load_traction_function;
 
         /**
          * The SH transform utility (3D) or Fourier transform (2D).

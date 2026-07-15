@@ -26,6 +26,7 @@
 #include <aspect/simulator_access.h>
 #include <aspect/utilities.h>
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -59,6 +60,16 @@ namespace aspect
         boundary_traction(const types::boundary_id boundary_indicator,
                           const Point<dim> &position,
                           const Tensor<1,dim> &normal_vector) const override;
+
+        /** Return the current rotational potential height Phi/g. */
+        double potential_height(const types::boundary_id boundary_indicator,
+                                const Point<dim> &position) const;
+
+        /** Add a load owned by the unified potential-feedback adapter. */
+        void set_additional_load_traction_function(
+          const std::function<Tensor<1,dim>(const types::boundary_id,
+                                            const Point<dim> &,
+                                            const Tensor<1,dim> &)> &function);
 
         /**
          * Return whether the stored rotational potential changed by less than
@@ -119,6 +130,11 @@ namespace aspect
         std::vector<double> surface_potential_sin_coeffs;
         std::vector<double> cmb_potential_cos_coeffs;
         std::vector<double> cmb_potential_sin_coeffs;
+
+        std::function<Tensor<1,dim>(const types::boundary_id,
+                                    const Point<dim> &,
+                                    const Tensor<1,dim> &)>
+        additional_load_traction_function;
     };
   }
 }
