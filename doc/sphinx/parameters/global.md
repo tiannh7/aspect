@@ -38,6 +38,33 @@ For more information, see the section in the manual that discusses the general m
 **Documentation:** In computations, the time step $k$ is chosen according to $k = c \min_K \frac {h_K} {\|u\|_{\infty,K} p_T}$ where $h_K$ is the diameter of cell $K$, and the denominator is the maximal magnitude of the velocity on cell $K$ times the polynomial degree $p_T$ of the temperature discretization. The dimensionless constant $c$ is called the CFL number in this program. For time discretizations that have explicit components, $c$ must be less than a constant that depends on the details of the time discretization and that is no larger than one. On the other hand, for implicit discretizations such as the one chosen here, one can choose the time step as large as one wants (in particular, one can choose $c>1$) though a CFL number significantly larger than one will yield rather diffusive solutions. Units: None.
 ::::
 
+::::{dropdown} __Parameter:__ {ref}`Citcom-style CMB radial restoring boundary indicator<parameters:Citcom_2dstyle_20CMB_20radial_20restoring_20boundary_20indicator>`
+:name: parameters:Citcom_2dstyle_20CMB_20radial_20restoring_20boundary_20indicator
+**Default value:** 0
+
+**Pattern:** [Integer range 0...2147483647 (inclusive)]
+
+**Documentation:** Boundary indicator on which the Citcom-style CMB radial restoring matrix term is assembled. For the spherical shell geometry used in the Zhong et al. benchmark, the inner boundary is usually 0.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Citcom-style CMB radial restoring density contrast<parameters:Citcom_2dstyle_20CMB_20radial_20restoring_20density_20contrast>`
+:name: parameters:Citcom_2dstyle_20CMB_20radial_20restoring_20density_20contrast
+**Default value:** 0.
+
+**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Density contrast Delta rho used in the Citcom-style CMB radial restoring matrix term, in kg/m^3. For the V1 Zhong et al. benchmark this is rho_core - rho_mantle = 5401 kg/m^3.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Citcom-style CMB radial restoring scale<parameters:Citcom_2dstyle_20CMB_20radial_20restoring_20scale>`
+:name: parameters:Citcom_2dstyle_20CMB_20radial_20restoring_20scale
+**Default value:** 1.
+
+**Pattern:** [Double -MAX_DOUBLE...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Dimensionless multiplier for the Citcom-style CMB radial restoring matrix term. Use 1 for the physical diagnostic and other values only for sign or amplitude audits.
+::::
+
 ::::{dropdown} __Parameter:__ {ref}`Dimension<parameters:Dimension>`
 :name: parameters:Dimension
 **Default value:** 2
@@ -54,6 +81,15 @@ For more information, see the section in the manual that discusses the general m
 **Pattern:** [Double -MAX_DOUBLE...MAX_DOUBLE (inclusive)]
 
 **Documentation:** The end time of the simulation. The default value is a number so that when converted from years to seconds it is approximately equal to the largest number representable in floating point arithmetic. For all practical purposes, this equals infinity. Units: Years if the &rsquo;Use years instead of seconds&rsquo; parameter is set; seconds otherwise.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Initial elastic response time step<parameters:Initial_20elastic_20response_20time_20step>`
+:name: parameters:Initial_20elastic_20response_20time_20step
+**Default value:** 0.
+
+**Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
+
+**Documentation:** Legacy fallback for the physical time step size representing the interval represented by the timestep-zero elastic or viscoelastic response. If the material model provides an initial elastic time step, that material-model value is used instead. Units: Years or seconds, depending on the &ldquo;Use years instead of seconds&rdquo; parameter.
 ::::
 
 ::::{dropdown} __Parameter:__ {ref}`Max nonlinear iterations<parameters:Max_20nonlinear_20iterations>`
@@ -103,6 +139,15 @@ Units: \%.
 **Pattern:** [Double 0...MAX_DOUBLE (inclusive)]
 
 **Documentation:** Set a maximum time step size for the solver to use. Generally the time step based on the CFL number should be sufficient, but for complicated models or benchmarking it may be useful to limit the time step to some value. The default value is a value so that when converted from years into seconds it equals the largest number representable by a floating point number, implying an unlimited time step.Units: Years or seconds, depending on the &ldquo;Use years instead of seconds&rdquo; parameter.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Min nonlinear iterations<parameters:Min_20nonlinear_20iterations>`
+:name: parameters:Min_20nonlinear_20iterations
+**Default value:** 1
+
+**Pattern:** [Integer range 1...2147483647 (inclusive)]
+
+**Documentation:** The minimum number of nonlinear iterations to perform before the usual residual convergence test may stop the solver. This is useful for plugins that update a coupled non-local operator after each Stokes solve.
 ::::
 
 ::::{dropdown} __Parameter:__ {ref}`Nonlinear solver failure strategy<parameters:Nonlinear_20solver_20failure_20strategy>`
@@ -219,6 +264,15 @@ For more information, see the section in the manual that discusses the general m
 **Pattern:** [Integer range 0...2147483647 (inclusive)]
 
 **Documentation:** How frequently in timesteps to output timing information. This is generally adjusted only for debugging and timing purposes. If the value is set to zero it will also output timing information at the initiation timesteps.
+::::
+
+::::{dropdown} __Parameter:__ {ref}`Use Citcom-style CMB radial restoring<parameters:Use_20Citcom_2dstyle_20CMB_20radial_20restoring>`
+:name: parameters:Use_20Citcom_2dstyle_20CMB_20radial_20restoring
+**Default value:** false
+
+**Pattern:** [Bool]
+
+**Documentation:** If true, assemble a diagnostic boundary matrix term int_Gamma Delta rho g dt (w.e_r)(v.e_r) dS on the selected CMB boundary. This term is intended to mimic the radial density-interface restoring operator used in CitcomSVE add_restoring, not the generic ASPECT free-surface stabilization.
 ::::
 
 ::::{dropdown} __Parameter:__ {ref}`Use conduction timestep<parameters:Use_20conduction_20timestep>`
