@@ -167,6 +167,24 @@ files. The `sea level` postprocessor detects an active coupled GIA provider and
 outputs its sea-level change, ocean function, ice load, ocean load, total load,
 barystatic constant, and eustatic contribution.
 
+The optional `Output convergence diagnostics` parameter is disabled by
+default. When enabled, ASPECT prints one compact line after each counted
+post-Stokes GIA/SLE update. The reported relative total-load spherical-harmonic
+coefficient change is
+
+```{math}
+\epsilon_{\mathrm{GIA}}=
+\frac{\lVert \boldsymbol{c}_i-\boldsymbol{c}_{i-1}\rVert_2}
+{\max(\lVert \boldsymbol{c}_i\rVert_2,\mathrm{DBL\_MIN})},
+```
+
+where `c_i` contains the relaxed cosine and sine coefficients of the total
+ice-plus-ocean surface mass load. The coefficient change and tolerance are
+dimensionless; the reported spatially uniform sea-level constant `RSL_c` and
+eustatic sea level are in meters. The status is `converged` only when the
+relative change reaches the tolerance, `maximum iterations reached` when the
+iteration limit terminates the update first, and `iterating` otherwise.
+
 A coupled GIA configuration has the following form:
 
 ```prm
@@ -183,6 +201,7 @@ subsection Potential feedback
   subsection Glacial isostatic adjustment
     set Ice load reference = first history file
     set Maximum degree = 32
+    set Output convergence diagnostics = true
 
     subsection Ice history
       set Data directory = /path/to/gia-data/

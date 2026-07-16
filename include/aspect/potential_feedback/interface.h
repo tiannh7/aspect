@@ -81,6 +81,7 @@ namespace aspect
       double density_ice = 917.4;
       double density_water = 1000.0;
       unsigned int maximum_degree = 32;
+      bool output_convergence_diagnostics = false;
     };
 
 

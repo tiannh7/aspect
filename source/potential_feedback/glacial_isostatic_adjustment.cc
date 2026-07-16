@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <iomanip>
 #include <limits>
 
 namespace aspect
@@ -97,6 +98,8 @@ namespace aspect
       density_ice = settings.gia.density_ice;
       density_water = settings.gia.density_water;
       maximum_degree = settings.gia.maximum_degree;
+      output_convergence_diagnostics =
+        settings.gia.output_convergence_diagnostics;
       iterate_with_stokes = settings.iterate_with_stokes;
       freeze_feedback_after_timestep_zero =
         settings.freeze_feedback_after_timestep_zero;
@@ -489,6 +492,30 @@ namespace aspect
       current_eustatic_sea_level +=
         potential_relaxation_factor
         * (new_eustatic_sea_level - current_eustatic_sea_level);
+
+      if (output_convergence_diagnostics
+          && include_current_velocity_increment)
+        {
+          const char *status =
+            (potential_relative_change <= potential_convergence_tolerance
+             ? "converged"
+             : (potential_iteration_number >= maximum_potential_iterations
+                ? "maximum iterations reached"
+                : "iterating"));
+
+          this->get_pcout()
+              << "      GIA/SLE surface-load update: iteration="
+              << potential_iteration_number << "/"
+              << maximum_potential_iterations
+              << ", relative total-load SH coefficient change="
+              << std::scientific << std::setprecision(6)
+              << potential_relative_change
+              << ", tolerance=" << potential_convergence_tolerance
+              << ", RSL_c(m)=" << current_barystatic_sea_level
+              << ", eustatic(m)=" << current_eustatic_sea_level
+              << ", status=" << status
+              << std::defaultfloat << std::endl;
+        }
     }
 
 

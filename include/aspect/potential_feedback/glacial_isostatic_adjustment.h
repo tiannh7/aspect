@@ -141,6 +141,7 @@ namespace aspect
         bool enabled = false;
         bool iterate_with_stokes = true;
         bool freeze_feedback_after_timestep_zero = false;
+        bool output_convergence_diagnostics = false;
         IceLoadReference ice_load_reference =
           IceLoadReference::first_history_file;
 

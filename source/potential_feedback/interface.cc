@@ -182,6 +182,11 @@ namespace aspect
                             Patterns::Integer(1),
                             "Maximum spherical-harmonic degree retained for "
                             "ice, ocean, and total GIA surface loads.");
+          prm.declare_entry("Output convergence diagnostics", "false",
+                            Patterns::Bool(),
+                            "Whether to print one compact GIA/SLE convergence "
+                            "line after each counted post-Stokes surface-load "
+                            "update. The diagnostic is disabled by default.");
 
           SurfaceHistory<3>::declare_parameters(
             prm,
@@ -342,6 +347,8 @@ namespace aspect
           gia.density_ice = prm.get_double("Ice density");
           gia.density_water = prm.get_double("Water density");
           gia.maximum_degree = prm.get_integer("Maximum degree");
+          gia.output_convergence_diagnostics =
+            prm.get_bool("Output convergence diagnostics");
           gia.ice_history =
             SurfaceHistory<3>::parse_parameters(prm, "Ice history");
           gia.ocean_history =

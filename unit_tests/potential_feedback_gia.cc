@@ -37,8 +37,12 @@ TEST_CASE("Potential feedback GIA is disabled by default",
 
   REQUIRE(settings.feedback_mechanisms.empty());
   REQUIRE_FALSE(settings.has_active_mechanisms());
+  REQUIRE_FALSE(settings.gia.output_convergence_diagnostics);
 
   prm.enter_subsection("Potential feedback");
+  prm.enter_subsection("Glacial isostatic adjustment");
+  prm.set("Output convergence diagnostics", "true");
+  prm.leave_subsection();
   prm.enter_subsection("Potential iteration");
   prm.set("Freeze feedback after timestep zero", "true");
   prm.leave_subsection();
@@ -46,6 +50,7 @@ TEST_CASE("Potential feedback GIA is disabled by default",
 
   settings.parse_parameters(prm);
   REQUIRE(settings.freeze_feedback_after_timestep_zero);
+  REQUIRE(settings.gia.output_convergence_diagnostics);
 }
 
 
