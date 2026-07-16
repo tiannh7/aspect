@@ -1585,19 +1585,17 @@ namespace aspect
       // Copy the locally owned entries out of the matrix-free vector before
       // distributing constraints. AffineConstraints::distribute writes and
       // compresses its vector, which is supported by the owned ASPECT vector.
-      LinearAlgebra::Vector solution_tmp;
-      solution_tmp.reinit(mesh_locally_owned, sim.mpi_communicator);
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
                                    "copy GMG mesh velocity to ASPECT vector");
-      internal::ChangeVectorTypes::copy(solution_tmp, solution);
+      internal::ChangeVectorTypes::copy(owned_fs_mesh_velocity, solution);
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
                                    "distribute GMG mesh velocity constraints");
-      mesh_velocity_constraints.distribute(solution_tmp);
+      mesh_velocity_constraints.distribute(owned_fs_mesh_velocity);
 
       // Update the mesh velocity vector
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
                                    "store GMG mesh velocity");
-      fs_mesh_velocity = solution_tmp;
+      fs_mesh_velocity = owned_fs_mesh_velocity;
 
       // Update the mesh displacement vector
       if (this->simulator_is_past_initialization())
@@ -1624,7 +1622,7 @@ namespace aspect
           if (this->get_timestep_number() == 1)
             this->get_pcout()
                 << "   Mesh displacement diagnostic: dt=" << dt << std::endl;
-          distributed_mesh_displacements.add(dt, solution_tmp);
+          distributed_mesh_displacements.add(dt, owned_fs_mesh_velocity);
           trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
                                        "store updated mesh displacement");
           mesh_displacements = distributed_mesh_displacements;
@@ -1928,6 +1926,7 @@ namespace aspect
       old_mesh_displacements.reinit(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
       initial_topography.reinit(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
       fs_mesh_velocity.reinit(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
+      owned_fs_mesh_velocity.reinit(mesh_locally_owned, sim.mpi_communicator);
 
       // if we are just starting, we need to set the initial topography.
       if (this->simulator_is_past_initialization() == false ||

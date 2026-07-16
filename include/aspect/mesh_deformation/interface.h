@@ -556,6 +556,12 @@ namespace aspect
         LinearAlgebra::Vector fs_mesh_velocity;
 
         /**
+         * Locally owned mesh velocity used to import matrix-free GMG
+         * solutions before distributing constraints.
+         */
+        LinearAlgebra::Vector owned_fs_mesh_velocity;
+
+        /**
          * IndexSet for the locally owned DoFs for the mesh system
          */
         IndexSet mesh_locally_owned;
