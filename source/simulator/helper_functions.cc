@@ -40,6 +40,7 @@
 #include <aspect/postprocess/visualization.h>
 #include <aspect/prescribed_solution/interface.h>
 #include <aspect/prescribed_stokes_solution/interface.h>
+#include <aspect/utilities.h>
 
 #include <deal.II/base/index_set.h>
 #include <deal.II/base/conditional_ostream.h>
@@ -2163,8 +2164,32 @@ namespace aspect
                 << Utilities::MPI::this_mpi_process(mpi_communicator)
                 << ": reaction distribute constraints" << std::endl;
 
-    // Now apply constraints (boundary conditions and others) to the new solution vector.
-    current_constraints.distribute (distributed_vector);
+    // Now apply constraints (boundary conditions and others) to the new
+    // solution vector. The reaction update only changes temperature and
+    // compositional fields, so avoid applying Stokes and pressure constraints
+    // to this temporary full-system vector.
+    ComponentMask reaction_component_mask(dof_handler.get_fe().n_components(), false);
+    reaction_component_mask.set(introspection.component_indices.temperature, true);
+    for (const unsigned int component_index : introspection.component_indices.compositional_fields)
+      reaction_component_mask.set(component_index, true);
+
+    const IndexSet reaction_dofs =
+      Utilities::extract_locally_active_dofs_with_component(dof_handler,
+                                                            reaction_component_mask);
+
+#if DEAL_II_VERSION_GTE(9,6,0)
+    AffineConstraints<double> reaction_constraints(introspection.index_sets.system_relevant_set,
+                                                   introspection.index_sets.system_relevant_set);
+#else
+    AffineConstraints<double> reaction_constraints(introspection.index_sets.system_relevant_set);
+#endif
+    for (const auto &line : current_constraints.get_lines())
+      if (reaction_dofs.is_element(line.index))
+        reaction_constraints.add_constraint(line.index,
+                                            line.entries,
+                                            line.inhomogeneity);
+    reaction_constraints.close();
+    reaction_constraints.distribute(distributed_vector);
 
     if (timestep_number == 1)
       std::cerr << "Mesh deformation diagnostic on rank "
