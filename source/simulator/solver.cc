@@ -26,6 +26,7 @@
 #include <aspect/simulator/solver/stokes_matrix_free.h>
 #include <aspect/simulator/solver/stokes_direct.h>
 #include <aspect/mesh_deformation/interface.h>
+#include <aspect/utilities.h>
 
 #include <deal.II/base/signaling_nan.h>
 #include <deal.II/lac/solver_gmres.h>
@@ -460,20 +461,60 @@ namespace aspect
               << "... " << std::flush;
       }
 
-    // Create distributed vector (we need all blocks here even though we only
-    // solve for the current block) because we only have an AffineConstraints object
-    // for the whole system, current_linearization_point contains our initial guess.
-    LinearAlgebra::BlockVector distributed_solution (
-      introspection.index_sets.system_partitioning,
-      mpi_communicator);
+    // Use a persistent full-system distributed vector here. The advection
+    // solver only solves the current block, but the constraints are expressed
+    // in global DoF indices.
+    LinearAlgebra::BlockVector &distributed_solution = advection_distributed_solution;
+    distributed_solution = 0.;
     distributed_solution.block(block_idx) = current_linearization_point.block (block_idx);
+
+    if (timestep_number == 1 && !advection_field.is_temperature())
+      std::cerr << "Mesh deformation diagnostic on rank "
+                << Utilities::MPI::this_mpi_process(mpi_communicator)
+                << ": advection prepare temporary for "
+                << introspection.name_for_compositional_index(advection_field.compositional_variable)
+                << std::endl;
 
     // Temporary vector to hold the residual, we don't need a BlockVector here.
     LinearAlgebra::Vector temp (
       introspection.index_sets.system_partitioning[block_idx],
       mpi_communicator);
 
-    current_constraints.set_zero(distributed_solution);
+    ComponentMask advection_component_mask(dof_handler.get_fe().n_components(), false);
+    advection_component_mask.set(advection_field.component_index(introspection), true);
+
+    const IndexSet advection_dofs =
+      Utilities::extract_locally_active_dofs_with_component(dof_handler,
+                                                            advection_component_mask);
+
+#if DEAL_II_VERSION_GTE(9,6,0)
+    AffineConstraints<double> advection_constraints(introspection.index_sets.system_relevant_set,
+                                                    introspection.index_sets.system_relevant_set);
+#else
+    AffineConstraints<double> advection_constraints(introspection.index_sets.system_relevant_set);
+#endif
+    for (const auto &line : current_constraints.get_lines())
+      if (advection_dofs.is_element(line.index))
+        advection_constraints.add_constraint(line.index,
+                                             line.entries,
+                                             line.inhomogeneity);
+    advection_constraints.close();
+
+    if (timestep_number == 1 && !advection_field.is_temperature())
+      std::cerr << "Mesh deformation diagnostic on rank "
+                << Utilities::MPI::this_mpi_process(mpi_communicator)
+                << ": advection set constraints for "
+                << introspection.name_for_compositional_index(advection_field.compositional_variable)
+                << std::endl;
+
+    advection_constraints.set_zero(distributed_solution);
+
+    if (timestep_number == 1 && !advection_field.is_temperature())
+      std::cerr << "Mesh deformation diagnostic on rank "
+                << Utilities::MPI::this_mpi_process(mpi_communicator)
+                << ": advection compute residual for "
+                << introspection.name_for_compositional_index(advection_field.compositional_variable)
+                << std::endl;
 
     // Compute the residual before we solve and return this at the end.
     // This is used in the nonlinear solver.
@@ -532,7 +573,14 @@ namespace aspect
                                   advection_field.compositional_variable,
                                   solver_control);
 
-    current_constraints.distribute (distributed_solution);
+    if (timestep_number == 1 && !advection_field.is_temperature())
+      std::cerr << "Mesh deformation diagnostic on rank "
+                << Utilities::MPI::this_mpi_process(mpi_communicator)
+                << ": advection distribute constraints for "
+                << introspection.name_for_compositional_index(advection_field.compositional_variable)
+                << std::endl;
+
+    advection_constraints.distribute (distributed_solution);
     solution.block(block_idx) = distributed_solution.block(block_idx);
 
     // print number of iterations and also record it in the
