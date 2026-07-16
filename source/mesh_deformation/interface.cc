@@ -1896,6 +1896,7 @@ namespace aspect
 
       owned_mesh_velocity.compress(VectorOperation::insert);
       mesh_velocity = owned_mesh_velocity;
+      mesh_velocity.update_ghost_values();
     }
 
 
