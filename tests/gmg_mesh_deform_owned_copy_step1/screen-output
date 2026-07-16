@@ -1,0 +1,4 @@
+*** Timestep 1
+GMG mesh displacement solve at physical step 1 completed
+Post-mesh owned-only copy and ALE interpolation completed
+Termination requested after physical step 1

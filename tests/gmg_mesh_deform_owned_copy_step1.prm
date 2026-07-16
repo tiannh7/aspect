@@ -1,0 +1,38 @@
+# Verify that a matrix-free GMG mesh-deformation solution can be copied from
+# its locally owned entries without a post-solve ghost exchange and still
+# advance through the ALE update at the first physical time step. This is a
+# small companion to
+# gmg_mesh_deform_ghost_entries.prm.
+# MPI: 3
+
+include $ASPECT_SOURCE_DIR/tests/gmg_mesh_deform_ghost_entries.prm
+
+set End time = 10
+
+subsection Geometry model
+  subsection Box
+    # Three coarse cells on three ranks exercise the one-coarse-cell-per-rank
+    # partition that exposed the redundant ghost exchange.
+    set X repetitions = 3
+    set Y repetitions = 1
+  end
+end
+
+subsection Mesh refinement
+  set Initial adaptive refinement        = 0
+  set Initial global refinement          = 1
+  set Time steps between mesh refinement = 0
+end
+
+subsection Postprocess
+  set List of postprocessors = velocity statistics
+end
+
+subsection Termination criteria
+  set End step             = 1
+  set Termination criteria = end step
+end
+
+subsection Checkpointing
+  set Steps between checkpoint = 0
+end
