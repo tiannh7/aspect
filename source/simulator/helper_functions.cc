@@ -1854,6 +1854,10 @@ namespace aspect
 
     pcout << "   Solving composition reactions... " << std::flush;
 
+    if (timestep_number == 1)
+      std::cerr << "Mesh deformation diagnostic on rank "
+                << Utilities::MPI::this_mpi_process(mpi_communicator)
+                << ": reaction compute support points" << std::endl;
 
     // We want to compute reactions in each support point for all fields (compositional fields and temperature). The reaction
     // rate for an individual field depends on the values of all other fields, so we have to step them forward in time together.
@@ -1878,6 +1882,11 @@ namespace aspect
 
     const unsigned int n_fields = advection_fields.size();
     compute_unique_advection_support_points(advection_fields, unique_support_points, support_point_index_by_field);
+
+    if (timestep_number == 1)
+      std::cerr << "Mesh deformation diagnostic on rank "
+                << Utilities::MPI::this_mpi_process(mpi_communicator)
+                << ": reaction build FEValues" << std::endl;
 
     const Quadrature<dim> combined_support_points(unique_support_points);
     FEValues<dim> fe_values (*mapping,
@@ -1932,6 +1941,11 @@ namespace aspect
 #endif
 
     SUNDIALS::ARKode<VectorType> ode(data);
+
+    if (timestep_number == 1)
+      std::cerr << "Mesh deformation diagnostic on rank "
+                << Utilities::MPI::this_mpi_process(mpi_communicator)
+                << ": reaction enter cell loop" << std::endl;
 
     std::vector<std::vector<double>> initial_values_C (n_q_points, std::vector<double> (introspection.n_compositional_fields));
     std::vector<double> initial_values_T (n_q_points);
@@ -1997,9 +2011,20 @@ namespace aspect
     // So even though we touch some DoF more than once, we always start from the same value, compute the
     // same value, and then overwrite the same value in distributed_vector.
     // TODO: make this even more efficient.
+    bool printed_first_reaction_cell = false;
     for (const auto &cell : dof_handler.active_cell_iterators())
       if (cell->is_locally_owned())
         {
+          if (timestep_number == 1 && printed_first_reaction_cell == false)
+            {
+              std::cerr << "Mesh deformation diagnostic on rank "
+                        << Utilities::MPI::this_mpi_process(mpi_communicator)
+                        << ": reaction first local cell "
+                        << cell->active_cell_index()
+                        << " reinit FEValues" << std::endl;
+              printed_first_reaction_cell = true;
+            }
+
           fe_values.reinit (cell);
           in.reinit(fe_values, cell, introspection, solution);
 
@@ -2119,11 +2144,26 @@ namespace aspect
             }
         }
 
+    if (timestep_number == 1)
+      std::cerr << "Mesh deformation diagnostic on rank "
+                << Utilities::MPI::this_mpi_process(mpi_communicator)
+                << ": reaction compress vectors" << std::endl;
+
     distributed_vector.compress(VectorOperation::insert);
     distributed_reaction_vector.compress(VectorOperation::insert);
 
+    if (timestep_number == 1)
+      std::cerr << "Mesh deformation diagnostic on rank "
+                << Utilities::MPI::this_mpi_process(mpi_communicator)
+                << ": reaction distribute constraints" << std::endl;
+
     // Now apply constraints (boundary conditions and others) to the new solution vector.
     current_constraints.distribute (distributed_vector);
+
+    if (timestep_number == 1)
+      std::cerr << "Mesh deformation diagnostic on rank "
+                << Utilities::MPI::this_mpi_process(mpi_communicator)
+                << ": reaction update solution vectors" << std::endl;
 
     // put the final values into the solution vector
     for (unsigned int c=0; c<introspection.n_compositional_fields; ++c)
