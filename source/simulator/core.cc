@@ -2000,16 +2000,40 @@ namespace aspect
       {
         mesh_deformation->execute ();
 
+        if (timestep_number == 1)
+          std::cerr << "Mesh deformation diagnostic on rank "
+                    << Utilities::MPI::this_mpi_process(mpi_communicator)
+                    << ": returned from mesh deformation execute" << std::endl;
+
         // calculate global volume after deforming mesh
+        if (timestep_number == 1)
+          std::cerr << "Mesh deformation diagnostic on rank "
+                    << Utilities::MPI::this_mpi_process(mpi_communicator)
+                    << ": update global volume after mesh deformation" << std::endl;
         global_volume = GridTools::volume (triangulation, *mapping);
+
+        if (timestep_number == 1)
+          std::cerr << "Mesh deformation diagnostic on rank "
+                    << Utilities::MPI::this_mpi_process(mpi_communicator)
+                    << ": recompute current constraints after mesh deformation" << std::endl;
 
         // since the mesh has changed, boundary conditions may have changed as well
         // so we need to recompute the current constraints
         compute_current_constraints ();
 
+        if (timestep_number == 1)
+          std::cerr << "Mesh deformation diagnostic on rank "
+                    << Utilities::MPI::this_mpi_process(mpi_communicator)
+                    << ": refresh matrix-free Stokes DoFs after mesh deformation" << std::endl;
+
         // GMG boundary conditions are currently handled as part of setup_dofs()
         if (stokes_matrix_free)
           stokes_matrix_free->setup_dofs();
+
+        if (timestep_number == 1)
+          std::cerr << "Mesh deformation diagnostic on rank "
+                    << Utilities::MPI::this_mpi_process(mpi_communicator)
+                    << ": completed matrix-free Stokes DoF refresh" << std::endl;
 
         // if compute_current_constraints() changed which DoFs are constrained,
         // we need to rebuild the system matrices
