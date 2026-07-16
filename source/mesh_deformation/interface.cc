@@ -1763,7 +1763,15 @@ namespace aspect
         {
           // during the simulation, we add dt*solution
           LinearAlgebra::Vector distributed_mesh_displacements(mesh_locally_owned, sim.mpi_communicator);
-          distributed_mesh_displacements = mesh_displacements;
+          distributed_mesh_displacements = 0.;
+          for (unsigned int k = 0; k < mesh_locally_owned.n_elements(); ++k)
+            {
+              const types::global_dof_index global_index =
+                mesh_locally_owned.nth_index_in_set(k);
+              distributed_mesh_displacements[global_index] =
+                mesh_displacements[global_index];
+            }
+          distributed_mesh_displacements.compress(VectorOperation::insert);
           double dt = this->get_timestep();
           if (dt == 0.0 && this->get_timestep_number() == 0)
             {
