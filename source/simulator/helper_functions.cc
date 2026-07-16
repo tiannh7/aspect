@@ -1869,6 +1869,12 @@ namespace aspect
 
     distributed_vector = 0.;
     distributed_reaction_vector = 0.;
+    for (unsigned int k = 0; k < dof_handler.locally_owned_dofs().n_elements(); ++k)
+      {
+        const types::global_dof_index global_index =
+          dof_handler.locally_owned_dofs().nth_index_in_set(k);
+        distributed_vector(global_index) = solution(global_index);
+      }
 
     // we use a different (potentially smaller) time step than in the advection scheme.
     // and for the fixed step scheme, we want all of our reaction time steps (within one advection step) to have the same size
