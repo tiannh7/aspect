@@ -1582,15 +1582,16 @@ namespace aspect
 
       this->get_pcout() << solver_control_mf.last_step() << " iterations." << std::endl;
 
+      // The matrix-free solve computes the homogeneous correction x for the
+      // inhomogeneous constrained state u0. Reconstruct u = u0 + x before
+      // importing the locally owned entries into ASPECT's vector type.
+      solution += u0;
+
       // Copy the locally owned entries out of the matrix-free vector before
-      // distributing constraints. AffineConstraints::distribute writes and
-      // compresses its vector, which is supported by the owned ASPECT vector.
+      // storing and applying the mesh velocity.
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
                                    "copy GMG mesh velocity to ASPECT vector");
       internal::ChangeVectorTypes::copy(owned_fs_mesh_velocity, solution);
-      trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
-                                   "distribute GMG mesh velocity constraints");
-      mesh_velocity_constraints.distribute(owned_fs_mesh_velocity);
 
       // Update the mesh velocity vector
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
