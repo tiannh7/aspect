@@ -1804,6 +1804,9 @@ namespace aspect
                                    "store ALE mesh velocity");
       mesh_velocity = owned_mesh_velocity;
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                   "update ALE mesh velocity ghost values");
+      mesh_velocity.update_ghost_values();
+      trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
                                    "completed ALE mesh velocity interpolation");
     }
 
