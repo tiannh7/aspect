@@ -2083,6 +2083,8 @@ namespace aspect
 
       // only used if operator split is enabled
       LinearAlgebra::BlockVector                                operator_split_reaction_vector;
+      LinearAlgebra::BlockVector                                operator_split_distributed_vector;
+      LinearAlgebra::BlockVector                                operator_split_distributed_reaction_vector;
 
 
 
