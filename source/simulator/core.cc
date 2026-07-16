@@ -2035,10 +2035,20 @@ namespace aspect
                     << Utilities::MPI::this_mpi_process(mpi_communicator)
                     << ": completed matrix-free Stokes DoF refresh" << std::endl;
 
+        if (timestep_number == 1)
+          std::cerr << "Mesh deformation diagnostic on rank "
+                    << Utilities::MPI::this_mpi_process(mpi_communicator)
+                    << ": check matrix rebuild after mesh deformation" << std::endl;
+
         // if compute_current_constraints() changed which DoFs are constrained,
         // we need to rebuild the system matrices
         if (rebuild_sparsity_and_matrices)
           {
+            if (timestep_number == 1)
+              std::cerr << "Mesh deformation diagnostic on rank "
+                        << Utilities::MPI::this_mpi_process(mpi_communicator)
+                        << ": rebuild matrices after mesh deformation" << std::endl;
+
             computing_timer.enter_subsection("Setup matrices");
 
             rebuild_sparsity_and_matrices = false;
@@ -2049,7 +2059,17 @@ namespace aspect
             computing_timer.leave_subsection("Setup matrices");
           }
 
+        if (timestep_number == 1)
+          std::cerr << "Mesh deformation diagnostic on rank "
+                    << Utilities::MPI::this_mpi_process(mpi_communicator)
+                    << ": emit post mesh deformation signal" << std::endl;
+
         signals.post_mesh_deformation(*this);
+
+        if (timestep_number == 1)
+          std::cerr << "Mesh deformation diagnostic on rank "
+                    << Utilities::MPI::this_mpi_process(mpi_communicator)
+                    << ": completed post mesh deformation signal" << std::endl;
       }
 
     // Compute the reactions of compositional fields and temperature in case of operator splitting.
