@@ -1,7 +1,7 @@
-# Verify that a matrix-free GMG mesh-deformation solution can be copied from
-# its locally owned entries without a post-solve ghost exchange and still
-# advance through the ALE update at the first physical time step. This is a
-# small companion to
+# Verify that a matrix-free GMG mesh-deformation solution can be copied into
+# an owned ASPECT vector before distributing constraints and still advance
+# through the ALE update at the first physical time step. This is a small
+# companion to
 # gmg_mesh_deform_ghost_entries.prm.
 # MPI: 3
 

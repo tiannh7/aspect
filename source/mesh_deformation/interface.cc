@@ -1582,21 +1582,17 @@ namespace aspect
 
       this->get_pcout() << solver_control_mf.last_step() << " iterations." << std::endl;
 
-      // Matrix-free solvers may leave the vector in ghost read mode, while
-      // AffineConstraints::distribute writes entries and compresses the vector.
-      solution.zero_out_ghost_values();
-      trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
-                                   "distribute GMG mesh velocity constraints");
-      mesh_velocity_constraints.distribute(solution);
-
-      // copy solution:
-      // ChangeVectorTypes::copy imports only locally owned entries, so no
-      // ghost exchange of the matrix-free solution is required here.
+      // Copy the locally owned entries out of the matrix-free vector before
+      // distributing constraints. AffineConstraints::distribute writes and
+      // compresses its vector, which is supported by the owned ASPECT vector.
       LinearAlgebra::Vector solution_tmp;
       solution_tmp.reinit(mesh_locally_owned, sim.mpi_communicator);
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
                                    "copy GMG mesh velocity to ASPECT vector");
       internal::ChangeVectorTypes::copy(solution_tmp, solution);
+      trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
+                                   "distribute GMG mesh velocity constraints");
+      mesh_velocity_constraints.distribute(solution_tmp);
 
       // Update the mesh velocity vector
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
