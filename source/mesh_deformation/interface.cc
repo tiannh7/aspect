@@ -1582,6 +1582,9 @@ namespace aspect
 
       this->get_pcout() << solver_control_mf.last_step() << " iterations." << std::endl;
 
+      // Matrix-free solvers may leave the vector in ghost read mode, while
+      // AffineConstraints::distribute writes entries and compresses the vector.
+      solution.zero_out_ghost_values();
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
                                    "distribute GMG mesh velocity constraints");
       mesh_velocity_constraints.distribute(solution);
