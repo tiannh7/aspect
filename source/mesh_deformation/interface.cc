@@ -1708,8 +1708,7 @@ namespace aspect
     void MeshDeformationHandler<dim>::interpolate_mesh_velocity()
     {
       // Interpolate the mesh vertex velocity onto the Stokes velocity system for use in ALE corrections
-      LinearAlgebra::BlockVector distributed_mesh_velocity;
-      distributed_mesh_velocity.reinit(sim.introspection.index_sets.system_partitioning, sim.mpi_communicator);
+      owned_mesh_velocity = 0.;
 
       const std::vector<Point<dim>> support_points
         = sim.finite_element.base_element(sim.introspection.component_indices.velocities[0]).get_unit_support_points();
@@ -1749,7 +1748,7 @@ namespace aspect
                         const unsigned int support_point_index
                           = sim.finite_element.component_to_system_index(/*velocity component=*/ sim.introspection.component_indices.velocities[dir],
                                                                                                  /*dof index within component=*/ j);
-                        distributed_mesh_velocity[cell_dof_indices[support_point_index]] = velocity_values[j][dir];
+                        owned_mesh_velocity[cell_dof_indices[support_point_index]] = velocity_values[j][dir];
                       }
                 }
               catch (const std::exception &exception)
@@ -1800,10 +1799,10 @@ namespace aspect
 
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
                                    "compress ALE mesh velocity");
-      distributed_mesh_velocity.compress(VectorOperation::insert);
+      owned_mesh_velocity.compress(VectorOperation::insert);
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
                                    "store ALE mesh velocity");
-      mesh_velocity = distributed_mesh_velocity;
+      mesh_velocity = owned_mesh_velocity;
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
                                    "completed ALE mesh velocity interpolation");
     }
@@ -1818,6 +1817,8 @@ namespace aspect
       mesh_velocity.reinit(sim.introspection.index_sets.system_partitioning,
                            sim.introspection.index_sets.system_relevant_partitioning,
                            sim.mpi_communicator);
+      owned_mesh_velocity.reinit(sim.introspection.index_sets.system_partitioning,
+                                 sim.mpi_communicator);
 
       mesh_deformation_dof_handler.distribute_dofs(mesh_deformation_fe);
 

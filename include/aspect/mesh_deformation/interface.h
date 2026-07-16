@@ -519,6 +519,12 @@ namespace aspect
         LinearAlgebra::BlockVector mesh_velocity;
 
         /**
+         * Locally owned mesh velocity in the Stokes finite element space.
+         * This vector is used as temporary storage during ALE interpolation.
+         */
+        LinearAlgebra::BlockVector owned_mesh_velocity;
+
+        /**
          * Vector for storing the positions of the mesh vertices. This
          * is used for calculating the mapping from the reference cell to
          * the position of the cell in the deformed mesh. This must be
