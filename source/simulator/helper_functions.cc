@@ -1856,13 +1856,19 @@ namespace aspect
 
     computing_timer.enter_subsection("Solve composition reactions");
 
-    // we need some temporary vectors to store our updates to composition and temperature in
-    // while we do the time stepping, before we copy them over to the solution vector in the end
-    LinearAlgebra::BlockVector distributed_vector (introspection.index_sets.system_partitioning,
-                                                   mpi_communicator);
+    // We need temporary vectors to store our updates to composition and
+    // temperature while we do the time stepping, before we copy them over to
+    // the solution vector in the end. These vectors are initialized in
+    // setup_dofs() and reused here to avoid constructing MPI block vectors in
+    // the per-timestep reaction path after mesh deformation has updated the
+    // DoF state.
+    LinearAlgebra::BlockVector &distributed_vector =
+      operator_split_distributed_vector;
+    LinearAlgebra::BlockVector &distributed_reaction_vector =
+      operator_split_distributed_reaction_vector;
 
-    LinearAlgebra::BlockVector distributed_reaction_vector (introspection.index_sets.system_partitioning,
-                                                            mpi_communicator);
+    distributed_vector = 0.;
+    distributed_reaction_vector = 0.;
 
     // we use a different (potentially smaller) time step than in the advection scheme.
     // and for the fixed step scheme, we want all of our reaction time steps (within one advection step) to have the same size
