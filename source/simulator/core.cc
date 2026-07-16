@@ -2074,7 +2074,24 @@ namespace aspect
 
     // Compute the reactions of compositional fields and temperature in case of operator splitting.
     if (parameters.use_operator_splitting)
-      compute_reactions ();
+      {
+        if (timestep_number == 1)
+          std::cerr << "Mesh deformation diagnostic on rank "
+                    << Utilities::MPI::this_mpi_process(mpi_communicator)
+                    << ": compute operator-splitting reactions" << std::endl;
+
+        compute_reactions ();
+
+        if (timestep_number == 1)
+          std::cerr << "Mesh deformation diagnostic on rank "
+                    << Utilities::MPI::this_mpi_process(mpi_communicator)
+                    << ": completed operator-splitting reactions" << std::endl;
+      }
+
+    if (timestep_number == 1)
+      std::cerr << "Mesh deformation diagnostic on rank "
+                << Utilities::MPI::this_mpi_process(mpi_communicator)
+                << ": enter nonlinear solver switch" << std::endl;
 
     try
       {
