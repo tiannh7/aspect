@@ -1606,7 +1606,15 @@ namespace aspect
                                        "initialize GMG mesh displacement update vector");
           trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
                                        "copy stored mesh displacement into GMG update vector");
-          owned_mesh_displacements = mesh_displacements;
+          owned_mesh_displacements = 0.;
+          for (unsigned int k = 0; k < mesh_locally_owned.n_elements(); ++k)
+            {
+              const types::global_dof_index global_index =
+                mesh_locally_owned.nth_index_in_set(k);
+              owned_mesh_displacements[global_index] =
+                mesh_displacements[global_index];
+            }
+          owned_mesh_displacements.compress(VectorOperation::insert);
           double dt = this->get_timestep();
           if (dt == 0.0 && this->get_timestep_number() == 0)
             {
