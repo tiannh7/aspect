@@ -526,6 +526,9 @@ namespace aspect
          */
         LinearAlgebra::Vector mesh_displacements;
 
+        /** Locally owned mesh displacement used for time-step updates. */
+        LinearAlgebra::Vector owned_mesh_displacements;
+
         /**
          * mesh_displacements from the last time step.
          */

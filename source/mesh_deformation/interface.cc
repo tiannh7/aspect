@@ -1604,10 +1604,9 @@ namespace aspect
           // during the simulation, we add dt*solution
           trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
                                        "initialize GMG mesh displacement update vector");
-          LinearAlgebra::Vector distributed_mesh_displacements(mesh_locally_owned, sim.mpi_communicator);
           trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
                                        "copy stored mesh displacement into GMG update vector");
-          distributed_mesh_displacements = mesh_displacements;
+          owned_mesh_displacements = mesh_displacements;
           double dt = this->get_timestep();
           if (dt == 0.0 && this->get_timestep_number() == 0)
             {
@@ -1623,10 +1622,10 @@ namespace aspect
           if (this->get_timestep_number() == 1)
             this->get_pcout()
                 << "   Mesh displacement diagnostic: dt=" << dt << std::endl;
-          distributed_mesh_displacements.add(dt, owned_fs_mesh_velocity);
+          owned_mesh_displacements.add(dt, owned_fs_mesh_velocity);
           trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
                                        "store updated mesh displacement");
-          mesh_displacements = distributed_mesh_displacements;
+          mesh_displacements = owned_mesh_displacements;
         }
 
       trace_mesh_deformation_stage(sim.mpi_communicator, this->get_timestep_number(),
@@ -1927,6 +1926,7 @@ namespace aspect
       old_mesh_displacements.reinit(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
       initial_topography.reinit(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
       fs_mesh_velocity.reinit(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
+      owned_mesh_displacements.reinit(mesh_locally_owned, sim.mpi_communicator);
       owned_fs_mesh_velocity.reinit(mesh_locally_owned, sim.mpi_communicator);
 
       // if we are just starting, we need to set the initial topography.

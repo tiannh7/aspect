@@ -1,7 +1,6 @@
-# Verify that a matrix-free GMG mesh-deformation solution can be copied into
-# a persistent owned ASPECT vector after reconstructing the inhomogeneous
-# constrained state and still advance through the ALE update at the first
-# physical time step. This is a small companion to
+# Verify that a persistent owned displacement vector carries the reconstructed
+# matrix-free GMG mesh solution into the first physical time-step update. This
+# is a small companion to
 # gmg_mesh_deform_ghost_entries.prm.
 # MPI: 3
 
