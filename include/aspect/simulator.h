@@ -2078,6 +2078,7 @@ namespace aspect
 
       LinearAlgebra::BlockVector                                current_linearization_point;
       LinearAlgebra::BlockVector                                advection_distributed_solution;
+      LinearAlgebra::BlockVector                                advection_distributed_residual;
 
       // only used if is_compressible()
       LinearAlgebra::BlockVector                                pressure_shape_function_integrals;

@@ -475,10 +475,18 @@ namespace aspect
                 << introspection.name_for_compositional_index(advection_field.compositional_variable)
                 << std::endl;
 
-    // Temporary vector to hold the residual, we don't need a BlockVector here.
-    LinearAlgebra::Vector temp (
-      introspection.index_sets.system_partitioning[block_idx],
-      mpi_communicator);
+    // Temporary vector to hold the residual. Reuse a persistent block vector
+    // to avoid constructing MPI vectors in the post-mesh-deformation advection
+    // path.
+    LinearAlgebra::Vector &temp = advection_distributed_residual.block(block_idx);
+    temp = 0.;
+
+    if (timestep_number == 1 && !advection_field.is_temperature())
+      std::cerr << "Mesh deformation diagnostic on rank "
+                << Utilities::MPI::this_mpi_process(mpi_communicator)
+                << ": advection prepared residual for "
+                << introspection.name_for_compositional_index(advection_field.compositional_variable)
+                << std::endl;
 
     ComponentMask advection_component_mask(dof_handler.get_fe().n_components(), false);
     advection_component_mask.set(advection_field.component_index(introspection), true);
