@@ -20,6 +20,7 @@
 
 #include <aspect/potential_feedback/rotational_feedback.h>
 #include <aspect/potential_feedback/self_gravitation.h>
+#include <aspect/density_source_manager.h>
 #include <aspect/geometry_model/spherical_shell.h>
 #include <aspect/gravity_model/interface.h>
 #include <aspect/mesh_deformation/interface.h>
@@ -382,6 +383,22 @@ namespace aspect
 
       double local_delta_ixz = 0.0;
       double local_delta_iyz = 0.0;
+      double internal_delta_ixz = 0.0;
+      double internal_delta_iyz = 0.0;
+
+      if constexpr (dim == 3)
+        if (this->get_density_source_manager()
+            .internal_density_anomalies_are_enabled(
+              include_internal_density_anomalies))
+          {
+            const typename DensitySourceManager<dim>::InternalMassMoments
+            internal_moments =
+              this->get_density_source_manager()
+              .compute_internal_mass_moments(
+                reference_density_for_internal_anomalies);
+            internal_delta_ixz = internal_moments.inertia_tensor[0][2];
+            internal_delta_iyz = internal_moments.inertia_tensor[1][2];
+          }
 
       {
         TimerOutput::Scope moments_timer(this->get_computing_timer(),
@@ -453,9 +470,11 @@ namespace aspect
                              geometry.inner_radius());
 
         delta_ixz = Utilities::MPI::sum(local_delta_ixz,
-                                        this->get_mpi_communicator());
+                                        this->get_mpi_communicator())
+                    + internal_delta_ixz;
         delta_iyz = Utilities::MPI::sum(local_delta_iyz,
-                                        this->get_mpi_communicator());
+                                        this->get_mpi_communicator())
+                    + internal_delta_iyz;
       }
 
       const double outer_radius_to_the_fifth =
@@ -572,6 +591,8 @@ namespace aspect
               << potential_relative_change
               << ", dIxz=" << delta_ixz
               << ", dIyz=" << delta_iyz
+              << ", internal dIxz=" << internal_delta_ixz
+              << ", internal dIyz=" << internal_delta_iyz
               << ", kf=" << fluid_love_number
               << ", rotational potential prefactor="
               << rotational_potential_prefactor
@@ -736,6 +757,10 @@ namespace aspect
         settings.interface_properties.cmb.density_above;
       density_below_cmb =
         settings.interface_properties.cmb.density_below;
+      include_internal_density_anomalies =
+        settings.include_internal_density_anomalies;
+      reference_density_for_internal_anomalies =
+        settings.reference_density_for_internal_anomalies;
       fluid_love_number = settings.rotational_fluid_love_number;
       include_surface_contribution =
         settings.include_surface_feedback;

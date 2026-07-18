@@ -139,14 +139,15 @@ Each interface contributes the local restoring operator
 
 When internal density anomalies are included in potential feedback, the same
 interface contributes sheet mass
-`sigma = Delta rho U_r` to the self-gravity potential and degree-one mass
-dipole. Piecewise-constant table interfaces use the same adjacent-cell identity
-for these non-local terms as for the local restoring operator, and therefore
-remain active after ALE mesh deformation. Explicit jumps retain the configured
-radius tolerance. A narrow tabulated interval containing an explicitly
-configured jump is excluded from the volume reference-density gradient,
-preventing double counting. The same physical interface must not also be
-represented as a material/composition volume anomaly.
+`sigma = Delta rho U_r` to the self-gravity potential, degree-one mass dipole,
+and rotational-feedback inertia tensor. Piecewise-constant table interfaces use
+the same adjacent-cell identity for these non-local terms as for the local
+restoring operator, and therefore remain active after ALE mesh deformation.
+Explicit jumps retain the configured radius tolerance. A narrow tabulated
+interval containing an explicitly configured jump is excluded from the volume
+reference-density gradient, preventing double counting. The same physical
+interface must not also be represented as a material/composition volume
+anomaly.
 
 Existing surface-load, surface-topography, CMB-topography, and external-load
 sheet sources are unchanged. Surface and CMB restoring terms, including the

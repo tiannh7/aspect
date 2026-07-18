@@ -29,15 +29,15 @@ under `Potential feedback/Interface properties`.
 
 With `Formulation/Density sources/Density source law = mechanical mass
 conservation`, radial internal density jumps contribute the sheet mass `Delta
-rho U_r` to both the internal self-gravity spherical-harmonic integral and the
-degree-one mass dipole. Jumps may be explicitly configured or derived from a
-piecewise-constant tabulated reference state. These terms are active only when
-`Include internal density anomalies` resolves to true and do not replace the
-separate surface or CMB relief terms. Table-derived interfaces are identified
-from the adjacent inner and outer radial cells in both the potential and
-degree-one integrations, so ALE motion does not detach them from their
-reference radii. Explicitly configured jumps retain radius-based matching with
-the configured face tolerance.
+rho U_r` to the internal self-gravity spherical-harmonic integral, the
+degree-one mass dipole, and the inertia tensor used by rotational feedback.
+Jumps may be explicitly configured or derived from a piecewise-constant
+tabulated reference state. These terms are active only when `Include internal
+density anomalies` resolves to true and do not replace the separate surface or
+CMB relief terms. Table-derived interfaces are identified from the adjacent
+inner and outer radial cells in all three integrations, so ALE motion does not
+detach them from their reference radii. Explicitly configured jumps retain
+radius-based matching with the configured face tolerance.
 
 For the 3-D `mechanical mass conservation` density-source law, self-gravity is
 not a boundary-only force. ASPECT caches the current mass-potential
@@ -124,6 +124,16 @@ $\Phi_r= -3G(dI_{xz}x+dI_{yz}y)z/(k_f R^5)$. Users therefore do not need to
 provide separate polar and equatorial moments of inertia. The surface
 coefficient of this centrifugal potential is included in surface-Love-number
 geoid output, but it is not counted as a surface mass-potential contribution.
+
+When `Potential feedback/Self gravity/Include internal density anomalies`
+resolves to true, the same selected mechanical volume-density perturbation and
+displaced internal density-interface sheets also contribute to $dI_{xz}$ and
+$dI_{yz}$. The shared density-source integration simultaneously computes the
+internal mass dipole used by the native `center of mass` degree-one reference
+frame and the full internal inertia tensor. Surface and CMB sheets remain
+separate boundary-owned sources, so they are not counted by this volume
+integration. The `zero volume perturbation` density-source law disables both
+internal contributions and provides the incompressible/boundary-only control.
 
 Rotational feedback is disabled unless `rotational feedback` is listed in
 `Potential feedback/List of feedback mechanisms` and the `potential feedback`

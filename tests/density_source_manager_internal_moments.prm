@@ -1,0 +1,66 @@
+# Enable if: QUICK_TEST
+
+set Dimension                    = 3
+set End time                     = 0
+set Use years instead of seconds = false
+
+subsection Geometry model
+  set Model name = spherical shell
+  subsection Spherical shell
+    set Inner radius = 1
+    set Outer radius = 2
+  end
+end
+
+subsection Mesh refinement
+  set Initial adaptive refinement = 0
+  set Initial global refinement   = 1
+end
+
+subsection Gravity model
+  set Model name = radial constant
+  subsection Radial constant
+    set Magnitude = 0
+  end
+end
+
+subsection Formulation
+  subsection Density sources
+    set Constant reference density = 1
+    set Density source law         = material minus reference
+    set Reference density model    = constant
+  end
+end
+
+subsection Initial temperature model
+  set Model name = function
+  subsection Function
+    set Coordinate system   = cartesian
+    set Function expression = x/8 + x*z/16
+    set Variable names      = x,y,z
+  end
+end
+
+subsection Material model
+  set Model name = simple
+  subsection Simple model
+    set Reference density             = 1
+    set Reference specific heat       = 1
+    set Reference temperature         = 0
+    set Thermal conductivity          = 1
+    set Thermal expansion coefficient = 1
+    set Viscosity                     = 1
+  end
+end
+
+subsection Boundary velocity model
+  set Tangential velocity boundary indicators = inner, outer
+end
+
+subsection Nullspace removal
+  set Remove nullspace = net translation, angular momentum
+end
+
+subsection Postprocess
+  set List of postprocessors = density source manager internal moments
+end

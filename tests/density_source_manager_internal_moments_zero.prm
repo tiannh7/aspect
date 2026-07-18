@@ -1,0 +1,9 @@
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/density_source_manager_internal_moments.prm
+
+subsection Formulation
+  subsection Density sources
+    set Density source law = zero volume perturbation
+  end
+end

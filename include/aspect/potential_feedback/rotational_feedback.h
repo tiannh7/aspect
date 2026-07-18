@@ -28,6 +28,7 @@
 
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace aspect
@@ -39,13 +40,14 @@ namespace aspect
      * with polar wander in degree-2 order-1 surface-loading benchmarks.
      *
      * The plugin computes the products-of-inertia perturbations from the
-     * effective boundary mass, converts them to a small perturbation of the
-     * rotation vector, and applies the induced centrifugal-potential
-     * perturbation as an additional normal traction. It is intended as a
-     * quasi-static spherical-shell capability. When combined with the GIA
-     * mechanism it supplies the physical polar-wander feedback used by the
-     * Zhong and Yuan benchmarks, but it is not a general time-dependent
-     * rotational-Liouville solver.
+     * effective boundary mass and, when selected, the same internal mechanical
+     * density sources used by self-gravity. It converts them to a small
+     * perturbation of the rotation vector and applies the induced
+     * centrifugal-potential perturbation as an additional normal traction. It
+     * is intended as a quasi-static spherical-shell capability. When combined
+     * with the GIA mechanism it supplies the physical polar-wander feedback
+     * used by the Zhong and Yuan benchmarks, but it is not a general
+     * time-dependent rotational-Liouville solver.
      *
      * @ingroup BoundaryTractions
      */
@@ -111,6 +113,8 @@ namespace aspect
         double density_below_surface;
         double density_above_cmb;
         double density_below_cmb;
+        std::string include_internal_density_anomalies = "false";
+        double reference_density_for_internal_anomalies = 0.0;
         double fluid_love_number;
         double initial_displacement_timestep;
         double potential_convergence_tolerance;

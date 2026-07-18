@@ -25,6 +25,10 @@
 #include <aspect/simulator_access.h>
 #include <aspect/material_model/interface.h>
 
+#include <deal.II/base/symmetric_tensor.h>
+
+#include <string>
+
 namespace aspect
 {
   /**
@@ -45,6 +49,18 @@ namespace aspect
         double l2_norm = 0.0;
         double max_abs = 0.0;
         double max_lateral_average_residual = 0.0;
+      };
+
+      /**
+       * Low-order moments of mantle volume-density perturbations and
+       * displaced internal density interfaces. Surface and CMB sheets are
+       * deliberately excluded because they are owned by the corresponding
+       * boundary-feedback plugins.
+       */
+      struct InternalMassMoments
+      {
+        Tensor<1,dim> mass_dipole;
+        SymmetricTensor<2,dim> inertia_tensor;
       };
 
       /**
@@ -166,6 +182,23 @@ namespace aspect
         const MaterialModel::MaterialModelInputs<dim> &inputs,
         const MaterialModel::MaterialModelOutputs<dim> &outputs,
         const unsigned int q,
+        const double legacy_reference_density) const;
+
+      /**
+       * Resolve the `true|false|auto' internal-density selection shared by
+       * self-gravity, center-of-mass, and rotational-feedback calculations.
+       */
+      bool
+      internal_density_anomalies_are_enabled(
+        const std::string &selection) const;
+
+      /**
+       * Integrate the mass dipole and inertia tensor of the selected internal
+       * density source. For legacy density selection, @p legacy_reference_density
+       * is subtracted from the material density. Non-legacy laws ignore it.
+       */
+      InternalMassMoments
+      compute_internal_mass_moments(
         const double legacy_reference_density) const;
 
       /** Return whether a frozen reference profile has been initialized. */

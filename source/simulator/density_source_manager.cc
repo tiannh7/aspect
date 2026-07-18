@@ -541,6 +541,186 @@ namespace aspect
 
   template <int dim>
   bool
+  DensitySourceManager<dim>::internal_density_anomalies_are_enabled(
+    const std::string &selection) const
+  {
+    AssertThrow(selection == "true"
+                || selection == "false"
+                || selection == "auto",
+                ExcMessage("Internal density anomalies must be selected with "
+                           "`true', `false', or `auto'."));
+
+    if (selection == "false"
+        || this->get_parameters().density_source_law
+        == Parameters<dim>::Formulation::DensitySourceLaw::zero_volume_perturbation)
+      return false;
+
+    if (selection == "true")
+      return true;
+
+    if (this->get_parameters().density_source_law
+        != Parameters<dim>::Formulation::DensitySourceLaw::legacy)
+      return true;
+
+    return (this->introspection().n_compositional_fields > 0
+            || this->introspection().variable_exists("temperature"));
+  }
+
+
+
+  template <int dim>
+  typename DensitySourceManager<dim>::InternalMassMoments
+  DensitySourceManager<dim>::compute_internal_mass_moments(
+    const double legacy_reference_density) const
+  {
+    InternalMassMoments local_moments;
+
+    if (this->get_parameters().density_source_law
+        == Parameters<dim>::Formulation::DensitySourceLaw::zero_volume_perturbation)
+      return local_moments;
+
+    const unsigned int quadrature_degree =
+      std::max(2u,
+               this->introspection().polynomial_degree.temperature + 1u);
+    const QGauss<dim> quadrature_formula(quadrature_degree);
+    FEValues<dim> fe_values(this->get_mapping(),
+                            this->get_fe(),
+                            quadrature_formula,
+                            update_values |
+                            update_quadrature_points |
+                            update_JxW_values |
+                            update_gradients);
+
+    MaterialModel::MaterialModelInputs<dim>
+    inputs(fe_values.n_quadrature_points,
+           this->n_compositional_fields());
+    MaterialModel::MaterialModelOutputs<dim>
+    outputs(fe_values.n_quadrature_points,
+            this->n_compositional_fields());
+    create_additional_material_model_outputs(outputs);
+    inputs.requested_properties = MaterialModel::MaterialProperties::density;
+
+    const auto add_mass = [&local_moments]
+                          (const double mass,
+                           const Point<dim> &position)
+    {
+      for (unsigned int d = 0; d < dim; ++d)
+        local_moments.mass_dipole[d] += mass * position[d];
+
+      local_moments.inertia_tensor +=
+        mass
+        * (position.norm_square() * unit_symmetric_tensor<dim>()
+           - symmetrize(outer_product(position, position)));
+    };
+
+    for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          fe_values.reinit(cell);
+          inputs.reinit(fe_values,
+                        cell,
+                        this->introspection(),
+                        this->get_solution());
+          this->get_material_model().evaluate(inputs, outputs);
+
+          for (unsigned int q = 0; q < quadrature_formula.size(); ++q)
+            {
+              const double density_anomaly =
+                self_gravity_source_density(inputs,
+                                            outputs,
+                                            q,
+                                            legacy_reference_density);
+              if (density_anomaly != 0.0)
+                add_mass(density_anomaly * fe_values.JxW(q),
+                         inputs.position[q]);
+            }
+        }
+
+    if (this->get_parameters().density_source_law
+        == Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation
+        && has_internal_density_jumps())
+      {
+        const QGauss<dim-1> face_quadrature_formula(quadrature_degree);
+        FEFaceValues<dim> face_values(this->get_mapping(),
+                                      this->get_fe(),
+                                      face_quadrature_formula,
+                                      update_values |
+                                      update_gradients |
+                                      update_quadrature_points |
+                                      update_JxW_values);
+        MaterialModel::MaterialModelInputs<dim> face_inputs(
+          face_values.n_quadrature_points,
+          this->n_compositional_fields());
+
+        for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+          if (cell->is_locally_owned())
+            for (const unsigned int face_no : cell->face_indices())
+              {
+                if (cell->at_boundary(face_no)
+                    || cell->has_periodic_neighbor(face_no))
+                  continue;
+
+                const auto neighbor = cell->neighbor(face_no);
+                if (cell->center().norm() >= neighbor->center().norm())
+                  continue;
+
+                const auto face = cell->face(face_no);
+                const double density_contrast =
+                  internal_density_jump_across_face(
+                    cell->center(),
+                    neighbor->center(),
+                    face->vertex(0).norm());
+                if (density_contrast == 0.0)
+                  continue;
+
+                bool all_vertices_match = true;
+                for (unsigned int vertex = 1;
+                     vertex < face->n_vertices();
+                     ++vertex)
+                  all_vertices_match =
+                    all_vertices_match
+                    && (internal_density_jump_across_face(
+                          cell->center(),
+                          neighbor->center(),
+                          face->vertex(vertex).norm())
+                        == density_contrast);
+                if (!all_vertices_match)
+                  continue;
+
+                face_values.reinit(cell, face_no);
+                face_inputs.reinit(face_values,
+                                   cell,
+                                   this->introspection(),
+                                   this->get_solution());
+
+                for (unsigned int q = 0;
+                     q < face_values.n_quadrature_points;
+                     ++q)
+                  {
+                    const double surface_density =
+                      density_contrast
+                      * mechanical_radial_displacement(face_inputs, q);
+                    if (surface_density != 0.0)
+                      add_mass(surface_density * face_values.JxW(q),
+                               face_inputs.position[q]);
+                  }
+              }
+      }
+
+    InternalMassMoments global_moments;
+    global_moments.mass_dipole =
+      Utilities::MPI::sum(local_moments.mass_dipole,
+                          this->get_mpi_communicator());
+    global_moments.inertia_tensor =
+      Utilities::MPI::sum(local_moments.inertia_tensor,
+                          this->get_mpi_communicator());
+    return global_moments;
+  }
+
+
+
+  template <int dim>
+  bool
   DensitySourceManager<dim>::has_initialized_reference_density() const
   {
     return initialized;
