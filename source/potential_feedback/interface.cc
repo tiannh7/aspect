@@ -144,6 +144,16 @@ namespace aspect
                             "shared pressure vertices with a lumped Q1 mass "
                             "matrix before applying the midpoint rule. The "
                             "default is unchanged.");
+          prm.declare_entry("Full domain potential radial subdivisions", "32",
+                            Patterns::Integer(1),
+                            "Number of uniform radial intervals used to cache "
+                            "the 3-D full-domain self-gravity potential. "
+                            "Tabulated reference-density radii are added to "
+                            "these support points. Internal volume and sheet "
+                            "sources are evaluated efficiently with cumulative "
+                            "radial Green-function moments. A value of 1 "
+                            "reproduces the former two-boundary-point cache "
+                            "for a constant reference-density model.");
         }
         prm.leave_subsection();
 
@@ -303,6 +313,8 @@ namespace aspect
           internal_density_anomaly_tolerance = prm.get_double("Internal density anomaly tolerance");
           full_domain_volume_source_discretization =
             prm.get("Full domain volume source discretization");
+          full_domain_potential_radial_subdivisions =
+            prm.get_integer("Full domain potential radial subdivisions");
         }
         prm.leave_subsection();
 

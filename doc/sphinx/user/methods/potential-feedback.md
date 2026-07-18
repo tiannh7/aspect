@@ -41,9 +41,10 @@ the configured face tolerance.
 
 For the 3-D `mechanical mass conservation` density-source law, self-gravity is
 not a boundary-only force. ASPECT caches the current mass-potential
-spherical-harmonic coefficients on the tabulated radial reference points and
-linearly interpolates them in radius. In addition to the existing surface and
-CMB potential tractions, the Stokes weak form contains
+spherical-harmonic coefficients on uniformly spaced radial support points,
+augmented by any tabulated radial reference-density points, and linearly
+interpolates them in radius. In addition to the existing surface and CMB
+potential tractions, the Stokes weak form contains
 
 ```{math}
 -\int_\Omega \rho_\mathrm{ref}\Phi\,\nabla\cdot\mathbf w\,dV
@@ -73,6 +74,27 @@ requires vertex-supported continuous pressure shape functions. These options
 are useful for coarse cross-code comparisons with
 element-averaged radial-layer formulations; they do not change the Stokes
 finite-element pair or any interface-sheet source.
+
+`Potential feedback/Self gravity/Full domain potential radial subdivisions`
+sets the number of uniform intervals in this radial potential cache. Its
+default of 32 gives 33 support radii, comparable to the radial nodes of the
+CitcomSVE R1 benchmark. A value of 1 restores the former boundary-only support
+for a constant reference-density model. Increasing the number of support
+points does not repeat the full Green-function sum at every radius: ASPECT
+accumulates, for each spherical-harmonic coefficient, the inner and outer
+radial moments
+
+```{math}
+\Phi_{lm}(r) = \frac{4\pi G}{2l+1}\left[
+r^{-l-1}\int_{r_i}^{r}\rho_{lm}(a)a^{l+2}\,da
++r^l\int_r^R\rho_{lm}(a)a^{1-l}\,da\right],
+```
+
+and obtains all support-point values with prefix and suffix sums. The moment
+powers use radii normalized by the outer radius to avoid overflow at high
+spherical-harmonic degree. Consequently the internal-source work scales with
+the number of sources plus the number of support radii, rather than their
+product.
 
 The active feedback interfaces are inferred from the boundaries on which the
 `potential feedback` boundary traction plugin is prescribed in

@@ -70,6 +70,222 @@ namespace aspect
 
 
 
+    namespace internal
+    {
+      RadialGreenMomentAccumulator::RadialGreenMomentAccumulator(
+        const std::vector<double> &evaluation_radii,
+        const unsigned int minimum_degree,
+        const unsigned int maximum_degree,
+        const double reference_radius)
+        : evaluation_radii(evaluation_radii)
+        , reference_radius(reference_radius)
+        , n_coefficients(0)
+      {
+        AssertThrow(!evaluation_radii.empty(),
+                    ExcMessage("Radial Green moments require at least one evaluation radius."));
+        AssertThrow(reference_radius > 0.0,
+                    ExcMessage("The radial Green moment reference radius must be positive."));
+        AssertThrow(maximum_degree >= minimum_degree,
+                    ExcMessage("The radial Green moment degree range is invalid."));
+        AssertThrow(std::is_sorted(evaluation_radii.begin(),
+                                   evaluation_radii.end()),
+                    ExcMessage("Radial Green moment evaluation radii must be sorted."));
+        AssertThrow(std::adjacent_find(evaluation_radii.begin(),
+                                       evaluation_radii.end())
+                    == evaluation_radii.end(),
+                    ExcMessage("Radial Green moment evaluation radii must be distinct."));
+        AssertThrow(evaluation_radii.front() > 0.0,
+                    ExcMessage("Radial Green moment evaluation radii must be positive."));
+
+        for (unsigned int degree = minimum_degree;
+             degree <= maximum_degree;
+             ++degree)
+          for (unsigned int order = 0; order <= degree; ++order)
+            coefficient_degrees.push_back(degree);
+        n_coefficients = coefficient_degrees.size();
+
+        const unsigned int n_bins = evaluation_radii.size() + 1;
+        inner_cos_moments.assign(n_bins * n_coefficients, 0.0);
+        inner_sin_moments.assign(n_bins * n_coefficients, 0.0);
+        outer_cos_moments.assign(n_bins * n_coefficients, 0.0);
+        outer_sin_moments.assign(n_bins * n_coefficients, 0.0);
+      }
+
+
+
+      void
+      RadialGreenMomentAccumulator::add_source(
+        const double source_radius,
+        const std::vector<double> &source_cos_coefficients,
+        const std::vector<double> &source_sin_coefficients)
+      {
+        AssertThrow(source_radius > 0.0,
+                    ExcMessage("A radial Green moment source radius must be positive."));
+        AssertDimension(source_cos_coefficients.size(), n_coefficients);
+        AssertDimension(source_sin_coefficients.size(), n_coefficients);
+
+        const unsigned int source_bin =
+          std::lower_bound(evaluation_radii.begin(),
+                           evaluation_radii.end(),
+                           source_radius)
+          - evaluation_radii.begin();
+        const double normalized_source_radius =
+          source_radius / reference_radius;
+
+        unsigned int previous_degree = numbers::invalid_unsigned_int;
+        double inner_factor = 0.0;
+        double outer_factor = 0.0;
+        for (unsigned int coefficient_index = 0;
+             coefficient_index < n_coefficients;
+             ++coefficient_index)
+          {
+            const unsigned int degree =
+              coefficient_degrees[coefficient_index];
+            if (degree != previous_degree)
+              {
+                inner_factor =
+                  std::pow(normalized_source_radius, degree);
+                outer_factor =
+                  std::pow(normalized_source_radius,
+                           -static_cast<double>(degree + 1));
+                previous_degree = degree;
+              }
+            const unsigned int index =
+              source_bin * n_coefficients + coefficient_index;
+
+            inner_cos_moments[index] +=
+              source_cos_coefficients[coefficient_index] * inner_factor;
+            inner_sin_moments[index] +=
+              source_sin_coefficients[coefficient_index] * inner_factor;
+            outer_cos_moments[index] +=
+              source_cos_coefficients[coefficient_index] * outer_factor;
+            outer_sin_moments[index] +=
+              source_sin_coefficients[coefficient_index] * outer_factor;
+          }
+      }
+
+
+
+      void
+      RadialGreenMomentAccumulator::mpi_sum(
+        const MPI_Comm &mpi_communicator)
+      {
+        const auto sum_moments = [&mpi_communicator](std::vector<double> &moments)
+        {
+          std::vector<double> global_moments(moments.size(), 0.0);
+          dealii::Utilities::MPI::sum(moments,
+                                      mpi_communicator,
+                                      global_moments);
+          moments.swap(global_moments);
+        };
+
+        sum_moments(inner_cos_moments);
+        sum_moments(inner_sin_moments);
+        sum_moments(outer_cos_moments);
+        sum_moments(outer_sin_moments);
+      }
+
+
+
+      std::pair<std::vector<double>, std::vector<double>>
+      RadialGreenMomentAccumulator::evaluate() const
+      {
+        const unsigned int n_radii = evaluation_radii.size();
+        const unsigned int n_bins = n_radii + 1;
+        std::vector<double> values_cos(n_radii * n_coefficients, 0.0);
+        std::vector<double> values_sin(n_radii * n_coefficients, 0.0);
+        std::vector<double> accumulated_inner_cos(n_coefficients, 0.0);
+        std::vector<double> accumulated_inner_sin(n_coefficients, 0.0);
+        std::vector<double> outer_suffix_cos(n_radii * n_coefficients, 0.0);
+        std::vector<double> outer_suffix_sin(n_radii * n_coefficients, 0.0);
+        std::vector<double> accumulated_outer_cos(n_coefficients, 0.0);
+        std::vector<double> accumulated_outer_sin(n_coefficients, 0.0);
+
+        for (unsigned int coefficient_index = 0;
+             coefficient_index < n_coefficients;
+             ++coefficient_index)
+          {
+            const unsigned int outermost_bin_index =
+              (n_bins - 1) * n_coefficients + coefficient_index;
+            accumulated_outer_cos[coefficient_index] =
+              outer_cos_moments[outermost_bin_index];
+            accumulated_outer_sin[coefficient_index] =
+              outer_sin_moments[outermost_bin_index];
+          }
+
+        for (unsigned int reverse_radius_index = n_radii;
+             reverse_radius_index > 0;
+             --reverse_radius_index)
+          {
+            const unsigned int radius_index = reverse_radius_index - 1;
+            const unsigned int bin = radius_index;
+            for (unsigned int coefficient_index = 0;
+                 coefficient_index < n_coefficients;
+                 ++coefficient_index)
+              {
+                const unsigned int index =
+                  bin * n_coefficients + coefficient_index;
+                outer_suffix_cos[index] =
+                  accumulated_outer_cos[coefficient_index];
+                outer_suffix_sin[index] =
+                  accumulated_outer_sin[coefficient_index];
+                accumulated_outer_cos[coefficient_index] +=
+                  outer_cos_moments[index];
+                accumulated_outer_sin[coefficient_index] +=
+                  outer_sin_moments[index];
+              }
+          }
+
+        for (unsigned int radius_index = 0;
+             radius_index < n_radii;
+             ++radius_index)
+          {
+            const double normalized_evaluation_radius =
+              evaluation_radii[radius_index] / reference_radius;
+            unsigned int previous_degree = numbers::invalid_unsigned_int;
+            double inner_factor = 0.0;
+            double outer_factor = 0.0;
+            for (unsigned int coefficient_index = 0;
+                 coefficient_index < n_coefficients;
+                 ++coefficient_index)
+              {
+                const unsigned int moment_index =
+                  radius_index * n_coefficients + coefficient_index;
+                accumulated_inner_cos[coefficient_index] +=
+                  inner_cos_moments[moment_index];
+                accumulated_inner_sin[coefficient_index] +=
+                  inner_sin_moments[moment_index];
+
+                const unsigned int degree =
+                  coefficient_degrees[coefficient_index];
+                if (degree != previous_degree)
+                  {
+                    inner_factor =
+                      std::pow(normalized_evaluation_radius,
+                               -static_cast<double>(degree + 1));
+                    outer_factor =
+                      std::pow(normalized_evaluation_radius, degree);
+                    previous_degree = degree;
+                  }
+                const unsigned int value_index =
+                  radius_index * n_coefficients + coefficient_index;
+                values_cos[value_index] =
+                  (accumulated_inner_cos[coefficient_index] * inner_factor
+                   + outer_suffix_cos[moment_index] * outer_factor)
+                  / reference_radius;
+                values_sin[value_index] =
+                  (accumulated_inner_sin[coefficient_index] * inner_factor
+                   + outer_suffix_sin[moment_index] * outer_factor)
+                  / reference_radius;
+              }
+          }
+
+        return std::make_pair(values_cos, values_sin);
+      }
+    }
+
+
+
     template <int dim>
     void
     SelfGravitation<dim>::initialize()
@@ -1891,6 +2107,8 @@ namespace aspect
       internal_density_anomaly_tolerance = settings.internal_density_anomaly_tolerance;
       full_domain_volume_source_discretization =
         settings.full_domain_volume_source_discretization;
+      full_domain_potential_radial_subdivisions =
+        settings.full_domain_potential_radial_subdivisions;
       degree_one_reference_frame = settings.degree_one_reference_frame;
       center_of_mass_correction = settings.center_of_mass_correction;
       citcomsve_degree_one_load_compensation =
@@ -2066,6 +2284,16 @@ namespace aspect
                             "shared pressure vertices with a lumped Q1 mass "
                             "matrix before applying the midpoint rule. The "
                             "default is unchanged.");
+          prm.declare_entry("Full domain potential radial subdivisions", "32",
+                            Patterns::Integer(1),
+                            "Number of uniform radial intervals used to cache "
+                            "the 3-D full-domain self-gravity potential. "
+                            "Tabulated reference-density radii are added to "
+                            "these support points. Internal volume and sheet "
+                            "sources are evaluated efficiently with cumulative "
+                            "radial Green-function moments. A value of 1 "
+                            "reproduces the former two-boundary-point cache "
+                            "for a constant reference-density model.");
           prm.declare_entry("Time between text output", "0.",
                             Patterns::Double(0.),
                             "The time interval in years between text outputs for self-gravity diagnostics. "
@@ -2134,6 +2362,8 @@ namespace aspect
             prm.get_double("Internal density anomaly tolerance");
           full_domain_volume_source_discretization =
             prm.get("Full domain volume source discretization");
+          full_domain_potential_radial_subdivisions =
+            prm.get_integer("Full domain potential radial subdivisions");
           time_between_text_output = prm.get_double("Time between text output");
           time_steps_between_text_output = prm.get_integer("Time steps between text output");
           potential_relative_change = std::numeric_limits<double>::infinity();
@@ -2301,13 +2531,23 @@ namespace aspect
           != Parameters<3>::Formulation::DensitySourceLaw::mechanical_mass_conservation)
         return;
 
-      full_domain_potential_radii.push_back(inner_radius);
+      for (unsigned int radial_index = 0;
+           radial_index <= full_domain_potential_radial_subdivisions;
+           ++radial_index)
+        full_domain_potential_radii.push_back(
+          (radial_index == 0
+           ? inner_radius
+           : (radial_index == full_domain_potential_radial_subdivisions
+              ? outer_radius
+              : inner_radius
+              + (outer_radius - inner_radius)
+              * (static_cast<double>(radial_index)
+                 / full_domain_potential_radial_subdivisions))));
       if (parameters.reference_density_model
           == Parameters<3>::Formulation::ReferenceDensityModel::tabulated_radial)
         for (const double radius : parameters.tabulated_reference_radii)
           if (radius > inner_radius && radius < outer_radius)
             full_domain_potential_radii.push_back(radius);
-      full_domain_potential_radii.push_back(outer_radius);
       std::sort(full_domain_potential_radii.begin(),
                 full_domain_potential_radii.end());
       full_domain_potential_radii.erase(
@@ -2322,8 +2562,13 @@ namespace aspect
       AssertDimension(cmb_height_cos.size(), n_coefficients);
       AssertDimension(cmb_height_sin.size(), n_coefficients);
 
-      std::vector<double> local_internal_cos(n_radii * n_coefficients, 0.0);
-      std::vector<double> local_internal_sin(n_radii * n_coefficients, 0.0);
+      internal::RadialGreenMomentAccumulator internal_green_moments(
+        full_domain_potential_radii,
+        min_degree,
+        max_degree,
+        outer_radius);
+      std::vector<double> source_cos_coefficients(n_coefficients, 0.0);
+      std::vector<double> source_sin_coefficients(n_coefficients, 0.0);
 
       bool include_internal = false;
       if (include_internal_density_anomalies == "true")
@@ -2632,31 +2877,15 @@ namespace aspect
                               order,
                               spherical_coordinates[2],
                               spherical_coordinates[1]);
-                          for (unsigned int radius_index = 0;
-                               radius_index < n_radii;
-                               ++radius_index)
-                            {
-                              const double evaluation_radius =
-                                full_domain_potential_radii[radius_index];
-                              const double radial_kernel =
-                                (source_radius <= evaluation_radius
-                                 ? (1.0 / source_radius)
-                                 * std::pow(source_radius / evaluation_radius,
-                                            degree + 1)
-                                 : (1.0 / source_radius)
-                                 * std::pow(evaluation_radius / source_radius,
-                                            degree));
-                              const unsigned int index =
-                                radius_index * n_coefficients
-                                + coefficient_index;
-                              local_internal_cos[index] +=
-                                source_weight * radial_kernel
-                                * harmonics.first;
-                              local_internal_sin[index] +=
-                                source_weight * radial_kernel
-                                * harmonics.second;
-                            }
+                          source_cos_coefficients[coefficient_index] =
+                            source_weight * harmonics.first;
+                          source_sin_coefficients[coefficient_index] =
+                            source_weight * harmonics.second;
                         }
+                    internal_green_moments.add_source(
+                      source_radius,
+                      source_cos_coefficients,
+                      source_sin_coefficients);
                   }
               }
 
@@ -2749,44 +2978,27 @@ namespace aspect
                                     order,
                                     spherical_coordinates[2],
                                     spherical_coordinates[1]);
-                                for (unsigned int radius_index = 0;
-                                     radius_index < n_radii;
-                                     ++radius_index)
-                                  {
-                                    const double evaluation_radius =
-                                      full_domain_potential_radii[radius_index];
-                                    const double radial_kernel =
-                                      (source_radius <= evaluation_radius
-                                       ? (1.0 / source_radius)
-                                       * std::pow(source_radius / evaluation_radius,
-                                                  degree + 1)
-                                       : (1.0 / source_radius)
-                                       * std::pow(evaluation_radius / source_radius,
-                                                  degree));
-                                    const unsigned int index =
-                                      radius_index * n_coefficients
-                                      + coefficient_index;
-                                    local_internal_cos[index] +=
-                                      source_weight * radial_kernel
-                                      * harmonics.first;
-                                    local_internal_sin[index] +=
-                                      source_weight * radial_kernel
-                                      * harmonics.second;
-                                  }
+                                source_cos_coefficients[coefficient_index] =
+                                  source_weight * harmonics.first;
+                                source_sin_coefficients[coefficient_index] =
+                                  source_weight * harmonics.second;
                               }
+                          internal_green_moments.add_source(
+                            source_radius,
+                            source_cos_coefficients,
+                            source_sin_coefficients);
                         }
                     }
             }
         }
 
-      std::vector<double> global_internal_cos(local_internal_cos.size(), 0.0);
-      std::vector<double> global_internal_sin(local_internal_sin.size(), 0.0);
-      dealii::Utilities::MPI::sum(local_internal_cos,
-                                  this->get_mpi_communicator(),
-                                  global_internal_cos);
-      dealii::Utilities::MPI::sum(local_internal_sin,
-                                  this->get_mpi_communicator(),
-                                  global_internal_sin);
+      internal_green_moments.mpi_sum(this->get_mpi_communicator());
+      const std::pair<std::vector<double>, std::vector<double>>
+      global_internal_coefficients = internal_green_moments.evaluate();
+      const std::vector<double> &global_internal_cos =
+        global_internal_coefficients.first;
+      const std::vector<double> &global_internal_sin =
+        global_internal_coefficients.second;
 
       const double surface_gravity =
         this->get_gravity_model()

@@ -36,6 +36,48 @@ namespace aspect
 {
   namespace PotentialFeedback
   {
+    namespace internal
+    {
+      /**
+       * Accumulate the radial Green-function moments of spherical-harmonic
+       * source coefficients. The two moment arrays permit evaluating all
+       * configured radii with prefix and suffix sums instead of applying the
+       * Green kernel separately at every source/evaluation-radius pair.
+       */
+      class RadialGreenMomentAccumulator
+      {
+        public:
+          RadialGreenMomentAccumulator(
+            const std::vector<double> &evaluation_radii,
+            const unsigned int minimum_degree,
+            const unsigned int maximum_degree,
+            const double reference_radius);
+
+          void
+          add_source(const double source_radius,
+                     const std::vector<double> &source_cos_coefficients,
+                     const std::vector<double> &source_sin_coefficients);
+
+          void
+          mpi_sum(const MPI_Comm &mpi_communicator);
+
+          std::pair<std::vector<double>, std::vector<double>>
+          evaluate() const;
+
+        private:
+          std::vector<double> evaluation_radii;
+          std::vector<unsigned int> coefficient_degrees;
+          double reference_radius;
+          unsigned int n_coefficients;
+          std::vector<double> inner_cos_moments;
+          std::vector<double> inner_sin_moments;
+          std::vector<double> outer_cos_moments;
+          std::vector<double> outer_sin_moments;
+      };
+    }
+
+
+
     /**
      * A boundary traction plugin that computes the self-gravitational
      * feedback from surface topography. Supports both 3D (spherical shell,
@@ -371,6 +413,7 @@ namespace aspect
         double reference_density_for_internal_anomalies;
         double internal_density_anomaly_tolerance;
         std::string full_domain_volume_source_discretization = "quadrature point";
+        unsigned int full_domain_potential_radial_subdivisions = 32;
 
         double time_between_text_output;
         unsigned int time_steps_between_text_output;
