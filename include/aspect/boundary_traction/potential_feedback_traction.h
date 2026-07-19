@@ -105,6 +105,10 @@ namespace aspect
         Tensor<1,dim>
         reference_frame_body_force(const Point<dim> &position) const;
 
+        /** Return the sum of active mass and rotational scalar potentials at
+         * an arbitrary volume point. */
+        double full_domain_potential(const Point<dim> &position) const;
+
         double surface_density_jump() const;
 
         double cmb_density_jump() const;

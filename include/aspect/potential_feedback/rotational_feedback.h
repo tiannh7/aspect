@@ -69,6 +69,10 @@ namespace aspect
         double potential_height(const types::boundary_id boundary_indicator,
                                 const Point<dim> &position) const;
 
+        /** Return the current rotational scalar potential Phi at an
+         * arbitrary volume point. */
+        double full_domain_potential(const Point<dim> &position) const;
+
         /** Add a load owned by the unified potential-feedback adapter. */
         void set_additional_load_traction_function(
           const std::function<Tensor<1,dim>(const types::boundary_id,

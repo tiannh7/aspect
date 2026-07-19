@@ -496,6 +496,28 @@ namespace aspect
 
     template <int dim>
     double
+    PotentialFeedbackTraction<dim>::full_domain_potential(
+      const Point<dim> &position) const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().full_domain_potential(position);
+
+      double potential = 0.0;
+      if (self_gravity_active)
+        {
+          if (self_gravity.has_full_domain_potential())
+            potential += self_gravity.full_domain_potential(position);
+        }
+      if (rotational_feedback_active)
+        potential += rotational_feedback.full_domain_potential(position);
+
+      return potential;
+    }
+
+
+
+    template <int dim>
+    double
     PotentialFeedbackTraction<dim>::surface_density_jump() const
     {
       if (&primary_provider() != this)

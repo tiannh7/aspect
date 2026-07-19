@@ -53,6 +53,21 @@ namespace aspect
 
         return nullptr;
       }
+
+
+      template <int dim>
+      const BoundaryTraction::PotentialFeedbackTraction<dim> *
+      active_potential_feedback(
+        const BoundaryTraction::Manager<dim> &traction_manager)
+      {
+        for (const auto &plugin : traction_manager.get_active_plugins())
+          if (const auto *potential_feedback =
+                dynamic_cast<const BoundaryTraction::PotentialFeedbackTraction<dim> *>(
+                  plugin.get()))
+            return potential_feedback;
+
+        return nullptr;
+      }
     }
 
 
@@ -381,6 +396,10 @@ namespace aspect
         (use_mechanical_mass_conservation
          ? active_self_gravity(this->get_boundary_traction_manager())
          : nullptr);
+      const BoundaryTraction::PotentialFeedbackTraction<dim> *potential_feedback =
+        (use_mechanical_mass_conservation
+         ? active_potential_feedback(this->get_boundary_traction_manager())
+         : nullptr);
       const unsigned int radial_displacement_history_index =
         use_mechanical_mass_conservation
         ? introspection.compositional_index_for_name("ve_radial_displacement")
@@ -519,11 +538,14 @@ namespace aspect
             }
 
           const double full_domain_potential =
-            (self_gravity != nullptr
-             && self_gravity->has_full_domain_potential()
-             ? self_gravity->full_domain_potential(
+            (potential_feedback != nullptr
+             ? potential_feedback->full_domain_potential(
                scratch.finite_element_values.quadrature_point(q))
-             : 0.0);
+             : (self_gravity != nullptr
+                && self_gravity->has_full_domain_potential()
+                ? self_gravity->full_domain_potential(
+                  scratch.finite_element_values.quadrature_point(q))
+                : 0.0));
 
           for (unsigned int i=0; i<stokes_dofs_per_cell; ++i)
             {
@@ -1318,6 +1340,8 @@ namespace aspect
         return;
       const PotentialFeedback::SelfGravitation<dim> *self_gravity =
         active_self_gravity(this->get_boundary_traction_manager());
+      const BoundaryTraction::PotentialFeedbackTraction<dim> *potential_feedback =
+        active_potential_feedback(this->get_boundary_traction_manager());
 
       const Introspection<dim> &introspection = this->introspection();
       const FiniteElement<dim> &fe = scratch.finite_element_values.get_fe();
@@ -1380,10 +1404,12 @@ namespace aspect
               const double gravity_magnitude =
                 this->get_gravity_model().gravity_vector(point).norm();
               const double potential =
-                (self_gravity != nullptr
-                 && self_gravity->has_full_domain_potential()
-                 ? self_gravity->full_domain_potential(point)
-                 : 0.0);
+                (potential_feedback != nullptr
+                 ? potential_feedback->full_domain_potential(point)
+                 : (self_gravity != nullptr
+                    && self_gravity->has_full_domain_potential()
+                    ? self_gravity->full_domain_potential(point)
+                    : 0.0));
               const double JxW = scratch.face_finite_element_values.JxW(q);
 
               for (unsigned int i = 0, i_stokes = 0;

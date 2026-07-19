@@ -54,10 +54,16 @@ potential tractions, the Stokes weak form contains
 ```
 
 Together these terms reproduce the full-domain compressible potential forcing
-used by CitcomSVE. The cached mass potential contains the external surface
-load, surface and CMB deformation, the mechanical volume-density perturbation,
-and internal density sheets. Tidal, rotational, and reference-frame potentials
-remain separate and are not included in this volume term.
+used by CitcomSVE. The unified volume potential is the sum of the cached mass
+potential and the active rotational potential. The cached mass potential
+contains the external surface load, surface and CMB deformation, the mechanical
+volume-density perturbation, and internal density sheets. Rotational feedback
+is evaluated directly at volume quadrature points with its exact quadratic
+radial dependence. This additional volume term is active only with mechanical
+mass conservation; incompressible feedback remains boundary-only.
+Tidal-potential and degree-1 reference-frame volume forcing are not included.
+CitcomSVE applies its COM correction as translated density-interface loads,
+not as the rotational-style scalar-potential volume term.
 
 `Potential feedback/Self gravity/Full domain volume source discretization`
 controls how the mechanical volume-density perturbation enters this cache.

@@ -640,6 +640,29 @@ namespace aspect
 
 
     template <int dim>
+    double
+    RotationalFeedback<dim>::full_domain_potential(
+      const Point<dim> &position) const
+    {
+      if constexpr (dim != 3)
+        return 0.0;
+      else
+        {
+          if (!enabled || surface_potential_cos_coeffs.empty())
+            return 0.0;
+
+          // This is the same scalar-potential convention used to construct
+          // the surface and CMB Phi/g coefficient fields above, evaluated
+          // directly so the exact r^2 radial dependence is retained.
+          return -rotational_potential_prefactor
+                 * (delta_ixz * position[0] + delta_iyz * position[1])
+                 * position[2];
+        }
+    }
+
+
+
+    template <int dim>
     void
     RotationalFeedback<dim>::set_additional_load_traction_function(
       const std::function<Tensor<1,dim>(const types::boundary_id,
