@@ -173,6 +173,14 @@ namespace aspect
         cmb_mass_potential_coefficient(const unsigned int degree,
                                        const unsigned int order) const;
 
+        /** Return the cosine/sine coefficient of the final total mass-source
+         * potential height Phi/g at the surface. This includes the external
+         * load, surface and CMB deformation, internal interfaces, and enabled
+         * volume-density sources, but excludes rotational feedback. */
+        std::pair<double,double>
+        total_surface_potential_coefficient(const unsigned int degree,
+                                            const unsigned int order) const;
+
         /** Return the cosine/sine coefficient of the externally applied
          * tidal potential height, Phi/g, evaluated at the surface. */
         std::pair<double,double>

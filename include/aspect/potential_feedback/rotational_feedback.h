@@ -79,6 +79,14 @@ namespace aspect
                                             const Point<dim> &,
                                             const Tensor<1,dim> &)> &function);
 
+        /** Supply the final self-gravity surface Phi/g coefficients. When
+         * available, rotational feedback uses the shared degree-2/order-1
+         * mass potential as its forcing source and retains its independent
+         * inertia integration as a diagnostic. */
+        void set_self_gravity_surface_potential_coefficient_function(
+          const std::function<std::pair<double,double>(const unsigned int,
+                                                       const unsigned int)> &function);
+
         /**
          * Return whether the stored rotational potential changed by less than
          * the configured relative tolerance in the last feedback update.
@@ -123,6 +131,7 @@ namespace aspect
         double initial_displacement_timestep;
         double potential_convergence_tolerance;
         double potential_relative_change;
+        double potential_source_relative_difference;
         unsigned int maximum_potential_iterations;
         unsigned int current_potential_iteration_step;
         unsigned int potential_iteration_number;
@@ -145,6 +154,10 @@ namespace aspect
                                     const Point<dim> &,
                                     const Tensor<1,dim> &)>
         additional_load_traction_function;
+
+        std::function<std::pair<double,double>(const unsigned int,
+                                               const unsigned int)>
+        self_gravity_surface_potential_coefficient_function;
     };
   }
 }

@@ -1737,6 +1737,26 @@ namespace aspect
 
     template <int dim>
     std::pair<double,double>
+    SelfGravitation<dim>::total_surface_potential_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      AssertThrow(dim == 3,
+                  ExcMessage("Spherical-harmonic coefficient access is only "
+                             "available in 3D."));
+      if (degree < min_degree || degree > max_degree || order > degree
+          || surface_potential_cos_coeffs.empty())
+        return {0.0, 0.0};
+
+      const unsigned int index = sh_transform->index(degree, order);
+      return {surface_potential_cos_coeffs.at(index),
+              surface_potential_sin_coeffs.at(index)
+             };
+    }
+
+
+    template <int dim>
+    std::pair<double,double>
     SelfGravitation<dim>::tidal_surface_potential_coefficient(
       const unsigned int degree,
       const unsigned int order) const

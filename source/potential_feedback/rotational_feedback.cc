@@ -543,6 +543,79 @@ namespace aspect
           cmb_potential_sin_coeffs.assign(n_coefficients, 0.0);
         }
 
+      double direct_rotational_phi21_cosine = 0.0;
+      double direct_rotational_phi21_sine = 0.0;
+      double self_gravity_phi21_cosine = 0.0;
+      double self_gravity_phi21_sine = 0.0;
+      double shared_rotational_phi21_cosine = 0.0;
+      double shared_rotational_phi21_sine = 0.0;
+      potential_source_relative_difference = 0.0;
+      if (self_gravity_surface_potential_coefficient_function)
+        {
+          const unsigned int degree_two_order_one_index =
+            sh_transform->index(2, 1);
+          direct_rotational_phi21_cosine =
+            surface_potential_cos_coeffs[degree_two_order_one_index];
+          direct_rotational_phi21_sine =
+            surface_potential_sin_coeffs[degree_two_order_one_index];
+          const std::pair<double,double> self_gravity_coefficient =
+            self_gravity_surface_potential_coefficient_function(2, 1);
+          self_gravity_phi21_cosine = self_gravity_coefficient.first;
+          self_gravity_phi21_sine = self_gravity_coefficient.second;
+          // CitcomSVE's scalar-potential minus sign and the opposite m=1
+          // associated-Legendre phase cancel in ASPECT's coefficient basis.
+          shared_rotational_phi21_cosine =
+            self_gravity_coefficient.first / fluid_love_number;
+          shared_rotational_phi21_sine =
+            self_gravity_coefficient.second / fluid_love_number;
+          const double shared_norm =
+            std::hypot(shared_rotational_phi21_cosine,
+                       shared_rotational_phi21_sine);
+          const double source_difference =
+            std::hypot(direct_rotational_phi21_cosine
+                       - shared_rotational_phi21_cosine,
+                       direct_rotational_phi21_sine
+                       - shared_rotational_phi21_sine);
+          potential_source_relative_difference =
+            (shared_norm > 0.0
+             ? source_difference / shared_norm
+             : (source_difference == 0.0
+                ? 0.0
+                : std::numeric_limits<double>::infinity()));
+
+          surface_potential_cos_coeffs.assign(n_coefficients, 0.0);
+          surface_potential_sin_coeffs.assign(n_coefficients, 0.0);
+          surface_potential_cos_coeffs[degree_two_order_one_index] =
+            shared_rotational_phi21_cosine;
+          surface_potential_sin_coeffs[degree_two_order_one_index] =
+            shared_rotational_phi21_sine;
+
+          cmb_potential_cos_coeffs.assign(n_coefficients, 0.0);
+          cmb_potential_sin_coeffs.assign(n_coefficients, 0.0);
+          if (include_cmb_contribution)
+            {
+              Point<dim> surface_reference;
+              Point<dim> cmb_reference;
+              surface_reference[0] = outer_radius;
+              cmb_reference[0] = geometry.inner_radius();
+              const double surface_gravity =
+                this->get_gravity_model().gravity_vector(surface_reference).norm();
+              const double cmb_gravity =
+                this->get_gravity_model().gravity_vector(cmb_reference).norm();
+              AssertThrow(surface_gravity > 0.0 && cmb_gravity > 0.0,
+                          ExcMessage("Shared rotational-potential coefficients "
+                                     "require positive surface and CMB gravity."));
+              const double radius_ratio =
+                geometry.inner_radius() / outer_radius;
+              const double cmb_height_scale =
+                radius_ratio * radius_ratio * surface_gravity / cmb_gravity;
+              cmb_potential_cos_coeffs[degree_two_order_one_index] =
+                cmb_height_scale * shared_rotational_phi21_cosine;
+              cmb_potential_sin_coeffs[degree_two_order_one_index] =
+                cmb_height_scale * shared_rotational_phi21_sine;
+            }
+        }
+
       std::vector<double> old_surface_cos_padded = old_surface_cos;
       std::vector<double> old_surface_sin_padded = old_surface_sin;
       std::vector<double> old_cmb_cos_padded = old_cmb_cos;
@@ -594,9 +667,23 @@ namespace aspect
               << ", internal dIxz=" << internal_delta_ixz
               << ", internal dIyz=" << internal_delta_iyz
               << ", kf=" << fluid_love_number
+              << ", direct/shared Phi_21 relative difference="
+              << potential_source_relative_difference
               << ", rotational potential prefactor="
               << rotational_potential_prefactor
               << std::defaultfloat << std::endl;
+
+          if (self_gravity_surface_potential_coefficient_function)
+            this->get_pcout()
+                << "        Phi_21/g dual-path diagnostic: self-gravity=("
+                << std::scientific << std::setprecision(6)
+                << self_gravity_phi21_cosine << ", "
+                << self_gravity_phi21_sine << "), direct rotational=("
+                << direct_rotational_phi21_cosine << ", "
+                << direct_rotational_phi21_sine << "), shared rotational=("
+                << shared_rotational_phi21_cosine << ", "
+                << shared_rotational_phi21_sine << ")"
+                << std::defaultfloat << std::endl;
 
           if (potential_relative_change > potential_convergence_tolerance
               && potential_iteration_number >= maximum_potential_iterations)
@@ -651,12 +738,29 @@ namespace aspect
           if (!enabled || surface_potential_cos_coeffs.empty())
             return 0.0;
 
-          // This is the same scalar-potential convention used to construct
-          // the surface and CMB Phi/g coefficient fields above, evaluated
-          // directly so the exact r^2 radial dependence is retained.
-          return -rotational_potential_prefactor
-                 * (delta_ixz * position[0] + delta_iyz * position[1])
-                 * position[2];
+          if (!self_gravity_surface_potential_coefficient_function)
+            return -rotational_potential_prefactor
+                   * (delta_ixz * position[0] + delta_iyz * position[1])
+                   * position[2];
+
+          const Point<dim> surface_reference =
+            this->get_geometry_model().representative_point(1.0);
+          const double outer_radius = surface_reference.norm();
+          const double surface_gravity =
+            this->get_gravity_model().gravity_vector(surface_reference).norm();
+          AssertThrow(outer_radius > 0.0 && surface_gravity > 0.0,
+                      ExcMessage("Rotational full-domain potential requires "
+                                 "positive surface radius and gravity."));
+          const std::array<double,dim> spherical_coordinates =
+            Utilities::Coordinates::cartesian_to_spherical_coordinates(position);
+          const double surface_potential_height =
+            sh_transform->synthesize(surface_potential_cos_coeffs,
+                                     surface_potential_sin_coeffs,
+          {spherical_coordinates[2]},
+          {spherical_coordinates[1]})[0];
+
+          return surface_gravity * surface_potential_height
+                 * position.norm_square() / (outer_radius * outer_radius);
         }
     }
 
@@ -670,6 +774,18 @@ namespace aspect
                                         const Tensor<1,dim> &)> &function)
     {
       additional_load_traction_function = function;
+    }
+
+
+
+    template <int dim>
+    void
+    RotationalFeedback<dim>::
+    set_self_gravity_surface_potential_coefficient_function(
+      const std::function<std::pair<double,double>(const unsigned int,
+                                                   const unsigned int)> &function)
+    {
+      self_gravity_surface_potential_coefficient_function = function;
     }
 
 
@@ -802,6 +918,8 @@ namespace aspect
         settings.include_cmb_feedback;
 
       potential_relative_change = std::numeric_limits<double>::infinity();
+      potential_source_relative_difference =
+        std::numeric_limits<double>::infinity();
       current_potential_iteration_step = (unsigned int)-1;
       potential_iteration_number = 0;
       delta_ixz = 0.0;

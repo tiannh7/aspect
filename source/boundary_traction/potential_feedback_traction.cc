@@ -132,7 +132,17 @@ namespace aspect
       if (self_gravity_active)
         self_gravity.configure_from_potential_feedback_settings(settings);
       if (rotational_feedback_active)
-        rotational_feedback.configure_from_potential_feedback_settings(settings);
+        {
+          rotational_feedback.configure_from_potential_feedback_settings(settings);
+          if (self_gravity_active)
+            rotational_feedback
+            .set_self_gravity_surface_potential_coefficient_function(
+              [this](const unsigned int degree, const unsigned int order)
+            {
+              return self_gravity.total_surface_potential_coefficient(degree,
+                                                                      order);
+            });
+        }
       if (glacial_isostatic_adjustment_active)
         glacial_isostatic_adjustment
         .configure_from_potential_feedback_settings(settings);

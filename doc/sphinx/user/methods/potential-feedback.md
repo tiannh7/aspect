@@ -121,20 +121,37 @@ Polar-wander rotational feedback is configured under
 `Potential feedback/Rotational feedback`. Its `Fluid Love number` parameter is
 the degree-2 fluid Love number $k_f$ used in the linearized polar-wander
 relation. This is the same quantity as CitcomSVE's `polar_wander_kf`. CitcomSVE
-3.0 computes the polar-wander feedback from the $I_{13}$ and $I_{23}$ products
-of inertia and adds only the degree-2, order-1 centrifugal-potential
-perturbation. ASPECT therefore fixes the rotational-feedback transform to this
-degree and order in the unified `Potential feedback` path. With
+3.0's compressible path obtains the same products of inertia from the final
+degree-2, order-1 gravitational-potential coefficient after all enabled mass
+sources have been combined, and adds only the corresponding
+centrifugal-potential perturbation. ASPECT therefore fixes the
+rotational-feedback transform to this degree and order in the unified
+`Potential feedback` path. With
 $dI_{xz}=-\int dm\,xz$ and $dI_{yz}=-\int dm\,yz$, the perturbation is
 $\Phi_r= -3G(dI_{xz}x+dI_{yz}y)z/(k_f R^5)$. Users therefore do not need to
 provide separate polar and equatorial moments of inertia. The surface
 coefficient of this centrifugal potential is included in surface-Love-number
 geoid output, but it is not counted as a surface mass-potential contribution.
 
+When self gravity and rotational feedback are both active, ASPECT uses the
+final total self-gravity surface coefficient directly: the rotational surface
+potential coefficient is $+\Phi_{21}/k_f$ in ASPECT's real-spherical-harmonic
+coefficient convention. The positive coefficient relation includes the
+odd-order phase conversion between CitcomSVE's modified associated-Legendre
+basis and ASPECT's basis; applying CitcomSVE's scalar-potential minus sign a
+second time reverses the physical feedback. This guarantees that the surface,
+CMB, internal-interface, and volume sources use the same discretization in the
+self-gravity and rotational paths. The independent $dI_{xz}$ and $dI_{yz}$
+integration remains active as a printed source-equivalence diagnostic and
+fixes the convention: its coefficient must agree with the shared coefficient,
+not its negative. If self gravity is absent, rotational feedback retains the
+direct-inertia source.
+
 When `Potential feedback/Self gravity/Include internal density anomalies`
 resolves to true, the same selected mechanical volume-density perturbation and
-displaced internal density-interface sheets also contribute to $dI_{xz}$ and
-$dI_{yz}$. The shared density-source integration simultaneously computes the
+displaced internal density-interface sheets contribute to both the total
+$\Phi_{21}$ source and the independently diagnosed $dI_{xz}$ and $dI_{yz}$.
+The shared density-source integration simultaneously computes the
 internal mass dipole used by the native `center of mass` degree-one reference
 frame and the full internal inertia tensor. Surface and CMB sheets remain
 separate boundary-owned sources, so they are not counted by this volume
