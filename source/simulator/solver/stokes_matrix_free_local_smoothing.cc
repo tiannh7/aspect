@@ -181,6 +181,7 @@ namespace aspect
     double minimum_viscosity_local = std::numeric_limits<double>::max();
     double maximum_viscosity_local = std::numeric_limits<double>::lowest();
     double representative_elastic_bulk_viscosity = 1.0;
+    double mechanical_time_step = 0.0;
 
     const bool active_no_averaging = (this->get_parameters().material_averaging
                                       ==
@@ -369,7 +370,7 @@ namespace aspect
           elastic_time_step = this->get_material_model().initial_elastic_time_step();
         AssertThrow(elastic_time_step > 0.0,
                     ExcMessage("Elastic pressure evolution requires a positive effective time step."));
-        const double mechanical_time_step =
+        mechanical_time_step =
           (active_cell_data.use_mechanical_mass_conservation
            ? this->get_density_source_manager().effective_mechanical_time_step()
            : 0.0);
@@ -645,11 +646,25 @@ namespace aspect
         level_cell_data[level].pressure_scaling = this->get_pressure_scaling();
         level_cell_data[level].use_elastic_pressure_evolution =
           active_cell_data.use_elastic_pressure_evolution;
+        level_cell_data[level].use_mechanical_mass_conservation =
+          active_cell_data.use_mechanical_mass_conservation;
+
+        // Restrict the free-surface stabilization to boundaries with an
+        // explicit density contrast. This makes the level operator independent
+        // of a material-density restriction, which is not available on
+        // inactive geometric levels.
+        level_cell_data[level].free_surface_boundary_indicators.clear();
+        if (this->get_parameters().mesh_deformation_enabled)
+          for (const auto boundary_id :
+               this->get_mesh_deformation_handler().get_free_surface_boundary_indicators())
+            if (this->get_mesh_deformation_handler()
+                .has_free_surface_stabilization_density_contrast(boundary_id))
+              level_cell_data[level].free_surface_boundary_indicators.insert(boundary_id);
+        level_cell_data[level].apply_stabilization_free_surface_faces =
+          !level_cell_data[level].free_surface_boundary_indicators.empty();
 
         // The Citcom-style CMB radial restoring term is currently applied
-        // only on the active-level matrix-free Stokes operator. This follows
-        // ASPECT's existing treatment of free-surface stabilization in GMG,
-        // where multilevel surface terms are not implemented.
+        // only on the active-level matrix-free Stokes operator.
         level_cell_data[level].use_citcom_style_cmb_radial_restoring = false;
         level_cell_data[level].citcom_style_cmb_radial_restoring_boundary_indicator = numbers::invalid_boundary_id;
         level_cell_data[level].citcom_style_cmb_radial_restoring_density_contrast = 0.0;
@@ -659,6 +674,244 @@ namespace aspect
         const unsigned int n_cells = mg_matrices_A_block[level].get_matrix_free()->n_cell_batches();
 
         const unsigned int n_q_points = quadrature_formula.size();
+
+        if (level_cell_data[level].use_mechanical_mass_conservation)
+          {
+            level_cell_data[level].radial_restoring_coefficient.reinit(
+              TableIndices<2>(n_cells, n_q_points));
+            level_cell_data[level].radial_unit_vector.reinit(
+              TableIndices<2>(n_cells, n_q_points));
+
+            FEEvaluation<dim,velocity_degree,velocity_degree+1,dim,GMGNumberType>
+            velocity_evaluation(*mg_matrices_A_block[level].get_matrix_free(), 0);
+
+            for (unsigned int cell=0; cell<n_cells; ++cell)
+              {
+                velocity_evaluation.reinit(cell);
+                const unsigned int n_components_filled =
+                  mg_matrices_A_block[level].get_matrix_free()
+                  ->n_active_entries_per_cell_batch(cell);
+
+                for (unsigned int q=0; q<n_q_points; ++q)
+                  {
+                    level_cell_data[level].radial_restoring_coefficient(cell,q) = 0.0;
+                    for (unsigned int d=0; d<dim; ++d)
+                      level_cell_data[level].radial_unit_vector(cell,q)[d] = 0.0;
+
+                    const auto quadrature_point =
+                      velocity_evaluation.quadrature_point(q);
+                    for (unsigned int i=0; i<n_components_filled; ++i)
+                      {
+                        Point<dim> position;
+                        for (unsigned int d=0; d<dim; ++d)
+                          position[d] = quadrature_point[d][i];
+
+                        const double radius = position.norm();
+                        AssertThrow(radius > 0.0,
+                                    ExcMessage("Mechanical mass conservation is undefined at radius zero."));
+                        const Tensor<1,dim> radial_unit = position / radius;
+                        const double gravity_magnitude =
+                          this->get_density_source_manager().mechanical_gravity_magnitude(
+                            position,
+                            this->get_gravity_model().gravity_vector(position).norm());
+                        const double reference_density_times_gravity =
+                          this->get_density_source_manager().reference_density(position)
+                          * gravity_magnitude;
+
+                        level_cell_data[level].radial_restoring_coefficient(cell,q)[i] =
+                          reference_density_times_gravity * mechanical_time_step;
+                        for (unsigned int d=0; d<dim; ++d)
+                          level_cell_data[level].radial_unit_vector(cell,q)[d][i] =
+                            radial_unit[d];
+                      }
+                  }
+              }
+          }
+
+        level_cell_data[level].use_internal_density_jump_restoring =
+          level_cell_data[level].use_mechanical_mass_conservation
+          && this->get_density_source_manager().has_internal_density_jumps();
+
+        if (level_cell_data[level].use_internal_density_jump_restoring)
+          {
+            const Quadrature<dim-1> &face_quadrature_formula =
+              this->introspection().face_quadratures.velocities;
+            const unsigned int n_face_q_points = face_quadrature_formula.size();
+            const unsigned int n_faces =
+              mg_matrices_A_block[level].get_matrix_free()->n_inner_face_batches();
+
+            level_cell_data[level].internal_density_jump_restoring_coefficient_table.reinit(
+              TableIndices<2>(n_faces, n_face_q_points));
+            level_cell_data[level].internal_density_jump_radial_unit_vector.reinit(
+              TableIndices<2>(n_faces, n_face_q_points));
+            for (unsigned int face=0; face<n_faces; ++face)
+              for (unsigned int q=0; q<n_face_q_points; ++q)
+                {
+                  level_cell_data[level]
+                  .internal_density_jump_restoring_coefficient_table(face,q) = 0.0;
+                  for (unsigned int d=0; d<dim; ++d)
+                    level_cell_data[level]
+                    .internal_density_jump_radial_unit_vector(face,q)[d] = 0.0;
+                }
+
+            FEFaceEvaluation<dim,velocity_degree,velocity_degree+1,dim,GMGNumberType>
+            face_evaluation(*mg_matrices_A_block[level].get_matrix_free(), true, 0);
+
+            for (unsigned int face=0; face<n_faces; ++face)
+              {
+                face_evaluation.reinit(face);
+                const unsigned int n_components_filled =
+                  mg_matrices_A_block[level].get_matrix_free()
+                  ->n_active_entries_per_face_batch(face);
+
+                for (unsigned int i=0; i<n_components_filled; ++i)
+                  {
+                    const auto matrix_free_interior =
+                      mg_matrices_A_block[level].get_matrix_free()
+                      ->get_face_iterator(face, i, true);
+                    const auto matrix_free_exterior =
+                      mg_matrices_A_block[level].get_matrix_free()
+                      ->get_face_iterator(face, i, false);
+
+                    auto inner_cell = matrix_free_interior.first;
+                    auto outer_cell = matrix_free_exterior.first;
+                    if (inner_cell->has_periodic_neighbor(matrix_free_interior.second))
+                      continue;
+                    if (inner_cell->center().norm() > outer_cell->center().norm())
+                      std::swap(inner_cell, outer_cell);
+                    if (inner_cell->center().norm() >= outer_cell->center().norm())
+                      continue;
+
+                    const auto geometric_face =
+                      matrix_free_interior.first->face(matrix_free_interior.second);
+                    const double density_contrast =
+                      this->get_density_source_manager().internal_density_jump_across_face(
+                        inner_cell->center(),
+                        outer_cell->center(),
+                        geometric_face->vertex(0).norm());
+                    if (density_contrast == 0.0)
+                      continue;
+
+                    bool all_vertices_match = true;
+                    for (unsigned int vertex=1;
+                         vertex<geometric_face->n_vertices();
+                         ++vertex)
+                      all_vertices_match =
+                        all_vertices_match
+                        && (this->get_density_source_manager().internal_density_jump_across_face(
+                              inner_cell->center(),
+                              outer_cell->center(),
+                              geometric_face->vertex(vertex).norm())
+                            == density_contrast);
+                    if (!all_vertices_match)
+                      continue;
+
+                    for (unsigned int q=0; q<n_face_q_points; ++q)
+                      {
+                        Point<dim> position;
+                        const auto quadrature_point =
+                          face_evaluation.quadrature_point(q);
+                        for (unsigned int d=0; d<dim; ++d)
+                          position[d] = quadrature_point[d][i];
+                        const double radius = position.norm();
+                        AssertThrow(radius > 0.0,
+                                    ExcMessage("Internal density jump restoring is undefined at radius zero."));
+                        const Tensor<1,dim> radial_unit = position / radius;
+                        const double gravity_magnitude =
+                          this->get_gravity_model().gravity_vector(position).norm();
+
+                        level_cell_data[level]
+                        .internal_density_jump_restoring_coefficient_table(face,q)[i] =
+                          density_contrast * gravity_magnitude * mechanical_time_step;
+                        for (unsigned int d=0; d<dim; ++d)
+                          level_cell_data[level]
+                          .internal_density_jump_radial_unit_vector(face,q)[d][i] =
+                            radial_unit[d];
+                      }
+                  }
+              }
+          }
+
+        if (level_cell_data[level].apply_stabilization_free_surface_faces)
+          {
+            const Quadrature<dim-1> &face_quadrature_formula =
+              this->introspection().face_quadratures.velocities;
+            const unsigned int n_face_q_points = face_quadrature_formula.size();
+            const unsigned int n_faces_interior =
+              mg_matrices_A_block[level].get_matrix_free()->n_inner_face_batches();
+            const unsigned int n_faces_boundary =
+              mg_matrices_A_block[level].get_matrix_free()->n_boundary_face_batches();
+
+            level_cell_data[level].free_surface_stabilization_term_table.reinit(
+              n_faces_boundary, n_face_q_points);
+
+            FEFaceEvaluation<dim,velocity_degree,velocity_degree+1,dim,GMGNumberType>
+            face_evaluation(*mg_matrices_A_block[level].get_matrix_free(), false, 0);
+
+            const double free_surface_theta =
+              this->get_mesh_deformation_handler().get_free_surface_theta();
+            const double stabilization_time_step =
+              this->get_mesh_deformation_handler()
+              .get_free_surface_stabilization_timestep();
+
+            for (unsigned int face=n_faces_interior;
+                 face<n_faces_interior+n_faces_boundary;
+                 ++face)
+              {
+                const auto boundary_id =
+                  mg_matrices_A_block[level].get_matrix_free()->get_boundary_id(face);
+                if (level_cell_data[level].free_surface_boundary_indicators.find(boundary_id)
+                    == level_cell_data[level].free_surface_boundary_indicators.end())
+                  continue;
+
+                face_evaluation.reinit(face);
+                const unsigned int n_components_filled =
+                  mg_matrices_A_block[level].get_matrix_free()
+                  ->n_active_entries_per_face_batch(face);
+                const double density_jump =
+                  this->get_mesh_deformation_handler()
+                  .get_free_surface_stabilization_density_contrast(boundary_id, 0.0);
+
+                for (unsigned int q=0; q<n_face_q_points; ++q)
+                  {
+                    const auto quadrature_point = face_evaluation.quadrature_point(q);
+#if DEAL_II_VERSION_GTE(9,7,0)
+                    const auto normal_vector = face_evaluation.normal_vector(q);
+#else
+                    const auto normal_vector = face_evaluation.get_normal_vector(q);
+#endif
+
+                    for (unsigned int i=0; i<n_components_filled; ++i)
+                      {
+                        Point<dim> position;
+                        Tensor<1,dim> n_hat;
+                        for (unsigned int d=0; d<dim; ++d)
+                          {
+                            position[d] = quadrature_point[d][i];
+                            n_hat[d] = normal_vector[d][i];
+                          }
+
+                        const Tensor<1,dim> gravity =
+                          this->get_gravity_model().gravity_vector(position);
+                        const double gravity_magnitude = gravity.norm();
+                        const Tensor<1,dim> gravity_direction =
+                          (gravity_magnitude == 0.0
+                           ? Tensor<1,dim>()
+                           : gravity / gravity_magnitude);
+                        const double orientation = -(gravity_direction * n_hat);
+                        const double pressure_perturbation =
+                          density_jump * stabilization_time_step
+                          * free_surface_theta * gravity_magnitude * orientation;
+
+                        for (unsigned int d=0; d<dim; ++d)
+                          level_cell_data[level]
+                          .free_surface_stabilization_term_table(
+                            face-n_faces_interior, q)[d][i] =
+                              pressure_perturbation * gravity_direction[d];
+                      }
+                  }
+              }
+          }
 
         if (level_cell_data[level].use_elastic_pressure_evolution)
           {
@@ -1318,7 +1571,7 @@ namespace aspect
                 const auto &normal_vector = velocity_boundary.get_normal_vector(q);
 #endif
                 const auto stabilization_tensor = active_cell_data.free_surface_stabilization_term_table(face - n_faces_interior, q);
-                const auto value_submit = (stabilization_tensor * phi_u_i) * normal_vector;
+                const auto value_submit = (normal_vector * phi_u_i) * stabilization_tensor;
                 velocity_boundary.submit_value(value_submit, q);
 
               }
@@ -1351,6 +1604,11 @@ namespace aspect
 
     // Below we define all the objects needed to build the GMG preconditioner:
     using VectorType = dealii::LinearAlgebra::distributed::Vector<GMGNumberType>;
+    const unsigned int n_gmg_levels = this->get_triangulation().n_global_levels();
+    const bool strengthen_single_level_mechanical_coarse_solver =
+      (n_gmg_levels == 1)
+      && (this->get_parameters().density_source_law
+          == Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation);
 
     // ABlock GMG Smoother: Chebyshev, degree 4. Parameter values were chosen
     // by trial and error. We use a more powerful version of the smoother on the
@@ -1360,8 +1618,8 @@ namespace aspect
     mg_smoother_A;
     {
       MGLevelObject<typename ASmootherType::AdditionalData> smoother_data_A;
-      smoother_data_A.resize(0, this->get_triangulation().n_global_levels()-1);
-      for (unsigned int level = 0; level<this->get_triangulation().n_global_levels(); ++level)
+      smoother_data_A.resize(0, n_gmg_levels-1);
+      for (unsigned int level = 0; level<n_gmg_levels; ++level)
         {
           if (level > 0)
             {
@@ -1372,7 +1630,8 @@ namespace aspect
           else
             {
               smoother_data_A[0].smoothing_range = 1e-3;
-              smoother_data_A[0].degree = 8;
+              smoother_data_A[0].degree =
+                strengthen_single_level_mechanical_coarse_solver ? 32 : 8;
               smoother_data_A[0].eig_cg_n_iterations = 100;
             }
           smoother_data_A[level].preconditioner = mg_matrices_A_block[level].get_matrix_diagonal_inverse();
@@ -1388,8 +1647,8 @@ namespace aspect
     mg_smoother_Schur(4);
     {
       MGLevelObject<typename MSmootherType::AdditionalData> smoother_data_Schur;
-      smoother_data_Schur.resize(0, this->get_triangulation().n_global_levels()-1);
-      for (unsigned int level = 0; level<this->get_triangulation().n_global_levels(); ++level)
+      smoother_data_Schur.resize(0, n_gmg_levels-1);
+      for (unsigned int level = 0; level<n_gmg_levels; ++level)
         {
           if (level > 0)
             {
@@ -1400,7 +1659,8 @@ namespace aspect
           else
             {
               smoother_data_Schur[0].smoothing_range = 1e-3;
-              smoother_data_Schur[0].degree = 8;
+              smoother_data_Schur[0].degree =
+                strengthen_single_level_mechanical_coarse_solver ? 32 : 8;
               smoother_data_Schur[0].eig_cg_n_iterations = 100;
             }
           smoother_data_Schur[level].preconditioner = mg_matrices_Schur_complement[level].get_matrix_diagonal_inverse();
@@ -1415,7 +1675,7 @@ namespace aspect
     //TODO: The setup for the smoother (as well as the entire GMG setup) should
     //       be moved to an assembly timing block instead of the Stokes solve
     //       timing block (as is currently the case).
-    for (unsigned int level = 0; level<this->get_triangulation().n_global_levels(); ++level)
+    for (unsigned int level = 0; level<n_gmg_levels; ++level)
       {
         VectorType temp_velocity;
         VectorType temp_pressure;
@@ -1446,7 +1706,7 @@ namespace aspect
 
     if (print_details)
       {
-        const unsigned int n_levels = this->get_triangulation().n_global_levels();
+        const unsigned int n_levels = n_gmg_levels;
         const double imbalance = MGTools::workload_imbalance(this->get_triangulation());
         const std::string solver = (this->get_parameters().stokes_krylov_type == Parameters<dim>::StokesKrylovType::idr_s) ? ("IDR(" + std::to_string(this->get_parameters().idr_s_parameter) + ")") : "GMRES";
 
@@ -2387,8 +2647,35 @@ namespace aspect
           {
             typename MatrixFree<dim,GMGNumberType>::AdditionalData additional_data;
             additional_data.tasks_parallel_scheme = MatrixFree<dim,GMGNumberType>::AdditionalData::none;
-            additional_data.mapping_update_flags = (update_gradients | update_JxW_values);
+            additional_data.mapping_update_flags = (update_gradients |
+                                                    update_quadrature_points |
+                                                    update_JxW_values);
             additional_data.mg_level = level;
+
+            const bool use_internal_density_jump_restoring =
+              (this->get_parameters().density_source_law
+               == Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation)
+              && this->get_density_source_manager().has_internal_density_jumps();
+            if (use_internal_density_jump_restoring)
+              additional_data.mapping_update_flags_inner_faces =
+                (update_values |
+                 update_quadrature_points |
+                 update_JxW_values);
+
+            bool use_explicit_level_free_surface_stabilization = false;
+            if (this->get_parameters().mesh_deformation_enabled)
+              for (const auto boundary_id :
+                   this->get_mesh_deformation_handler().get_free_surface_boundary_indicators())
+                use_explicit_level_free_surface_stabilization =
+                  use_explicit_level_free_surface_stabilization
+                  || this->get_mesh_deformation_handler()
+                  .has_free_surface_stabilization_density_contrast(boundary_id);
+            if (use_explicit_level_free_surface_stabilization)
+              additional_data.mapping_update_flags_boundary_faces =
+                (update_values |
+                 update_quadrature_points |
+                 update_normal_vectors |
+                 update_JxW_values);
 
             std::vector<const DoFHandler<dim>*> stokes_dofs {&dof_handler_v, &dof_handler_p};
             std::vector<const AffineConstraints<double> *> stokes_constraints {&level_constraints_v,&level_constraints_p};

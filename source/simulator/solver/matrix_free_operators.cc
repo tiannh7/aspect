@@ -492,7 +492,7 @@ namespace aspect
                 const auto stabilization_tensor =
                   cell_data->free_surface_stabilization_term_table(face - n_faces_interior, q);
 
-                value_submit -= (stabilization_tensor * phi_u_i) * normal_vector;
+                value_submit -= (normal_vector * phi_u_i) * stabilization_tensor;
               }
 
             if (is_citcom_cmb_face)
@@ -968,6 +968,87 @@ namespace aspect
   template <int dim, int degree_v, typename number>
   void
   MatrixFreeStokesOperators::ABlockOperator<dim,degree_v,number>
+  ::inner_face_operation(FEFaceEvaluation<dim,
+                         degree_v,
+                         degree_v+1,
+                         dim,
+                         number> &interior_velocity,
+                         FEFaceEvaluation<dim,
+                         degree_v,
+                         degree_v+1,
+                         dim,
+                         number> &/*exterior_velocity*/) const
+  {
+    if (!cell_data->use_internal_density_jump_restoring)
+      return;
+
+    interior_velocity.evaluate(EvaluationFlags::values);
+
+    const unsigned int face = interior_velocity.get_current_cell_index();
+    for (const unsigned int q : interior_velocity.quadrature_point_indices())
+      {
+        const Tensor<1,dim,VectorizedArray<number>> radial_unit =
+          cell_data->internal_density_jump_radial_unit_vector(face,q);
+        const VectorizedArray<number> radial_velocity =
+          interior_velocity.get_value(q) * radial_unit;
+        const VectorizedArray<number> coefficient =
+          cell_data->internal_density_jump_restoring_coefficient_table(face,q);
+
+        interior_velocity.submit_value(coefficient
+                                       * radial_velocity
+                                       * radial_unit,
+                                       q);
+      }
+
+    interior_velocity.integrate(EvaluationFlags::values);
+  }
+
+
+
+  template <int dim, int degree_v, typename number>
+  void
+  MatrixFreeStokesOperators::ABlockOperator<dim,degree_v,number>
+  ::boundary_face_operation(FEFaceEvaluation<dim,
+                            degree_v,
+                            degree_v+1,
+                            dim,
+                            number> &velocity) const
+  {
+    const unsigned int face = velocity.get_current_cell_index();
+    const auto boundary_id = this->data->get_boundary_id(face);
+    if (cell_data->free_surface_boundary_indicators.find(boundary_id)
+        == cell_data->free_surface_boundary_indicators.end())
+      return;
+
+    velocity.evaluate(EvaluationFlags::values);
+    const unsigned int n_faces_interior = this->data->n_inner_face_batches();
+
+    for (const unsigned int q : velocity.quadrature_point_indices())
+      {
+        const Tensor<1,dim,VectorizedArray<number>> velocity_value =
+          velocity.get_value(q);
+#if DEAL_II_VERSION_GTE(9,7,0)
+        const auto &normal_vector = velocity.normal_vector(q);
+#else
+        const auto &normal_vector = velocity.get_normal_vector(q);
+#endif
+        const auto stabilization_tensor =
+          cell_data->free_surface_stabilization_term_table(
+            face - n_faces_interior, q);
+
+        velocity.submit_value(-(normal_vector * velocity_value)
+                              * stabilization_tensor,
+                              q);
+      }
+
+    velocity.integrate(EvaluationFlags::values);
+  }
+
+
+
+  template <int dim, int degree_v, typename number>
+  void
+  MatrixFreeStokesOperators::ABlockOperator<dim,degree_v,number>
   ::local_apply (const dealii::MatrixFree<dim, number>                 &data,
                  dealii::LinearAlgebra::distributed::Vector<number>       &dst,
                  const dealii::LinearAlgebra::distributed::Vector<number> &src,
@@ -999,11 +1080,109 @@ namespace aspect
   template <int dim, int degree_v, typename number>
   void
   MatrixFreeStokesOperators::ABlockOperator<dim,degree_v,number>
+  ::local_apply_face(const dealii::MatrixFree<dim, number> &data,
+                     dealii::LinearAlgebra::distributed::Vector<number> &dst,
+                     const dealii::LinearAlgebra::distributed::Vector<number> &src,
+                     const std::pair<unsigned int, unsigned int> &face_range) const
+  {
+    if (!cell_data->use_internal_density_jump_restoring)
+      return;
+
+    FEFaceEvaluation<dim,degree_v,degree_v+1,dim,number>
+    interior_velocity(data, true);
+
+    for (unsigned int face=face_range.first; face<face_range.second; ++face)
+      {
+        interior_velocity.reinit(face);
+        interior_velocity.gather_evaluate(src, EvaluationFlags::values);
+
+        for (const unsigned int q : interior_velocity.quadrature_point_indices())
+          {
+            const Tensor<1,dim,VectorizedArray<number>> radial_unit =
+              cell_data->internal_density_jump_radial_unit_vector(face,q);
+            const VectorizedArray<number> radial_velocity =
+              interior_velocity.get_value(q) * radial_unit;
+            const VectorizedArray<number> coefficient =
+              cell_data->internal_density_jump_restoring_coefficient_table(face,q);
+
+            interior_velocity.submit_value(coefficient
+                                           * radial_velocity
+                                           * radial_unit,
+                                           q);
+          }
+
+        interior_velocity.integrate_scatter(EvaluationFlags::values, dst);
+      }
+  }
+
+
+
+  template <int dim, int degree_v, typename number>
+  void
+  MatrixFreeStokesOperators::ABlockOperator<dim,degree_v,number>
+  ::local_apply_boundary_face(const dealii::MatrixFree<dim, number> &data,
+                              dealii::LinearAlgebra::distributed::Vector<number> &dst,
+                              const dealii::LinearAlgebra::distributed::Vector<number> &src,
+                              const std::pair<unsigned int, unsigned int> &face_range) const
+  {
+    FEFaceEvaluation<dim,degree_v,degree_v+1,dim,number> velocity(data);
+    const unsigned int n_faces_interior = data.n_inner_face_batches();
+
+    for (unsigned int face=face_range.first; face<face_range.second; ++face)
+      {
+        const auto boundary_id = data.get_boundary_id(face);
+        if (cell_data->free_surface_boundary_indicators.find(boundary_id)
+            == cell_data->free_surface_boundary_indicators.end())
+          continue;
+
+        velocity.reinit(face);
+        velocity.gather_evaluate(src, EvaluationFlags::values);
+
+        for (const unsigned int q : velocity.quadrature_point_indices())
+          {
+            const Tensor<1,dim,VectorizedArray<number>> velocity_value =
+              velocity.get_value(q);
+#if DEAL_II_VERSION_GTE(9,7,0)
+            const auto &normal_vector = velocity.normal_vector(q);
+#else
+            const auto &normal_vector = velocity.get_normal_vector(q);
+#endif
+            const auto stabilization_tensor =
+              cell_data->free_surface_stabilization_term_table(
+                face - n_faces_interior, q);
+
+            velocity.submit_value(-(normal_vector * velocity_value)
+                                  * stabilization_tensor,
+                                  q);
+          }
+
+        velocity.integrate_scatter(EvaluationFlags::values, dst);
+      }
+  }
+
+
+
+  template <int dim, int degree_v, typename number>
+  void
+  MatrixFreeStokesOperators::ABlockOperator<dim,degree_v,number>
   ::apply_add (dealii::LinearAlgebra::distributed::Vector<number> &dst,
                const dealii::LinearAlgebra::distributed::Vector<number> &src) const
   {
-    MatrixFreeOperators::Base<dim,dealii::LinearAlgebra::distributed::Vector<number>>::
-    data->cell_loop(&ABlockOperator::local_apply, this, dst, src);
+    if (cell_data->use_internal_density_jump_restoring
+        || cell_data->apply_stabilization_free_surface_faces)
+      MatrixFreeOperators::Base<dim,dealii::LinearAlgebra::distributed::Vector<number>>::
+      data->loop(&ABlockOperator::local_apply,
+                 &ABlockOperator::local_apply_face,
+                 &ABlockOperator::local_apply_boundary_face,
+                 this,
+                 dst,
+                 src,
+                 false, /*zero_dst_vector*/
+                 MatrixFree<dim, number>::DataAccessOnFaces::values,
+                 MatrixFree<dim, number>::DataAccessOnFaces::values);
+    else
+      MatrixFreeOperators::Base<dim,dealii::LinearAlgebra::distributed::Vector<number>>::
+      data->cell_loop(&ABlockOperator::local_apply, this, dst, src);
   }
 
 
@@ -1019,11 +1198,21 @@ namespace aspect
       this->inverse_diagonal_entries->get_vector();
     this->data->initialize_dof_vector(inverse_diagonal);
 
-    MatrixFreeTools::compute_diagonal(
-      *(this->get_matrix_free()),
-      inverse_diagonal,
-      &MatrixFreeStokesOperators::ABlockOperator<dim,degree_v,number>::cell_operation,
-      this);
+    if (cell_data->use_internal_density_jump_restoring
+        || cell_data->apply_stabilization_free_surface_faces)
+      MatrixFreeTools::compute_diagonal(
+        *(this->get_matrix_free()),
+        inverse_diagonal,
+        &MatrixFreeStokesOperators::ABlockOperator<dim,degree_v,number>::cell_operation,
+        &MatrixFreeStokesOperators::ABlockOperator<dim,degree_v,number>::inner_face_operation,
+        &MatrixFreeStokesOperators::ABlockOperator<dim,degree_v,number>::boundary_face_operation,
+        this);
+    else
+      MatrixFreeTools::compute_diagonal(
+        *(this->get_matrix_free()),
+        inverse_diagonal,
+        &MatrixFreeStokesOperators::ABlockOperator<dim,degree_v,number>::cell_operation,
+        this);
 
     this->set_constrained_entries_to_one(inverse_diagonal);
 

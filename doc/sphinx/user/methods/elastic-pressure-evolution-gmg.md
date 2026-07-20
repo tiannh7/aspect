@@ -89,19 +89,44 @@ density-source law so that an inner nonsymmetric solver is selected.
 ## Local-smoothing levels
 
 The fine-grid pressure, mechanical cell, and internal-face terms are
-implemented. Local-smoothing multigrid levels deliberately remain simplified
-preconditioner approximations:
+implemented. Local-smoothing multigrid levels use the following preconditioner
+approximations:
 
 - use a positive representative `K * Delta t_m`, initially the geometric mean
   of the active minimum and maximum, in the pressure mass operators;
 - retain the existing viscosity transfer and compressible deviatoric terms;
-- omit the active radial volume coupling and internal-interface restoring terms
-  from level operators in the first implementation.
+- evaluate `rho_ref * g * Delta t_m` and the radial unit vector at level
+  quadrature points and include the mechanical radial velocity coupling in
+  every level velocity block; and
+- detect piecewise-constant reference-density contrasts on level faces and
+  include `Delta rho * g * Delta t_m` in both the level velocity blocks and
+  their Chebyshev diagonals; and
+- when a free-surface boundary has an explicit stabilization density contrast,
+  include its restoring face form in the level velocity block and Chebyshev
+  diagonal using the same gravity/test and normal/trial ordering as the active
+  operator.
 
-Omitting these terms from multigrid levels changes preconditioning quality, not
-the linear system. If convergence becomes resolution dependent, transferring
-the coefficients to levels is a later, evidence-driven patch rather than part
-of the first implementation.
+The level-face construction represents interfaces that are faces of that
+geometric level. It does not invent a sharp interface inside a coarse cell.
+Consequently a strong material discontinuity should either be retained as a
+level face or represented by an explicitly documented subcell projection.
+These level terms change preconditioning quality, not the active linear
+system. They were added after the refined-lateral PREM/VM5a discriminator made
+the earlier omission resolution dependent.
+
+Free-surface level terms currently require an explicit density contrast. A
+boundary that obtains its contrast from the active material-model density is
+left out of the level preconditioner until a general restriction of that
+density to inactive geometric levels is implemented. The active operator is
+unaffected by this limitation.
+
+Custom meshes may be constructed entirely on level zero. In that case the
+coarsest Chebyshev application is the complete velocity and Schur
+preconditioner rather than the bottom of a multilevel V-cycle. For one-level
+mechanical-mass-conservation models, the fixed coarse polynomial degree is 32
+instead of 8. This preserves a linear preconditioner and the custom radial
+grid; models with a genuine hierarchy and all other density-source laws retain
+the established degree.
 
 ## Boundary-value and residual consistency
 
@@ -110,6 +135,15 @@ inhomogeneous constrained velocity. It includes the mechanical radial velocity
 term and the internal-interface face term when present. The elastic
 pressure mass and pressure-to-velocity radial terms do not contribute when the
 constrained pressure is zero.
+
+The matrix-free free-surface stabilization retains the assembled
+nonsymmetric ordering. For coefficient $c$, gravity direction $\hat{g}$, and
+boundary normal $\hat{n}$, the assembled form
+$-c(\mathbf{w}\cdot\hat{g})(\mathbf{u}\cdot\hat{n})$ submits the value
+$-c(\mathbf{u}\cdot\hat{n})\hat{g}$ in the active boundary operator. The
+inhomogeneous constraint correction applies its negative. Transposing these
+vectors is invisible on an undeformed sphere but inconsistent once
+$\hat{g}$ and $\hat{n}$ are not parallel.
 
 The matrix-free solver's initial tolerance estimate uses the computed
 pressure-row residual. Treating it as `norm(rhs_p)` would assume a zero pressure
@@ -132,8 +166,9 @@ face, the fine-grid operator applies
 The assembled path already supplies the committed-displacement and potential
 right-hand-side terms on these faces. The matrix-free implementation uses the
 interior-face loop and active-face coefficient tables. The fine-grid face
-operator is implemented; multigrid levels still omit this term as a documented
-preconditioner approximation.
+operator and local-smoothing velocity-block level operators apply this term.
+The level diagonal includes the face contribution used by the Chebyshev
+smoother.
 
 ## Compatibility and default behavior
 
@@ -153,7 +188,9 @@ elasticity-disabled models remain unchanged.
 
 The elastic pressure mass and Schur approximation, mechanical radial cell
 couplings, nonsymmetric A-block selection, pressure residual, boundary-value
-correction, and internal-density-jump fine-grid face operator are implemented.
+correction, and internal-density-jump fine-grid and local-smoothing level face
+operators, together with explicit-contrast free-surface level operators, are
+implemented.
 Focused assembled-AMG/local-GMG regressions cover both a finite bulk-modulus
 profile and a piecewise-constant internal density jump.
 

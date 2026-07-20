@@ -568,6 +568,32 @@ namespace aspect
                             number> &velocity) const;
 
         /**
+         * Defines the internal density-jump restoring operation on an
+         * interior face. The exterior evaluation is unused because the
+         * continuous velocity field has a single trace on the face.
+         */
+        void inner_face_operation(FEFaceEvaluation<dim,
+                                  degree_v,
+                                  degree_v+1,
+                                  dim,
+                                  number> &interior_velocity,
+                                  FEFaceEvaluation<dim,
+                                  degree_v,
+                                  degree_v+1,
+                                  dim,
+                                  number> &exterior_velocity) const;
+
+        /**
+         * Empty boundary-face operation used by the matrix-free loop and
+         * diagonal computation.
+         */
+        void boundary_face_operation(FEFaceEvaluation<dim,
+                                     degree_v,
+                                     degree_v+1,
+                                     dim,
+                                     number> &velocity) const;
+
+        /**
          * Performs the application of the matrix-free operator. This
          * function is called by vmult() functions
          * MatrixFreeOperators::Base.
@@ -582,6 +608,22 @@ namespace aspect
                           dealii::LinearAlgebra::distributed::Vector<number> &dst,
                           const dealii::LinearAlgebra::distributed::Vector<number> &src,
                           const std::pair<unsigned int, unsigned int> &cell_range) const;
+
+        /**
+         * Apply the internal density-jump restoring term on interior faces.
+         */
+        void local_apply_face (const dealii::MatrixFree<dim, number> &data,
+                               dealii::LinearAlgebra::distributed::Vector<number> &dst,
+                               const dealii::LinearAlgebra::distributed::Vector<number> &src,
+                               const std::pair<unsigned int, unsigned int> &face_range) const;
+
+        /**
+         * Empty boundary-face callback required by MatrixFree::loop().
+         */
+        void local_apply_boundary_face (const dealii::MatrixFree<dim, number> &data,
+                                        dealii::LinearAlgebra::distributed::Vector<number> &dst,
+                                        const dealii::LinearAlgebra::distributed::Vector<number> &src,
+                                        const std::pair<unsigned int, unsigned int> &face_range) const;
 
         /**
          * A pointer to the current cell data that contains viscosity and other required parameters per cell.
