@@ -14,7 +14,7 @@ Number of degrees of freedom: 28,690 (20,790+970+6,930)
    Solving Stokes system (GMG)... 0+0 iterations.
 
    Postprocessing:
-     Internal mass moments: enabled=true, dipole=(-3.246281e+00,5.197024e-17,-9.897041e-16), products=(1.741019e-15,9.498625e-01,-1.743063e-16)
+     Internal mass moments: enabled=true, dipole=(-3.246281e+00,5.197024e-17,-9.897041e-16), products=(1.741019e-15,9.498625e-01,-1.743063e-16), potential gravity legacy/full=(1.050000e+01,9.800000e+00)
 
 Termination requested by criterion: end time
 

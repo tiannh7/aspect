@@ -65,6 +65,14 @@ Tidal-potential and degree-1 reference-frame volume forcing are not included.
 CitcomSVE applies its COM correction as translated density-interface loads,
 not as the rotational-style scalar-potential volume term.
 
+The local mechanical restoring terms retain the gravity magnitude at their
+own radius. In contrast, the cached spherical-harmonic coefficients are
+normalized as `Phi/g_surface`; boundary potential tractions therefore recover
+`Phi` with the cache reference gravity, including at the CMB. Multiplying the
+CMB coefficient by the local CMB gravity would spuriously scale the potential
+term in a radially varying gravity model. The legacy boundary-only path keeps
+its existing local-gravity conversion.
+
 `Potential feedback/Self gravity/Full domain volume source discretization`
 controls how the mechanical volume-density perturbation enters this cache.
 The default `quadrature point` value preserves the pointwise ASPECT integral.

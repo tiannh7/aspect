@@ -39,6 +39,18 @@ namespace aspect
     namespace internal
     {
       /**
+       * Return the gravity scale that converts a stored potential-height
+       * coefficient to the dimensional potential used by a boundary traction.
+       * Full-domain coefficients are normalized by their cache reference
+       * gravity; the legacy boundary-only path retains the local gravity.
+       */
+      double
+      potential_traction_gravity(
+        const bool has_full_domain_potential,
+        const double full_domain_reference_gravity,
+        const double local_gravity);
+
+      /**
        * Accumulate the radial Green-function moments of spherical-harmonic
        * source coefficients. The two moment arrays permit evaluating all
        * configured radii with prefix and suffix sums instead of applying the

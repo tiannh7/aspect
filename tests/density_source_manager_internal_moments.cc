@@ -10,6 +10,7 @@
 */
 
 #include <aspect/density_source_manager.h>
+#include <aspect/potential_feedback/self_gravitation.h>
 #include <aspect/postprocess/interface.h>
 #include <aspect/simulator_access.h>
 
@@ -47,7 +48,14 @@ namespace aspect
                  << ", products=("
                  << moments.inertia_tensor[0][1] << ","
                  << moments.inertia_tensor[0][2] << ","
-                 << moments.inertia_tensor[1][2] << ")";
+                 << moments.inertia_tensor[1][2] << ")"
+                 << ", potential gravity legacy/full=("
+                 << PotentialFeedback::internal::potential_traction_gravity(
+                   false, 9.8, 10.5)
+                 << ","
+                 << PotentialFeedback::internal::potential_traction_gravity(
+                   true, 9.8, 10.5)
+                 << ")";
 
           return {"Internal mass moments:", output.str()};
         }

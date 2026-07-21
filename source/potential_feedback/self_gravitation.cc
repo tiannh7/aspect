@@ -40,6 +40,26 @@ namespace aspect
 {
   namespace PotentialFeedback
   {
+    namespace internal
+    {
+      double
+      potential_traction_gravity(
+        const bool has_full_domain_potential,
+        const double full_domain_reference_gravity,
+        const double local_gravity)
+      {
+        if (has_full_domain_potential)
+          {
+            AssertThrow(full_domain_reference_gravity > 0.0,
+                        ExcMessage("A full-domain potential requires a "
+                                   "positive reference gravity."));
+            return full_domain_reference_gravity;
+          }
+
+        return local_gravity;
+      }
+    }
+
     namespace
     {
       bool
@@ -2048,6 +2068,11 @@ namespace aspect
       const Tensor<1, dim> gravity =
         this->get_gravity_model().gravity_vector(position);
       const double g_magnitude = gravity.norm();
+      const double potential_gravity =
+        internal::potential_traction_gravity(
+          has_full_domain_potential(),
+          full_domain_reference_gravity,
+          g_magnitude);
       const double delta_rho_cmb = density_below_cmb - density_above_cmb;
 
       if (is_surface)
@@ -2064,12 +2089,11 @@ namespace aspect
           // displacement-history load, do not add the same local traction a
           // second time here. The committed topography remains part of the
           // non-local potential calculation.
-          return density_below_surface * g_magnitude
-                 * (-committed_surface_topography
+          return density_below_surface
+                 * (-g_magnitude * committed_surface_topography
                     + (enable_surface_potential_traction
-                       ? potential_height
-                       : 0.0))
-                 * normal_vector
+                       ? potential_gravity * potential_height
+                       : 0.0)) * normal_vector
                  - density_below_surface * g_magnitude
                  * degree_one_load_compensation_topography
                  * normal_vector;
@@ -2077,13 +2101,15 @@ namespace aspect
 
       // Fluid-core CMB condition after subtracting the mantle hydrostatic
       // reference state: Delta rho * (g*h_b - Phi_b) n.
-      return delta_rho_cmb * g_magnitude
-             * (cmb_topography
-                + (enable_cmb_potential_traction
-                   ? -potential_height
-                   : 0.0)
-                + degree_one_load_compensation_topography
-                - degree_one_load_replay_cmb_potential_height)
+      return delta_rho_cmb
+             * (g_magnitude
+                * (cmb_topography
+                   + degree_one_load_compensation_topography)
+                - potential_gravity
+                * ((enable_cmb_potential_traction
+                    ? potential_height
+                    : 0.0)
+                   + degree_one_load_replay_cmb_potential_height))
              * normal_vector;
     }
 
