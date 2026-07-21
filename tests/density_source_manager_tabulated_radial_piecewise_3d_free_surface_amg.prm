@@ -1,0 +1,23 @@
+# Add inner and outer normal free surfaces to the three-dimensional,
+# single-level custom-radial assembled diagnostic.
+# Enable if: QUICK_TEST
+# DEPENDS-ON: density_source_manager_tabulated_radial_piecewise_3d_amg
+
+include $ASPECT_SOURCE_DIR/tests/density_source_manager_tabulated_radial_piecewise_3d_amg.prm
+
+set Output directory = output-density-source-manager-tabulated-radial-piecewise-3d-free-surface-amg
+
+subsection Boundary velocity model
+  set Zero velocity boundary indicators =
+end
+
+subsection Mesh deformation
+  set Mesh deformation boundary indicators = outer: free surface, inner: free surface
+
+  subsection Free surface
+    set Free surface stabilization theta         = 1
+    set Initial stabilization density contrasts = outer: 3700, inner: 4100
+    set Stabilization density contrasts         = outer: 3700, inner: 4100
+    set Surface velocity projection             = normal
+  end
+end

@@ -1,0 +1,63 @@
+# Three-dimensional single-level counterpart of the assembled internal
+# density-jump diagnostic. The custom geometry performs its lateral
+# subdivision while constructing the coarse mesh, matching the topology used
+# by the Yuan2025 interface-fitted radial cases.
+# Enable if: QUICK_TEST
+# DEPENDS-ON: density_source_manager_tabulated_radial_piecewise
+
+include $ASPECT_SOURCE_DIR/tests/density_source_manager_tabulated_radial_piecewise.prm
+
+set Dimension                  = 3
+set End time                   = 0
+set Nonlinear solver tolerance = 1e-10
+set Output directory           = output-density-source-manager-tabulated-radial-piecewise-3d-amg
+
+subsection Compositional fields
+  set Names of fields  = ve_stress_xx, ve_stress_yy, ve_stress_zz, ve_stress_xy, \
+                         ve_stress_xz, ve_stress_yz, ve_radial_displacement
+  set Number of fields = 7
+  set Types of fields  = stress, stress, stress, stress, stress, stress, generic
+end
+
+subsection Geometry model
+  subsection Spherical shell
+    set Initial lateral refinement = 1
+  end
+end
+
+subsection Gravity model
+  subsection Radial constant
+    set Magnitude = 10
+  end
+end
+
+subsection Formulation
+  subsection Elasticity
+    set Use old stress fields = false
+  end
+end
+
+subsection Initial composition model
+  subsection Function
+    set Function expression = 0; 0; 0; 0; 0; 0; 0.01
+  end
+end
+
+subsection Mesh refinement
+  set Initial global refinement = 0
+end
+
+subsection Material model
+  set Material averaging = harmonic average only viscosity
+end
+
+subsection Solver parameters
+  subsection Stokes solver parameters
+    set Linear solver tolerance = 1e-12
+    set Stokes solver type      = block AMG
+  end
+end
+
+subsection Postprocess
+  set List of postprocessors = pressure statistics, velocity statistics
+end

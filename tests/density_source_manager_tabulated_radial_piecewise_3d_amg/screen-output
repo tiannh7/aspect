@@ -1,0 +1,67 @@
+
+Loading shared library <./libdensity_source_manager_tabulated_radial.release.so>
+
+Internal density jump restoring assembler: registered
+Number of active cells: 72 (on 1 levels)
+Number of degrees of freedom: 6,880 (2,058+104+686+576+576+576+576+576+576+576)
+
+*** Timestep 0:  t=0 seconds, dt=0 seconds
+   Skipping temperature solve because RHS is zero.
+   Skipping ve_stress_xx assembly and solve because timestep 0.
+   Skipping ve_stress_yy assembly and solve because timestep 0.
+   Skipping ve_stress_zz assembly and solve because timestep 0.
+   Skipping ve_stress_xy assembly and solve because timestep 0.
+   Skipping ve_stress_xz assembly and solve because timestep 0.
+   Skipping ve_stress_yz assembly and solve because timestep 0.
+   Skipping ve_radial_displacement assembly and solve because timestep 0.
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... 44+0 iterations.
+      Relative nonlinear residuals:
+        Temperature: 0
+        Compositional field 0 (ve_stress_xx): 0
+        Compositional field 1 (ve_stress_yy): 0
+        Compositional field 2 (ve_stress_zz): 0
+        Compositional field 3 (ve_stress_xy): 0
+        Compositional field 4 (ve_stress_xz): 0
+        Compositional field 5 (ve_stress_yz): 0
+        Compositional field 6 (ve_radial_displacement): 0
+        Stokes system: 137.732
+
+      Relative nonlinear residual (total system) after nonlinear iteration 1: 1.377316e+02
+
+   Skipping temperature solve because RHS is zero.
+   Skipping ve_stress_xx assembly and solve because timestep 0.
+   Skipping ve_stress_yy assembly and solve because timestep 0.
+   Skipping ve_stress_zz assembly and solve because timestep 0.
+   Skipping ve_stress_xy assembly and solve because timestep 0.
+   Skipping ve_stress_xz assembly and solve because timestep 0.
+   Skipping ve_stress_yz assembly and solve because timestep 0.
+   Skipping ve_radial_displacement assembly and solve because timestep 0.
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... 13+0 iterations.
+      Relative nonlinear residuals:
+        Temperature: 0
+        Compositional field 0 (ve_stress_xx): 0
+        Compositional field 1 (ve_stress_yy): 0
+        Compositional field 2 (ve_stress_zz): 0
+        Compositional field 3 (ve_stress_xy): 0
+        Compositional field 4 (ve_stress_xz): 0
+        Compositional field 5 (ve_stress_yz): 0
+        Compositional field 6 (ve_radial_displacement): 0
+        Stokes system: 1.89544e-11
+
+      Relative nonlinear residual (total system) after nonlinear iteration 2: 1.895445e-11
+
+
+   Postprocessing:
+     Pressure min/avg/max:              -3.782 Pa, -3.761e-05 Pa, 2.213 Pa
+     Velocity statistics (min/max/rms): r    : -5.962e-12 / 5.962e-12 / 1.379e-12 m/s
+                                        phi  : -5.962e-12 / 5.962e-12 / 1.379e-12 m/s
+                                        theta: -5.962e-12 / 5.962e-12 / 1.379e-12 m/s
+                                        total: 0 / 5.962e-12 / 2.389e-12 m/s
+                                        
+
+Termination requested by criterion: end time
+
+
+

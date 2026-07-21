@@ -1,0 +1,15 @@
+# Matrix-free counterpart of the three-dimensional single-level
+# custom-radial free-surface diagnostic.
+# Enable if: QUICK_TEST
+# DEPENDS-ON: density_source_manager_tabulated_radial_piecewise_3d_free_surface_amg
+
+include $ASPECT_SOURCE_DIR/tests/density_source_manager_tabulated_radial_piecewise_3d_free_surface_amg.prm
+
+set Output directory = output-density-source-manager-tabulated-radial-piecewise-3d-free-surface-gmg
+
+subsection Solver parameters
+  subsection Stokes solver parameters
+    set Stokes GMG type    = local smoothing
+    set Stokes solver type = block GMG
+  end
+end
