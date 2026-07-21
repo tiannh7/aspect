@@ -1,0 +1,119 @@
+
+Loading shared library <./libviscoelastic_displacement_only_radial.release.so>
+
+Number of active cells: 3 (on 1 levels)
+Number of degrees of freedom: 260 (42+8+21+27+27+27+27+27+27+27)
+
+*** Timestep 0:  t=0 seconds, dt=0 seconds
+   Skipping temperature solve because RHS is zero.
+   Skipping ve_stress_xx composition solve because RHS is zero.
+   Skipping ve_stress_yy composition solve because RHS is zero.
+   Skipping ve_stress_xy composition solve because RHS is zero.
+   Skipping ve_stress_xx_old composition solve because RHS is zero.
+   Skipping ve_stress_yy_old composition solve because RHS is zero.
+   Skipping ve_stress_xy_old composition solve because RHS is zero.
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... XYZ iterations.
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 1: 1.000000e+00
+
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... XYZ iterations.
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 2: 2.861416e-12
+
+
+   Postprocessing:
+     Reference-mesh radial history: timestep 0, committed factor 1, radial history error 4.532595e-07
+
+*** Timestep 1:  t=1 seconds, dt=1 seconds
+   Solving composition reactions... in 1 substep(s).
+   Skipping temperature solve because RHS is zero.
+   Solving ve_stress_xx system ... 1 iterations.
+   Solving ve_stress_yy system ... 1 iterations.
+   Solving ve_stress_xy system ... 2 iterations.
+   Skipping ve_stress_xx_old composition solve because RHS is zero.
+   Skipping ve_stress_yy_old composition solve because RHS is zero.
+   Skipping ve_stress_xy_old composition solve because RHS is zero.
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... XYZ iterations.
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 1: 4.350057e-01
+
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... XYZ iterations.
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 2: 2.347165e-14
+
+
+   Postprocessing:
+     Reference-mesh radial history: timestep 1, committed factor 1, radial history error 4.532595e-07
+
+*** Timestep 2:  t=2 seconds, dt=1 seconds
+   Solving composition reactions... in 1 substep(s).
+   Skipping temperature solve because RHS is zero.
+   Solving ve_stress_xx system ... 1 iterations.
+   Solving ve_stress_yy system ... 1 iterations.
+   Solving ve_stress_xy system ... 2 iterations.
+   Solving ve_stress_xx_old system ... 1 iterations.
+   Solving ve_stress_yy_old system ... 1 iterations.
+   Solving ve_stress_xy_old system ... 1 iterations.
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... XYZ iterations.
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 1: 8.924508e-06
+
+
+   Postprocessing:
+     Reference-mesh radial history: timestep 2, committed factor 2, radial history error 1.791329e-06
+
+*** Timestep 3:  t=3 seconds, dt=1 seconds
+   Solving composition reactions... in 1 substep(s).
+   Skipping temperature solve because RHS is zero.
+   Solving ve_stress_xx system ... 1 iterations.
+   Solving ve_stress_yy system ... 1 iterations.
+   Solving ve_stress_xy system ... 1 iterations.
+   Solving ve_stress_xx_old system ... 1 iterations.
+   Solving ve_stress_yy_old system ... 1 iterations.
+   Solving ve_stress_xy_old system ... 2 iterations.
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... XYZ iterations.
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 1: 2.898053e-06
+
+
+   Postprocessing:
+     Reference-mesh radial history: timestep 3, committed factor 3, radial history error 2.794186e-06
+
+*** Timestep 4:  t=4 seconds, dt=1 seconds
+   Solving composition reactions... in 1 substep(s).
+   Skipping temperature solve because RHS is zero.
+   Solving ve_stress_xx system ... 1 iterations.
+   Solving ve_stress_yy system ... 1 iterations.
+   Solving ve_stress_xy system ... 2 iterations.
+   Solving ve_stress_xx_old system ... 1 iterations.
+   Solving ve_stress_yy_old system ... 1 iterations.
+   Solving ve_stress_xy_old system ... 2 iterations.
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... XYZ iterations.
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 1: 7.848046e-07
+
+
+   Postprocessing:
+     Reference-mesh radial history: timestep 4, committed factor 4, radial history error 3.709904e-06
+
+*** Timestep 5:  t=5 seconds, dt=1 seconds
+   Solving composition reactions... in 1 substep(s).
+   Skipping temperature solve because RHS is zero.
+   Solving ve_stress_xx system ... 1 iterations.
+   Solving ve_stress_yy system ... 1 iterations.
+   Solving ve_stress_xy system ... 1 iterations.
+   Solving ve_stress_xx_old system ... 1 iterations.
+   Solving ve_stress_yy_old system ... 1 iterations.
+   Solving ve_stress_xy_old system ... 2 iterations.
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... XYZ iterations.
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 1: 5.445705e-07
+
+
+   Postprocessing:
+     Reference-mesh radial history: timestep 5, committed factor 5, radial history error 4.553693e-06
+
+Termination requested by criterion: end time
+
+
+# Time = normalized trailing newline

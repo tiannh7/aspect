@@ -65,7 +65,11 @@ anomaly, L2 norm, maximum anomaly, and maximum depth-bin lateral-mean residual.
 - `mechanical mass conservation` is available with `elastic pressure
   evolution`. It uses ASPECT's pressure as compressive elastic pressure and a
   generic discontinuous field named `ve_radial_displacement` as committed
-  radial material-displacement history:
+  radial material-displacement history. The field may use the `field` method
+  for a material-coordinate history, or the `static` method for a
+  reference-mesh history. The latter still receives operator-splitting
+  reaction updates but is not passed through the compositional advection
+  solve:
 
   ```{math}
   \delta\rho
@@ -230,6 +234,14 @@ viscosity explicitly so that viscoelastic material averaging is consistent
 between assembled AMG and matrix-free GMG runs. Because elastic pressure
 evolution has a finite pressure mass and no constant-pressure nullspace, its
 pressure right-hand side is not compatibility-projected.
+
+Use `Compositional field methods = ..., static` for
+`ve_radial_displacement` when the reference density profile and its internal
+jump sheets are fixed to the reference mesh. This reproduces a direct nodal
+accumulation of radial displacement: operator splitting adds the radial
+velocity increment, while no subsequent compositional transport is applied.
+The legacy `field` method remains available for models that intentionally
+transport the history with the material.
 
 The optional `Tabulated mechanical gravity magnitudes` list contains one
 constant magnitude per interval in `Tabulated reference radii`. When the list

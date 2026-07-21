@@ -366,6 +366,10 @@ viscoelastic bulk output, no pressure normalization, and either an assembled
 AMG/direct Stokes solver or local-smoothing `block GMG`. Global-coarsening GMG
 is rejected. Mechanical mass conservation additionally requires operator
 splitting and a generic discontinuous field named `ve_radial_displacement`.
+Use the `static` compositional field method when this scalar is a
+reference-mesh history: its operator-splitting reaction update remains active,
+but it is not transported by the compositional advection equation. The `field`
+method remains available for material-coordinate histories.
 Thermodynamic `isentropic compression` remains a separate existing option.
 
 ## 13. Tests and acceptance criteria

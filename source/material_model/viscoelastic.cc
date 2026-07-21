@@ -481,9 +481,14 @@ namespace aspect
 
               radial_displacement_field_index =
                 this->introspection().compositional_index_for_name("ve_radial_displacement");
-              AssertThrow(this->get_parameters().compositional_field_methods[radial_displacement_field_index]
-                          == Parameters<dim>::AdvectionFieldMethod::fem_field,
-                          ExcMessage("The radial material-displacement history must be a compositional finite-element field."));
+              const auto radial_displacement_method =
+                this->get_parameters().compositional_field_methods[radial_displacement_field_index];
+              AssertThrow(radial_displacement_method == Parameters<dim>::AdvectionFieldMethod::fem_field
+                          || radial_displacement_method == Parameters<dim>::AdvectionFieldMethod::static_field,
+                          ExcMessage("The radial material-displacement history must use either the `field' "
+                                     "or `static' compositional field method. Use `static' when the history "
+                                     "is defined on the reference mesh and must be updated by reactions "
+                                     "without compositional advection."));
               AssertThrow(this->get_parameters().use_discontinuous_composition_discretization[radial_displacement_field_index],
                           ExcMessage("The radial material-displacement history requires a discontinuous compositional element."));
               AssertThrow(this->get_parameters().composition_descriptions[radial_displacement_field_index].type
