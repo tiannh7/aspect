@@ -1,0 +1,19 @@
+# Add PREM/VM5a-scale radial viscosity and elastic-modulus contrasts to the
+# three-dimensional single-level custom-radial free-surface diagnostic.
+# Enable if: QUICK_TEST
+# DEPENDS-ON: density_source_manager_tabulated_radial_piecewise_3d_free_surface_amg
+
+include $ASPECT_SOURCE_DIR/tests/density_source_manager_tabulated_radial_piecewise_3d_free_surface_amg.prm
+
+set Output directory = output-density-source-manager-tabulated-radial-piecewise-3d-high-contrast-amg
+
+subsection Material model
+  subsection Viscoelastic
+    set Use ascii profile = true
+
+    subsection Ascii profile
+      set Data directory = $ASPECT_SOURCE_DIR/tests/
+      set Data file name = density_source_manager_tabulated_radial_piecewise_3d_high_contrast.txt
+    end
+  end
+end

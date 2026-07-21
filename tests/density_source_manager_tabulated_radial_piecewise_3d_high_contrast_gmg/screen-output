@@ -1,0 +1,90 @@
+
+Loading shared library <./libdensity_source_manager_tabulated_radial.release.so>
+
+Internal density jump restoring assembler: registered
+Number of active cells: 72 (on 1 levels)
+Number of degrees of freedom: 6,880 (2,058+104+686+576+576+576+576+576+576+576)
+
+Number of mesh deformation degrees of freedom: 2,058
+   Solving mesh displacement system... 0 iterations.
+*** Timestep 0:  t=0 seconds, dt=0 seconds
+   Solving mesh displacement system... 0 iterations.
+   Skipping temperature solve because RHS is zero.
+   Skipping ve_stress_xx assembly and solve because timestep 0.
+   Skipping ve_stress_yy assembly and solve because timestep 0.
+   Skipping ve_stress_zz assembly and solve because timestep 0.
+   Skipping ve_stress_xy assembly and solve because timestep 0.
+   Skipping ve_stress_xz assembly and solve because timestep 0.
+   Skipping ve_stress_yz assembly and solve because timestep 0.
+   Skipping ve_radial_displacement assembly and solve because timestep 0.
+   Solving Stokes system (GMG)... 78+0 iterations.
+      Relative nonlinear residuals:
+        Temperature: 0
+        Compositional field 0 (ve_stress_xx): 0
+        Compositional field 1 (ve_stress_yy): 0
+        Compositional field 2 (ve_stress_zz): 0
+        Compositional field 3 (ve_stress_xy): 0
+        Compositional field 4 (ve_stress_xz): 0
+        Compositional field 5 (ve_stress_yz): 0
+        Compositional field 6 (ve_radial_displacement): 0
+        Stokes system: 1754.86
+
+      Relative nonlinear residual (total system) after nonlinear iteration 1: 1.754859e+03
+
+   Skipping temperature solve because RHS is zero.
+   Skipping ve_stress_xx assembly and solve because timestep 0.
+   Skipping ve_stress_yy assembly and solve because timestep 0.
+   Skipping ve_stress_zz assembly and solve because timestep 0.
+   Skipping ve_stress_xy assembly and solve because timestep 0.
+   Skipping ve_stress_xz assembly and solve because timestep 0.
+   Skipping ve_stress_yz assembly and solve because timestep 0.
+   Skipping ve_radial_displacement assembly and solve because timestep 0.
+   Solving Stokes system (GMG)... 27+0 iterations.
+      Relative nonlinear residuals:
+        Temperature: 0
+        Compositional field 0 (ve_stress_xx): 0
+        Compositional field 1 (ve_stress_yy): 0
+        Compositional field 2 (ve_stress_zz): 0
+        Compositional field 3 (ve_stress_xy): 0
+        Compositional field 4 (ve_stress_xz): 0
+        Compositional field 5 (ve_stress_yz): 0
+        Compositional field 6 (ve_radial_displacement): 0
+        Stokes system: 1.68643e-09
+
+      Relative nonlinear residual (total system) after nonlinear iteration 2: 1.686427e-09
+
+   Skipping temperature solve because RHS is zero.
+   Skipping ve_stress_xx assembly and solve because timestep 0.
+   Skipping ve_stress_yy assembly and solve because timestep 0.
+   Skipping ve_stress_zz assembly and solve because timestep 0.
+   Skipping ve_stress_xy assembly and solve because timestep 0.
+   Skipping ve_stress_xz assembly and solve because timestep 0.
+   Skipping ve_stress_yz assembly and solve because timestep 0.
+   Skipping ve_radial_displacement assembly and solve because timestep 0.
+   Solving Stokes system (GMG)... 0+0 iterations.
+      Relative nonlinear residuals:
+        Temperature: 0
+        Compositional field 0 (ve_stress_xx): 0
+        Compositional field 1 (ve_stress_yy): 0
+        Compositional field 2 (ve_stress_zz): 0
+        Compositional field 3 (ve_stress_xy): 0
+        Compositional field 4 (ve_stress_xz): 0
+        Compositional field 5 (ve_stress_yz): 0
+        Compositional field 6 (ve_radial_displacement): 0
+        Stokes system: 4.88559e-11
+
+      Relative nonlinear residual (total system) after nonlinear iteration 3: 4.885593e-11
+
+
+   Postprocessing:
+     Pressure min/avg/max:              -446.6 Pa, -395.9 Pa, -368.3 Pa
+     Velocity statistics (min/max/rms): r    : -9.394e-10 / 9.394e-10 / 3.85e-10 m/s
+                                        phi  : -9.394e-10 / 9.394e-10 / 3.85e-10 m/s
+                                        theta: -9.394e-10 / 9.394e-10 / 3.85e-10 m/s
+                                        total: 3.882e-10 / 9.394e-10 / 6.668e-10 m/s
+                                        
+
+Termination requested by criterion: end time
+
+
+ 
