@@ -8,6 +8,7 @@ import argparse
 import math
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -61,9 +62,11 @@ def _norm(values: Sequence[float]) -> float:
 
 def _diagnostics(output: str, case_name: str) -> list[Diagnostic]:
     result = [
-        Diagnostic(_vector(match.group(1)),
-                   _vector(match.group(2)),
-                   _vector(match.group(3)))
+        Diagnostic(
+            _vector(match.group(1)),
+            _vector(match.group(2)),
+            _vector(match.group(3)),
+        )
         for match in _DIAGNOSTIC.finditer(output)
     ]
     if not result:
@@ -122,6 +125,20 @@ def _run_case(
     return diagnostics
 
 
+def _resolve_command(command: str) -> Path:
+    candidate = Path(command).expanduser()
+    if candidate.parent != Path(".") or candidate.is_absolute():
+        resolved = candidate.resolve()
+        if not resolved.is_file():
+            raise ValueError(f"command does not exist: {resolved}")
+        return resolved
+
+    located = shutil.which(command)
+    if located is None:
+        raise ValueError(f"command is not in PATH: {command}")
+    return Path(located).resolve()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -132,8 +149,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--mpirun",
-        type=Path,
-        help="Optional path to mpirun for the MPI consistency gate",
+        help="Optional mpirun path or command name for the MPI consistency gate",
     )
     parser.add_argument("--mpi-ranks", type=int, default=2)
     parser.add_argument(
@@ -152,21 +168,24 @@ def main() -> int:
     source_root = Path(__file__).resolve().parents[1]
     cases = {
         "native-y10": source_root / "tests/potential_feedback_center_of_mass.prm",
-        "relaxed-y10": source_root / "tests/potential_feedback_center_of_mass_relaxed.prm",
-        "fixed-inner": source_root / "tests/potential_feedback_center_of_mass_fixed_inner.prm",
-        "native-y20": source_root / "tests/potential_feedback_center_of_mass_y20.prm",
+        "relaxed-y10": source_root
+        / "tests/potential_feedback_center_of_mass_relaxed.prm",
+        "fixed-inner": source_root
+        / "tests/potential_feedback_center_of_mass_fixed_inner.prm",
+        "native-y20": source_root
+        / "tests/potential_feedback_center_of_mass_y20.prm",
     }
 
-    temporary_directory = None
-    if arguments.keep_output is None:
-        temporary_directory = tempfile.TemporaryDirectory(
-            prefix="aspect-center-of-mass-"
+    remove_output_after_success = arguments.keep_output is None
+    if remove_output_after_success:
+        working_directory = Path(
+            tempfile.mkdtemp(prefix="aspect-center-of-mass-")
         )
-        working_directory = Path(temporary_directory.name)
     else:
         working_directory = arguments.keep_output.expanduser().resolve()
         working_directory.mkdir(parents=True, exist_ok=True)
 
+    succeeded = False
     try:
         results: dict[str, list[Diagnostic]] = {}
         for name, parameter_file in cases.items():
@@ -181,9 +200,12 @@ def main() -> int:
             raise RuntimeError(
                 "relaxed-y10: expected more than one potential iteration"
             )
-        if relaxed[-1].relative_residual >= relaxed[0].relative_residual:
+        peak_relaxed_residual = max(
+            diagnostic.relative_residual for diagnostic in relaxed
+        )
+        if relaxed[-1].relative_residual >= peak_relaxed_residual:
             raise RuntimeError(
-                "relaxed-y10: D-Mc residual did not decrease"
+                "relaxed-y10: D-Mc residual did not decrease from its peak"
             )
 
         y20_translation = _norm(results["native-y20"][-1].translation)
@@ -194,9 +216,10 @@ def main() -> int:
             )
 
         if arguments.mpirun is not None:
-            mpirun = arguments.mpirun.expanduser().resolve()
-            if not mpirun.is_file():
-                parser.error(f"mpirun does not exist: {mpirun}")
+            try:
+                mpirun = _resolve_command(arguments.mpirun)
+            except ValueError as error:
+                parser.error(str(error))
             parallel = _run_case(
                 f"native-y10-mpi{arguments.mpi_ranks}",
                 [
@@ -225,17 +248,18 @@ def main() -> int:
                     f"difference={difference / scale:.6e}"
                 )
 
+        succeeded = True
         print("All coupled center-of-mass validation gates passed.")
         if arguments.keep_output is not None:
             print(f"Logs retained in {working_directory}")
         return 0
     except RuntimeError as error:
         print(f"ERROR: {error}", file=sys.stderr)
-        print(f"Logs are in {working_directory}", file=sys.stderr)
+        print(f"Logs retained in {working_directory}", file=sys.stderr)
         return 1
     finally:
-        if temporary_directory is not None:
-            temporary_directory.cleanup()
+        if remove_output_after_success and succeeded:
+            shutil.rmtree(working_directory)
 
 
 if __name__ == "__main__":
