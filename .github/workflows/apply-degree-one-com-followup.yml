@@ -1,0 +1,273 @@
+name: Apply and validate degree-one COM follow-up
+
+on:
+  push:
+    branches:
+      - codex/degree-one-com-constraint
+    paths:
+      - doc/review/run_degree_one_com_fix.trigger
+
+permissions:
+  contents: write
+
+concurrency:
+  group: degree-one-com-followup-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  OMPI_MCA_btl_base_warn_component_unused: 0
+  OMPI_MCA_mpi_yield_when_idle: 1
+  OMPI_MCA_rmaps_base_oversubscribe: 1
+  OMPI_ALLOW_RUN_AS_ROOT: 1
+  OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
+  OMPI_MCA_btl_vader_single_copy_mechanism: none
+
+jobs:
+  apply-build-test:
+    runs-on: ubuntu-latest
+    container:
+      image: geodynamics/aspect-tester:noble-dealii-master-clang
+      options: --user 0 --name degree-one-com-container
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Apply, format, build, and test
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          base_sha="f7fdd6eac0cbdbd498e2485c1ccc16b5ac885a40"
+          patch_file="doc/review/degree_one_com_constraint_followup_f7_v2.patch"
+          trigger_file="doc/review/run_degree_one_com_fix.trigger"
+          workflow_file=".github/workflows/apply-degree-one-com-followup.yml"
+          status_file="doc/review/degree_one_com_fix_status.md"
+          log_file="/tmp/degree-one-com-followup.log"
+
+          run_validation()
+          {
+            set -euo pipefail
+
+            git merge-base --is-ancestor "$base_sha" HEAD
+            test -f "$patch_file"
+            ! grep -n '^[-+] *\.\.\.$' "$patch_file"
+
+            git apply --check --3way "$patch_file"
+            git apply --3way "$patch_file"
+            git diff --check
+
+            expected_cpp_files=(
+              include/aspect/density_source_manager.h
+              include/aspect/potential_feedback/interface.h
+              include/aspect/potential_feedback/self_gravitation.h
+              source/potential_feedback/interface.cc
+              source/potential_feedback/rotational_feedback.cc
+              source/potential_feedback/self_gravitation.cc
+              source/simulator/assemblers/stokes.cc
+              source/simulator/density_source_manager.cc
+            )
+
+            contrib/utilities/indent
+            git diff --check
+
+            python3 - <<'PY'
+          import subprocess
+          from pathlib import Path
+
+          allowed = {
+              'include/aspect/density_source_manager.h',
+              'include/aspect/potential_feedback/interface.h',
+              'include/aspect/potential_feedback/self_gravitation.h',
+              'source/potential_feedback/interface.cc',
+              'source/potential_feedback/rotational_feedback.cc',
+              'source/potential_feedback/self_gravitation.cc',
+              'source/simulator/assemblers/stokes.cc',
+              'source/simulator/density_source_manager.cc',
+              'tests/potential_feedback_center_of_mass.prm',
+              'tests/potential_feedback_center_of_mass_fixed_inner.prm',
+              'tests/potential_feedback_center_of_mass_zero_mass.prm',
+              'tests/potential_feedback_center_of_mass_y20.prm',
+          }
+          changed = set(subprocess.check_output(
+              ['git', 'diff', '--name-only'], text=True).splitlines())
+          unexpected = sorted(changed - allowed)
+          if unexpected:
+              raise SystemExit('Indentation changed unexpected files:\n' + '\n'.join(unexpected))
+          for path in allowed:
+              if path.endswith(('.cc', '.h')) and path in changed:
+                  text = Path(path).read_text()
+                  if '\t' in text:
+                      raise SystemExit(f'tab remains in {path}')
+          PY
+
+            rm -rf build-degree-one-com
+            mkdir build-degree-one-com
+            cd build-degree-one-com
+            cmake -D CMAKE_BUILD_TYPE=Release -D CMAKE_CXX_FLAGS='-Werror' ..
+            make -j 4 aspect
+            cd ..
+
+            mkdir -p /tmp/degree-one-com-tests
+
+            run_case()
+            {
+              local name="$1"
+              shift
+              rm -rf "output-${name}"
+              "$@" >"/tmp/degree-one-com-tests/${name}.log" 2>&1
+            }
+
+            run_case default-none \
+              ./build-degree-one-com/aspect \
+              tests/potential_feedback_default_none.prm
+
+            run_case native-y10 \
+              ./build-degree-one-com/aspect \
+              tests/potential_feedback_center_of_mass.prm
+
+            if ./build-degree-one-com/aspect \
+                 tests/potential_feedback_center_of_mass_zero_mass.prm \
+                 > /tmp/degree-one-com-tests/zero-mass.log 2>&1
+            then
+              echo "zero-mass expected-failure test unexpectedly succeeded" >&2
+              return 1
+            fi
+            grep -q "requires a positive.*Center of mass" \
+              /tmp/degree-one-com-tests/zero-mass.log
+
+            run_case fixed-inner \
+              ./build-degree-one-com/aspect \
+              tests/potential_feedback_center_of_mass_fixed_inner.prm
+
+            run_case native-y20 \
+              ./build-degree-one-com/aspect \
+              tests/potential_feedback_center_of_mass_y20.prm
+
+            run_case native-y10-mpi2 \
+              mpirun -np 2 ./build-degree-one-com/aspect \
+              tests/potential_feedback_center_of_mass.prm
+
+            python3 - <<'PY'
+          import math
+          import re
+          from pathlib import Path
+
+          def records(name):
+              text = Path(f'/tmp/degree-one-com-tests/{name}.log').read_text()
+              pattern = re.compile(
+                  r'Coupled center-of-mass constraint:.*?'
+                  r'translation \[m\]=\(([^,]+),([^,]+),([^\)]+)\).*?'
+                  r'relative constraint residual=([^\s]+)')
+              result = []
+              for match in pattern.finditer(text):
+                  translation = tuple(float(match.group(i)) for i in range(1, 4))
+                  residual = float(match.group(4))
+                  result.append((translation, residual))
+              if not result:
+                  raise SystemExit(f'no coupled COM diagnostic found in {name}')
+              return result
+
+          y10 = records('native-y10')
+          y10_mpi2 = records('native-y10-mpi2')
+          y20 = records('native-y20')
+
+          for name, data in [('native-y10', y10), ('native-y10-mpi2', y10_mpi2), ('native-y20', y20)]:
+              if not all(math.isfinite(v) for record in data for v in (*record[0], record[1])):
+                  raise SystemExit(f'non-finite COM diagnostic in {name}')
+              if data[-1][1] > 1.0e-2:
+                  raise SystemExit(f'COM residual did not converge in {name}: {data[-1][1]}')
+
+          y20_norm = math.sqrt(sum(v*v for v in y20[-1][0]))
+          if y20_norm > 1.0e-8:
+              raise SystemExit(f'pure Y20 created excessive COM translation: {y20_norm}')
+
+          serial = y10[-1][0]
+          parallel = y10_mpi2[-1][0]
+          scale = max(math.sqrt(sum(v*v for v in serial)), 1.0e-30)
+          difference = math.sqrt(sum((a-b)**2 for a, b in zip(serial, parallel)))
+          if difference / scale > 1.0e-8:
+              raise SystemExit(
+                  f'MPI-1/MPI-2 COM mismatch: relative difference {difference/scale}')
+          PY
+
+            git diff --check
+          }
+
+          set +e
+          run_validation > >(tee "$log_file") 2>&1
+          validation_status=$?
+          set -e
+
+          if [[ $validation_status -ne 0 ]]; then
+            git reset --hard "$GITHUB_SHA"
+            rm -f "$trigger_file"
+            {
+              echo "# Degree-one COM follow-up validation"
+              echo
+              echo "Status: **FAILED**"
+              echo
+              echo "Base workflow commit: \`$GITHUB_SHA\`"
+              echo
+              echo '```text'
+              tail -n 240 "$log_file"
+              echo '```'
+            } > "$status_file"
+            git add "$status_file"
+            git add -u "$trigger_file"
+            git commit -m "Record coupled COM validation failure"
+            git push origin HEAD:"${GITHUB_REF_NAME}"
+            exit "$validation_status"
+          fi
+
+          rm -f "$trigger_file" "$workflow_file"
+          rm -f doc/review/apply_degree_one_com_followup.sh
+          rm -f "$patch_file"
+
+          {
+            echo "# Degree-one COM follow-up validation"
+            echo
+            echo "Status: **PASSED**"
+            echo
+            echo "Validated in \`geodynamics/aspect-tester:noble-dealii-master-clang\`."
+            echo
+            echo "Checks:"
+            echo
+            echo "- patch applied with \`git apply --3way\`;"
+            echo "- ASPECT indentation completed without unrelated changes;"
+            echo "- \`git diff --check\` passed;"
+            echo "- Release build with \`-Werror\` passed;"
+            echo "- default-none, native Y10, fixed-inner, pure Y20, and MPI-2 cases ran;"
+            echo "- missing COM reference mass failed as required;"
+            echo "- final normalized COM residuals were at most \`1e-2\`;"
+            echo "- pure Y20 translation and MPI consistency gates passed."
+          } > "$status_file"
+
+          git add \
+            include/aspect/density_source_manager.h \
+            include/aspect/potential_feedback/interface.h \
+            include/aspect/potential_feedback/self_gravitation.h \
+            source/potential_feedback/interface.cc \
+            source/potential_feedback/rotational_feedback.cc \
+            source/potential_feedback/self_gravitation.cc \
+            source/simulator/assemblers/stokes.cc \
+            source/simulator/density_source_manager.cc \
+            tests/potential_feedback_center_of_mass.prm \
+            tests/potential_feedback_center_of_mass_fixed_inner.prm \
+            tests/potential_feedback_center_of_mass_zero_mass.prm \
+            tests/potential_feedback_center_of_mass_y20.prm \
+            "$status_file"
+          git add -u \
+            "$trigger_file" \
+            "$workflow_file" \
+            doc/review/apply_degree_one_com_followup.sh \
+            "$patch_file"
+
+          git diff --cached --check
+          git commit -m "Complete coupled center-of-mass consistency contracts"
+          git push origin HEAD:"${GITHUB_REF_NAME}"
