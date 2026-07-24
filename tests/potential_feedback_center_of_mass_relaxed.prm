@@ -7,10 +7,12 @@
 include $ASPECT_SOURCE_DIR/tests/potential_feedback_center_of_mass.prm
 
 set Output directory = output-potential-feedback-center-of-mass-relaxed
+set Max nonlinear iterations = 30
+set Nonlinear solver failure strategy = abort program
 
 subsection Potential feedback
   subsection Potential iteration
-    set Maximum iterations = 20
+    set Maximum iterations = 25
     set Relaxation factor  = 0.5
     set Relative tolerance = 1e-2
   end

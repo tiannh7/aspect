@@ -194,7 +194,7 @@ namespace aspect
     SelfGravitation<3>::update_derived_planetary_constants()
     {
       AssertThrow(Plugins::plugin_type_matches<
-                    const GeometryModel::SphericalShell<3>>(
+                  const GeometryModel::SphericalShell<3>>(
                     this->get_geometry_model()),
                   ExcMessage("Self-gravitation requires a spherical shell geometry."));
 

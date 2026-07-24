@@ -169,7 +169,7 @@ namespace aspect
          * frame cancellation. */
         std::pair<double,double>
         external_load_surface_potential_coefficient(const unsigned int degree,
-                                                     const unsigned int order) const;
+                                                    const unsigned int order) const;
 
         /** Return the cosine/sine coefficient of Phi/g at the surface due
          * to surface deformation before degree-1 reference-frame

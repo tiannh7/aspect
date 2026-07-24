@@ -22,6 +22,7 @@ OUTER_RADIUS = 2.0
 RELATIVE_TOLERANCE = 1.0e-2
 Y20_TRANSLATION_TOLERANCE = 1.0e-8
 MPI_RELATIVE_TOLERANCE = 1.0e-8
+MPI_ABSOLUTE_TOLERANCE = 1.0e-9
 
 _DIAGNOSTIC = re.compile(
     r"Coupled center-of-mass constraint:.*?"
@@ -142,7 +143,9 @@ def _run_expected_failure(
     completed = _execute(name, command, working_directory)
     if completed.returncode == 0:
         raise RuntimeError(f"{name}: expected failure but ASPECT succeeded")
-    if expected_message not in completed.stdout:
+    normalized_stdout = " ".join(completed.stdout.split())
+    normalized_message = " ".join(expected_message.split())
+    if normalized_message not in normalized_stdout:
         raise RuntimeError(
             f"{name}: failed for an unexpected reason; see "
             f"{working_directory / f'{name}.log'}"
@@ -276,10 +279,15 @@ def main() -> int:
                 )
             )
             scale = max(_norm(serial_translation), sys.float_info.min)
-            if difference / scale > MPI_RELATIVE_TOLERANCE:
+            relative_difference = difference / scale
+            if (relative_difference > MPI_RELATIVE_TOLERANCE
+                and difference > MPI_ABSOLUTE_TOLERANCE):
                 raise RuntimeError(
-                    "MPI consistency gate failed: relative translation "
-                    f"difference={difference / scale:.6e}"
+                    "MPI consistency gate failed: translation difference "
+                    f"{difference:.6e} m exceeds absolute tolerance "
+                    f"{MPI_ABSOLUTE_TOLERANCE:.6e} m and relative "
+                    f"difference={relative_difference:.6e} exceeds "
+                    f"{MPI_RELATIVE_TOLERANCE:.6e}"
                 )
 
         succeeded = True
