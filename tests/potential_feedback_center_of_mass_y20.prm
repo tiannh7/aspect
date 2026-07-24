@@ -1,0 +1,16 @@
+# A pure degree-two load must not create a physical center-of-mass
+# translation. Compare the final translation with roundoff and confirm that
+# enabling the COM frame does not change the degree-two self-gravity kernel.
+# Manual validation input until a screen-output baseline is generated.
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/potential_feedback_center_of_mass.prm
+
+set Output directory = output-potential-feedback-center-of-mass-y20
+
+subsection Boundary traction model
+  subsection Spherical harmonic load
+    set Harmonic degree = 2
+    set Harmonic order  = 0
+  end
+end
