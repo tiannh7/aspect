@@ -19,6 +19,7 @@
 */
 
 #include <aspect/potential_feedback/self_gravitation.h>
+#include <aspect/boundary_velocity/interface.h>
 #include <aspect/geometry_model/spherical_shell.h>
 #include <aspect/gravity_model/interface.h>
 #include <aspect/simulator.h>
@@ -59,6 +60,26 @@ namespace aspect
                         "The coupled center-of-mass reference frame requires "
                         "self gravity in Potential feedback/List of feedback "
                         "mechanisms."));
+          AssertThrow(include_surface_contribution,
+                      ExcMessage(
+                        "The coupled center-of-mass reference frame requires "
+                        "surface mass feedback."));
+
+          const auto &boundary_velocity_manager =
+            this->get_boundary_velocity_manager();
+          const bool bottom_normal_velocity_is_zero =
+            boundary_velocity_manager
+            .get_zero_boundary_velocity_indicators().count(bottom_boundary_id)
+            > 0
+            || boundary_velocity_manager
+            .get_tangential_boundary_velocity_indicators()
+            .count(bottom_boundary_id) > 0;
+          AssertThrow(include_cmb_contribution
+                      || bottom_normal_velocity_is_zero,
+                      ExcMessage(
+                        "The coupled center-of-mass reference frame requires "
+                        "CMB mass feedback unless the bottom boundary has zero "
+                        "normal velocity."));
           AssertThrow(include_internal_density_anomalies != "false",
                       ExcMessage(
                         "The coupled center-of-mass reference frame requires "
