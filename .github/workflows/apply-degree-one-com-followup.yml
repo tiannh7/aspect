@@ -1,15 +1,17 @@
 name: Apply and validate degree-one COM follow-up
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/degree-one-com-apply-run
+      - codex/degree-one-com-constraint
+    types:
+      - opened
 
 permissions:
   contents: write
 
 concurrency:
-  group: degree-one-com-followup-${{ github.ref }}
+  group: degree-one-com-followup-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 env:
@@ -31,6 +33,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Apply, format, build, and test
         shell: bash
@@ -41,10 +44,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          head_branch="${{ github.event.pull_request.head.ref }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
           base_sha="f7fdd6eac0cbdbd498e2485c1ccc16b5ac885a40"
           patch_file="doc/review/degree_one_com_constraint_followup_f7_v2.patch"
           trigger_file="doc/review/run_degree_one_com_fix.trigger"
           workflow_file=".github/workflows/apply-degree-one-com-followup.yml"
+          helper_file="doc/review/apply_degree_one_com_followup.sh"
           status_file="doc/review/degree_one_com_fix_status.md"
           log_file="/tmp/degree-one-com-followup.log"
 
@@ -52,6 +58,7 @@ jobs:
           {
             set -euo pipefail
 
+            test "$(git rev-parse HEAD)" = "$head_sha"
             git merge-base --is-ancestor "$base_sha" HEAD
             test -f "$patch_file"
             ! grep -n '^[-+] *\.\.\.$' "$patch_file"
@@ -85,9 +92,21 @@ jobs:
               ['git', 'diff', '--name-only'], text=True).splitlines())
           unexpected = sorted(changed - allowed)
           if unexpected:
-              raise SystemExit('Indentation changed unexpected files:\n' + '\n'.join(unexpected))
-          for path in allowed:
-              if path.endswith(('.cc', '.h')) and path in changed:
+              raise SystemExit('unexpected files changed by patch/indent:\n' + '\n'.join(unexpected))
+          required = {
+              'include/aspect/density_source_manager.h',
+              'include/aspect/potential_feedback/interface.h',
+              'include/aspect/potential_feedback/self_gravitation.h',
+              'source/potential_feedback/interface.cc',
+              'source/potential_feedback/self_gravitation.cc',
+              'source/simulator/density_source_manager.cc',
+              'tests/potential_feedback_center_of_mass.prm',
+          }
+          missing = sorted(required - changed)
+          if missing:
+              raise SystemExit('required patch files did not change:\n' + '\n'.join(missing))
+          for path in changed:
+              if path.endswith(('.cc', '.h')):
                   text = Path(path).read_text()
                   if '\t' in text:
                       raise SystemExit(f'tab remains in {path}')
@@ -191,14 +210,14 @@ jobs:
           set -e
 
           if [[ $validation_status -ne 0 ]]; then
-            git reset --hard "$GITHUB_SHA"
+            git reset --hard "$head_sha"
             rm -f "$trigger_file"
             {
               echo "# Degree-one COM follow-up validation"
               echo
               echo "Status: **FAILED**"
               echo
-              echo "Base workflow commit: \`$GITHUB_SHA\`"
+              echo "Validated head: \`$head_sha\`"
               echo
               echo '```text'
               tail -n 240 "$log_file"
@@ -207,18 +226,18 @@ jobs:
             git add "$status_file"
             git add -u "$trigger_file"
             git commit -m "Record coupled COM validation failure"
-            git push origin HEAD:"${GITHUB_REF_NAME}"
+            git push origin HEAD:"$head_branch"
             exit "$validation_status"
           fi
 
-          rm -f "$trigger_file" "$workflow_file"
-          rm -f doc/review/apply_degree_one_com_followup.sh
-          rm -f "$patch_file"
+          rm -f "$trigger_file" "$workflow_file" "$helper_file" "$patch_file"
 
           {
             echo "# Degree-one COM follow-up validation"
             echo
             echo "Status: **PASSED**"
+            echo
+            echo "Validated head: \`$head_sha\`"
             echo
             echo "Validated in \`geodynamics/aspect-tester:noble-dealii-master-clang\`."
             echo
@@ -248,12 +267,8 @@ jobs:
             tests/potential_feedback_center_of_mass_zero_mass.prm \
             tests/potential_feedback_center_of_mass_y20.prm \
             "$status_file"
-          git add -u \
-            "$trigger_file" \
-            "$workflow_file" \
-            doc/review/apply_degree_one_com_followup.sh \
-            "$patch_file"
+          git add -u "$trigger_file" "$workflow_file" "$helper_file" "$patch_file"
 
           git diff --cached --check
           git commit -m "Complete coupled center-of-mass consistency contracts"
-          git push origin HEAD:"${GITHUB_REF_NAME}"
+          git push origin HEAD:"$head_branch"
