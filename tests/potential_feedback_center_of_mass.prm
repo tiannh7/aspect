@@ -1,0 +1,25 @@
+# Exercise the coupled degree-one center-of-mass reference frame with a
+# self-consistent reference mass. The model has Ri=1, Ro=2, mantle reference
+# density 1, and CMB-below density 2, so M_ref = 12*pi kg and the radial
+# constant gravity is G*M_ref/Ro^2.
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/potential_feedback_default_none.prm
+
+set Output directory = output-potential-feedback-center-of-mass
+
+subsection Gravity model
+  subsection Radial constant
+    set Magnitude = 6.290379554356307e-10
+  end
+end
+
+subsection Potential feedback
+  subsection Potential iteration
+    set Relative tolerance = 1e-2
+  end
+
+  subsection Reference frame
+    set Degree 1 reference frame = center of mass
+  end
+end

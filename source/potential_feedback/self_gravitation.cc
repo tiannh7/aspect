@@ -320,20 +320,6 @@ namespace aspect
       if (degree_one_reference_frame ==
           DegreeOneReferenceFrame::center_of_mass)
         {
-          AssertThrow(false,
-                      ExcMessage(
-                        "The native coupled center-of-mass reference frame is "
-                        "temporarily disabled. The current implementation does "
-                        "not yet define a self-consistent reference-mass "
-                        "contract: its COM translation was normalized by "
-                        "g(R) R^2 / G even when the reference density, CMB "
-                        "density, and gravity model are configured "
-                        "independently. It also needs the COM dipole and "
-                        "full-domain potential to use the same internal-source "
-                        "time layer in every potential iteration. Use "
-                        "`Degree 1 reference frame = none' or the legacy "
-                        "`citcomsve center of mass' mode until the reference "
-                        "mass and source-layer consistency fixes are added."));
           const auto &parameters = this->get_parameters();
           AssertThrow(parameters.density_source_law
                       == Parameters<dim>::Formulation::DensitySourceLaw::
@@ -444,6 +430,140 @@ namespace aspect
 
 
     template <int dim>
+    double
+    SelfGravitation<dim>::compute_reference_planet_mass(
+      const double inner_radius,
+      const double outer_radius) const
+    {
+      AssertThrow(dim == 3,
+                  ExcMessage("The center-of-mass reference mass is implemented "
+                             "only for 3d spherical-shell models."));
+      AssertThrow(outer_radius > inner_radius && inner_radius >= 0.0,
+                  ExcMessage("The reference planet mass requires valid inner "
+                             "and outer radii."));
+
+      const auto &parameters = this->get_parameters();
+      const double four_pi_over_three = 4.0 * numbers::PI / 3.0;
+      const double core_mass =
+        four_pi_over_three * density_below_cmb
+        * inner_radius * inner_radius * inner_radius;
+
+      double shell_mass = 0.0;
+
+      if (parameters.reference_density_model
+          == Parameters<dim>::Formulation::ReferenceDensityModel::constant)
+        {
+          AssertThrow(parameters.constant_reference_density > 0.0,
+                      ExcMessage("The coupled center-of-mass reference frame "
+                                 "requires a positive constant reference "
+                                 "density when Reference density model is "
+                                 "`constant'."));
+          shell_mass =
+            four_pi_over_three * parameters.constant_reference_density
+            * (outer_radius * outer_radius * outer_radius
+               - inner_radius * inner_radius * inner_radius);
+        }
+      else if (parameters.reference_density_model
+               == Parameters<dim>::Formulation::ReferenceDensityModel::tabulated_radial)
+        {
+          AssertThrow(parameters.tabulated_reference_radii.size() >= 2,
+                      ExcMessage("The tabulated radial reference-density "
+                                 "model requires at least two radii."));
+          AssertDimension(parameters.tabulated_reference_radii.size(),
+                          parameters.tabulated_reference_densities.size());
+
+          const auto &radii = parameters.tabulated_reference_radii;
+          const auto &densities = parameters.tabulated_reference_densities;
+
+          std::vector<double> integration_radii;
+          integration_radii.push_back(inner_radius);
+          for (const double radius : radii)
+            if (radius > inner_radius && radius < outer_radius)
+              integration_radii.push_back(radius);
+          integration_radii.push_back(outer_radius);
+          std::sort(integration_radii.begin(), integration_radii.end());
+          integration_radii.erase(
+            std::unique(integration_radii.begin(), integration_radii.end()),
+            integration_radii.end());
+
+          const auto add_constant_density_shell =
+            [&shell_mass](const double density,
+                          const double r0,
+                          const double r1)
+          {
+            shell_mass +=
+              4.0 * numbers::PI * density
+              * (r1 * r1 * r1 - r0 * r0 * r0) / 3.0;
+          };
+
+          for (unsigned int i = 0; i + 1 < integration_radii.size(); ++i)
+            {
+              const double r0 = integration_radii[i];
+              const double r1 = integration_radii[i+1];
+              if (r1 <= r0)
+                continue;
+
+              const double midpoint = 0.5 * (r0 + r1);
+              if (midpoint <= radii.front())
+                {
+                  add_constant_density_shell(densities.front(), r0, r1);
+                  continue;
+                }
+              if (midpoint >= radii.back())
+                {
+                  add_constant_density_shell(densities.back(), r0, r1);
+                  continue;
+                }
+
+              const auto upper = std::upper_bound(radii.begin(),
+                                                  radii.end(),
+                                                  midpoint);
+              const unsigned int lower_index =
+                static_cast<unsigned int>(
+                  std::distance(radii.begin(), upper)) - 1;
+              AssertIndexRange(lower_index, radii.size() - 1);
+
+              if (parameters.tabulated_reference_density_interpolation
+                  == Parameters<dim>::Formulation::
+                  TabulatedReferenceDensityInterpolation::piecewise_constant)
+                {
+                  add_constant_density_shell(densities[lower_index], r0, r1);
+                }
+              else
+                {
+                  const double r_lower = radii[lower_index];
+                  const double r_upper = radii[lower_index+1];
+                  const double rho_lower = densities[lower_index];
+                  const double rho_upper = densities[lower_index+1];
+                  AssertThrow(r_upper > r_lower, ExcInternalError());
+
+                  const double slope =
+                    (rho_upper - rho_lower) / (r_upper - r_lower);
+                  const double intercept = rho_lower - slope * r_lower;
+
+                  shell_mass +=
+                    4.0 * numbers::PI
+                    * (intercept * (r1*r1*r1 - r0*r0*r0) / 3.0
+                       + slope * (r1*r1*r1*r1 - r0*r0*r0*r0) / 4.0);
+                }
+            }
+        }
+      else
+        AssertThrow(false,
+                    ExcMessage("The native coupled center-of-mass reference "
+                               "frame requires Reference density model to be "
+                               "`constant' or `tabulated radial'."));
+
+      const double total_mass = core_mass + shell_mass;
+      AssertThrow(total_mass > 0.0,
+                  ExcMessage("The reference-density planet mass must be "
+                             "positive."));
+      return total_mass;
+    }
+
+
+
+    template <int dim>
     void
     SelfGravitation<dim>::update_derived_planetary_constants()
     {
@@ -467,8 +587,16 @@ namespace aspect
                   ExcMessage("Self-gravitation requires a positive surface "
                              "gravity magnitude to derive planetary constants."));
 
-      planet_mass =
+      const double gravity_defined_mass =
         surface_gravity * outer_radius * outer_radius / constants::big_g;
+
+      if (degree_one_reference_frame ==
+          DegreeOneReferenceFrame::center_of_mass)
+        planet_mass =
+          compute_reference_planet_mass(geometry.inner_radius(), outer_radius);
+      else
+        planet_mass = gravity_defined_mass;
+
       planet_mean_density =
         3.0 * planet_mass
         / (4.0 * numbers::PI
@@ -478,6 +606,25 @@ namespace aspect
                   ExcMessage("Derived planet mass must be positive."));
       AssertThrow(planet_mean_density > 0.0,
                   ExcMessage("Derived planet mean density must be positive."));
+
+      if (degree_one_reference_frame ==
+          DegreeOneReferenceFrame::center_of_mass
+          && gravity_defined_mass > 0.0)
+        {
+          const double relative_mass_mismatch =
+            std::abs(gravity_defined_mass - planet_mass)
+            / std::max(planet_mass, std::numeric_limits<double>::min());
+          if (relative_mass_mismatch > 1e-2)
+            this->get_pcout()
+                << "WARNING: Potential feedback center-of-mass reference "
+                << "mass from the reference-density system ("
+                << std::scientific << std::setprecision(6)
+                << planet_mass << " kg) differs from g(R) R^2/G ("
+                << gravity_defined_mass << " kg) by relative amount "
+                << relative_mass_mismatch << ". The center-of-mass "
+                << "constraint uses the reference-density mass."
+                << std::defaultfloat << std::endl;
+        }
     }
 
 

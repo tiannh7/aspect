@@ -408,6 +408,16 @@ namespace aspect
         write_native_center_of_mass_diagnostic(
           const bool include_current_velocity_increment) const;
 
+        /**
+         * Compute the total mass that defines the center-of-mass reference
+         * frame from the same central reference-density contract used by the
+         * mechanical density-source system, plus the mass below the CMB.
+         */
+        double
+        compute_reference_planet_mass(
+          const double inner_radius,
+          const double outer_radius) const;
+
         void
         update_derived_planetary_constants();
 
