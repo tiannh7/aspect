@@ -320,6 +320,20 @@ namespace aspect
       if (degree_one_reference_frame ==
           DegreeOneReferenceFrame::center_of_mass)
         {
+          AssertThrow(false,
+                      ExcMessage(
+                        "The native coupled center-of-mass reference frame is "
+                        "temporarily disabled. The current implementation does "
+                        "not yet define a self-consistent reference-mass "
+                        "contract: its COM translation was normalized by "
+                        "g(R) R^2 / G even when the reference density, CMB "
+                        "density, and gravity model are configured "
+                        "independently. It also needs the COM dipole and "
+                        "full-domain potential to use the same internal-source "
+                        "time layer in every potential iteration. Use "
+                        "`Degree 1 reference frame = none' or the legacy "
+                        "`citcomsve center of mass' mode until the reference "
+                        "mass and source-layer consistency fixes are added."));
           const auto &parameters = this->get_parameters();
           AssertThrow(parameters.density_source_law
                       == Parameters<dim>::Formulation::DensitySourceLaw::
