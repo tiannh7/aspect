@@ -1,0 +1,15 @@
+# A deformable/free CMB is an active mass sheet and may not be omitted from
+# the native COM source. This input removes CMB feedback without fixing the
+# inner boundary and must fail during initialization.
+# Manual expected-failure input until a screen-output baseline is generated.
+# Enable if: QUICK_TEST
+# EXPECT FAILURE
+
+include $ASPECT_SOURCE_DIR/tests/potential_feedback_center_of_mass.prm
+
+set Output directory = output-potential-feedback-center-of-mass-missing-cmb
+
+subsection Boundary traction model
+  set Prescribed traction boundary indicators = outer: spherical harmonic load, \
+                                                  outer: potential feedback
+end
