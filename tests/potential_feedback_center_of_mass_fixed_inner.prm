@@ -1,0 +1,31 @@
+# Exercise the native COM constraint with a fixed inner boundary. A fixed
+# inner boundary removes the rigid-rotation nullspace, so the COM formulation
+# must not require an angular-momentum nullspace projection.
+# Manual validation input until a screen-output baseline is generated.
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/potential_feedback_center_of_mass.prm
+
+set Output directory = output-potential-feedback-center-of-mass-fixed-inner
+
+subsection Boundary traction model
+  set Prescribed traction boundary indicators = outer: spherical harmonic load, \
+                                                  outer: potential feedback
+end
+
+subsection Boundary velocity model
+  set Zero velocity boundary indicators = inner
+end
+
+subsection Mesh deformation
+  set Mesh deformation boundary indicators = outer: free surface
+
+  subsection Free surface
+    set Initial stabilization density contrasts = outer: 1
+    set Stabilization density contrasts         = outer: 1
+  end
+end
+
+subsection Nullspace removal
+  set Remove nullspace =
+end
