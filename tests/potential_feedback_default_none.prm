@@ -1,0 +1,166 @@
+# Default-off regression for a minimal three-dimensional viscoelastic free
+# shell. This file is also the common input inherited by the coupled COM test.
+# Enable if: QUICK_TEST
+
+set Dimension                      = 3
+set End time                       = 0
+set Nonlinear solver scheme        = single Advection, iterated Stokes
+set Output directory               = output-potential-feedback-default-none
+set Pressure normalization         = no
+set Use operator splitting         = true
+set Use years instead of seconds   = false
+
+subsection Geometry model
+  set Model name = spherical shell
+
+  subsection Spherical shell
+    set Initial lateral refinement = 0
+    set Inner radius               = 1
+    set Outer radius               = 2
+  end
+end
+
+subsection Gravity model
+  set Model name = radial constant
+
+  subsection Radial constant
+    set Magnitude = 1
+  end
+end
+
+subsection Material model
+  set Model name = viscoelastic
+
+  subsection Viscoelastic
+    set Densities                   = 1
+    set Elastic bulk moduli         = 2
+    set Elastic shear moduli        = 1
+    set Enable compressible Maxwell = true
+    set Initial elastic time step   = 0.1
+    set Initial response mode       = instantaneous elastic
+    set Use fixed elastic time step = false
+    set Viscosities                 = 1
+  end
+end
+
+subsection Compositional fields
+  set Names of fields                       = ve_stress_xx, ve_stress_yy, ve_stress_zz, \
+                                              ve_stress_xy, ve_stress_xz, ve_stress_yz, \
+                                              ve_radial_displacement
+  set Number of fields                      = 7
+  set Skip composition assembly at timestep = 0
+  set Types of fields                       = stress, stress, stress, stress, stress, stress, generic
+  set Compositional field methods           = field, field, field, field, field, field, static
+end
+
+subsection Discretization
+  set Composition polynomial degree                = 1
+  set Use discontinuous composition discretization = true
+end
+
+subsection Formulation
+  set Enable elasticity = true
+  set Mass conservation = elastic pressure evolution
+
+  subsection Density sources
+    set Constant reference density = 1
+    set Density source law         = mechanical mass conservation
+    set Reference density model    = constant
+  end
+
+  subsection Elasticity
+    set Use old stress fields = false
+  end
+end
+
+subsection Initial composition model
+  set Model name = function
+
+  subsection Function
+    set Function expression = 0; 0; 0; 0; 0; 0; 0
+  end
+end
+
+subsection Initial temperature model
+  set Model name = function
+
+  subsection Function
+    set Function expression = 0
+  end
+end
+
+subsection Boundary traction model
+  set Prescribed traction boundary indicators = outer: spherical harmonic load, \
+                                                  outer: potential feedback, \
+                                                  inner: potential feedback
+
+  subsection Spherical harmonic load
+    set Coefficient type       = cosine
+    set Harmonic degree        = 1
+    set Harmonic order         = 0
+    set Load density           = 1
+    set Load height            = 0.001
+    set Normalization          = geodesy 4pi
+    set Positive load direction = inward radial
+  end
+end
+
+subsection Mesh deformation
+  set Mesh deformation boundary indicators = outer: free surface, inner: free surface
+
+  subsection Free surface
+    set Free surface stabilization theta            = 1
+    set Initial stabilization density contrasts     = outer: 1, inner: 1
+    set Stabilization density contrasts             = outer: 1, inner: 1
+    set Surface velocity projection                 = normal
+    set Use displacement history in free surface stabilization = true
+  end
+end
+
+subsection Mesh refinement
+  set Initial adaptive refinement = 0
+  set Initial global refinement   = 0
+end
+
+subsection Nullspace removal
+  set Remove nullspace = angular momentum
+end
+
+subsection Potential feedback
+  set List of feedback mechanisms = self gravity
+
+  subsection Potential iteration
+    set Initial displacement time step    = 0.1
+    set Iterate with Stokes               = true
+    set Maximum iterations                = 5
+    set Relative tolerance                = 1
+    set Relaxation factor                 = 1
+  end
+
+  subsection Reference frame
+    set Degree 1 reference frame = none
+  end
+
+  subsection Self gravity
+    set Density above CMB                         = 1
+    set Density above surface                     = 0
+    set Density below CMB                         = 2
+    set Density below surface                     = 1
+    set Full domain potential radial subdivisions = 4
+    set Full domain volume source discretization  = quadrature point
+    set Include internal density anomalies        = true
+    set Maximum degree                            = 2
+  end
+end
+
+subsection Postprocess
+  set List of postprocessors = basic statistics
+end
+
+subsection Solver parameters
+  subsection Operator splitting parameters
+    set Reaction solver type                   = fixed step
+    set Reaction time step                     = 0.1
+    set Reaction time steps per advection step = 1
+  end
+end

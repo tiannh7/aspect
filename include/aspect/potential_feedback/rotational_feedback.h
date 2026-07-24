@@ -99,6 +99,10 @@ namespace aspect
         surface_potential_coefficient(const unsigned int degree,
                                       const unsigned int order) const;
 
+        std::pair<double,double>
+        cmb_potential_coefficient(const unsigned int degree,
+                                  const unsigned int order) const;
+
         void configure_from_potential_feedback_settings(
           const PotentialFeedback::Settings &settings);
 
@@ -126,6 +130,8 @@ namespace aspect
         double density_above_cmb;
         double density_below_cmb;
         std::string include_internal_density_anomalies = "false";
+        std::string full_domain_volume_source_discretization =
+          "quadrature point";
         double reference_density_for_internal_anomalies = 0.0;
         double fluid_love_number;
         double initial_displacement_timestep;

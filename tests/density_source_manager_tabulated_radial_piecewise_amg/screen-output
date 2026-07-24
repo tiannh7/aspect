@@ -30,9 +30,9 @@ Number of degrees of freedom: 2,024 (416+56+208+192+192+192+192+192+192+192)
         Compositional field 4 (ve_stress_yy_old): 0
         Compositional field 5 (ve_stress_xy_old): 0
         Compositional field 6 (ve_radial_displacement): 0
-        Stokes system: 133.453
+        Stokes system: 133.458
 
-      Relative nonlinear residual (total system) after nonlinear iteration 1: 1.334533e+02
+      Relative nonlinear residual (total system) after nonlinear iteration 1: 1.334583e+02
 
    Skipping temperature solve because RHS is zero.
    Skipping ve_stress_xx assembly and solve because timestep 0.
@@ -43,7 +43,7 @@ Number of degrees of freedom: 2,024 (416+56+208+192+192+192+192+192+192+192)
    Skipping ve_stress_xy_old assembly and solve because timestep 0.
    Skipping ve_radial_displacement assembly and solve because timestep 0.
    Rebuilding Stokes preconditioner...
-   Solving Stokes system (AMG)... 7+0 iterations.
+   Solving Stokes system (AMG)... 15+0 iterations.
       Relative nonlinear residuals:
         Temperature: 0
         Compositional field 0 (ve_stress_xx): 0
@@ -61,7 +61,7 @@ Number of degrees of freedom: 2,024 (416+56+208+192+192+192+192+192+192+192)
    Postprocessing:
      Radial reference density:          rho 4.100000e+03 / 4.100000e+03 / 4.000000e+03 / 3.700000e+03, scale 4.100000e+03, default mechanical g 9.810000e+00, moved-face jump 1.000000e+02
      Writing point values:              output-density_source_manager_tabulated_radial_piecewise_amg/point_values.txt
-     Pressure min/avg/max:              -1.821 Pa, -1.186e-13 Pa, 3.224 Pa
+     Pressure min/avg/max:              -1.355e-07 Pa, -3.48e-21 Pa, 1.116e-07 Pa
      Velocity statistics (min/max/rms): r    : -3.009e-12 / 3.009e-12 / 8.109e-13 m/s
                                         phi  : -3.009e-12 / 3.009e-12 / 8.109e-13 m/s
                                         total: 0 / 3.009e-12 / 1.147e-12 m/s

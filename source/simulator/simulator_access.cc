@@ -412,6 +412,15 @@ namespace aspect
 
 
   template <int dim>
+  const LinearAlgebra::BlockVector &
+  SimulatorAccess<dim>::get_system_rhs () const
+  {
+    return simulator->system_rhs;
+  }
+
+
+
+  template <int dim>
   const LinearAlgebra::BlockSparseMatrix &
   SimulatorAccess<dim>::get_system_preconditioner_matrix () const
   {

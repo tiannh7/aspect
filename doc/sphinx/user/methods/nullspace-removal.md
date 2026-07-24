@@ -48,6 +48,7 @@ Removing the net translations/rotations are identical to their momentum counterp
 For most applications the density should not vary so wildly that there will be an appreciable difference between the two varieties, though removing linear/angular momentum is more physically motivated.
 
 The user can flag the nullspace for removal by setting the `Remove nullspace` option, as described in {ref}`parameters:Nullspace_20removal`.
+
 {numref}`fig:rigid_rotation` shows the result of removing angular momentum from a convection model in a 2D annulus with free-slip velocity boundary conditions.
 
 

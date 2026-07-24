@@ -29,9 +29,9 @@ Number of degrees of freedom: 2,024 (416+56+208+192+192+192+192+192+192+192)
         Compositional field 4 (ve_stress_yy_old): 0
         Compositional field 5 (ve_stress_xy_old): 0
         Compositional field 6 (ve_radial_displacement): 0
-        Stokes system: 111469
+        Stokes system: 6.47065e+10
 
-      Relative nonlinear residual (total system) after nonlinear iteration 1: 1.114692e+05
+      Relative nonlinear residual (total system) after nonlinear iteration 1: 6.470649e+10
 
    Skipping temperature solve because RHS is zero.
    Skipping ve_stress_xx assembly and solve because timestep 0.
@@ -41,7 +41,7 @@ Number of degrees of freedom: 2,024 (416+56+208+192+192+192+192+192+192+192)
    Skipping ve_stress_yy_old assembly and solve because timestep 0.
    Skipping ve_stress_xy_old assembly and solve because timestep 0.
    Skipping ve_radial_displacement assembly and solve because timestep 0.
-   Solving Stokes system (GMG)... 9+0 iterations.
+   Solving Stokes system (GMG)... 19+0 iterations.
       Relative nonlinear residuals:
         Temperature: 0
         Compositional field 0 (ve_stress_xx): 0
@@ -51,9 +51,9 @@ Number of degrees of freedom: 2,024 (416+56+208+192+192+192+192+192+192+192)
         Compositional field 4 (ve_stress_yy_old): 0
         Compositional field 5 (ve_stress_xy_old): 0
         Compositional field 6 (ve_radial_displacement): 0
-        Stokes system: 1.02989e-08
+        Stokes system: 0.00598211
 
-      Relative nonlinear residual (total system) after nonlinear iteration 2: 1.029892e-08
+      Relative nonlinear residual (total system) after nonlinear iteration 2: 5.982113e-03
 
    Skipping temperature solve because RHS is zero.
    Skipping ve_stress_xx assembly and solve because timestep 0.
@@ -81,7 +81,7 @@ Number of degrees of freedom: 2,024 (416+56+208+192+192+192+192+192+192+192)
    Postprocessing:
      Radial reference density:          rho 4.100000e+03 / 4.100000e+03 / 4.000000e+03 / 3.700000e+03, scale 4.100000e+03, default mechanical g 9.810000e+00, moved-face jump 1.000000e+02
      Writing point values:              output-density_source_manager_tabulated_radial_piecewise_gmg/point_values.txt
-     Pressure min/avg/max:              -1.821 Pa, 5.924e-14 Pa, 3.224 Pa
+     Pressure min/avg/max:              -1.355e-07 Pa, -2.466e-21 Pa, 1.116e-07 Pa
      Velocity statistics (min/max/rms): r    : -3.009e-12 / 3.009e-12 / 8.109e-13 m/s
                                         phi  : -3.009e-12 / 3.009e-12 / 8.109e-13 m/s
                                         total: 0 / 3.009e-12 / 1.147e-12 m/s

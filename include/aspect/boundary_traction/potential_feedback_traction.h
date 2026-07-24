@@ -150,6 +150,8 @@ namespace aspect
         const PotentialFeedbackTraction<dim> &
         primary_provider() const;
 
+        void write_polar_wander_timing_diagnostic(const std::string &stage) const;
+
         PotentialFeedback::Settings settings;
         bool self_gravity_active = false;
         bool rotational_feedback_active = false;

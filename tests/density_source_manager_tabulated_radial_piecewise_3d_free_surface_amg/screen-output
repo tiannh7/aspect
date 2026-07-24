@@ -28,9 +28,9 @@ Number of mesh deformation degrees of freedom: 2,058
         Compositional field 4 (ve_stress_xz): 0
         Compositional field 5 (ve_stress_yz): 0
         Compositional field 6 (ve_radial_displacement): 0
-        Stokes system: 98.7211
+        Stokes system: 98.7191
 
-      Relative nonlinear residual (total system) after nonlinear iteration 1: 9.872113e+01
+      Relative nonlinear residual (total system) after nonlinear iteration 1: 9.871914e+01
 
    Skipping temperature solve because RHS is zero.
    Skipping ve_stress_xx assembly and solve because timestep 0.
@@ -41,7 +41,7 @@ Number of mesh deformation degrees of freedom: 2,058
    Skipping ve_stress_yz assembly and solve because timestep 0.
    Skipping ve_radial_displacement assembly and solve because timestep 0.
    Rebuilding Stokes preconditioner...
-   Solving Stokes system (AMG)... 121+0 iterations.
+   Solving Stokes system (AMG)... 151+0 iterations.
       Relative nonlinear residuals:
         Temperature: 0
         Compositional field 0 (ve_stress_xx): 0
@@ -57,12 +57,12 @@ Number of mesh deformation degrees of freedom: 2,058
 
 
    Postprocessing:
-     Pressure min/avg/max:              -399.5 Pa, -395.9 Pa, -393.3 Pa
+     Pressure min/avg/max:              -398.7 Pa, -398.7 Pa, -398.2 Pa
      Velocity statistics (min/max/rms): r    : -1.32e-09 / 1.32e-09 / 6.142e-10 m/s
                                         phi  : -1.32e-09 / 1.32e-09 / 6.142e-10 m/s
                                         theta: -1.32e-09 / 1.32e-09 / 6.142e-10 m/s
                                         total: 6.275e-10 / 1.32e-09 / 1.064e-09 m/s
-                                        
+
 
 Termination requested by criterion: end time
 

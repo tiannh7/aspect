@@ -280,6 +280,17 @@ namespace aspect
                             "the benchmark-compatible CitcomSVE "
                             "incompressible degree-1 load-compensation "
                             "replay.");
+          prm.declare_entry("Center of mass absolute tolerance", "0",
+                            Patterns::Double(0),
+                            "Absolute convergence tolerance in meters for the "
+                            "change of the three Cartesian center-of-mass "
+                            "translation coefficients. This criterion is used "
+                            "only by the native `center of mass' reference "
+                            "frame and is satisfied in addition to, or instead "
+                            "of, its relative coefficient-change criterion. "
+                            "The self-gravity potential must still satisfy the "
+                            "relative tolerance. A value of zero disables the "
+                            "absolute COM criterion.");
           prm.declare_entry("Remove pure rotation from displacement", "true",
                             Patterns::Bool(),
                             "Whether to remove pure-rotation reference-frame "
@@ -380,6 +391,8 @@ namespace aspect
         {
           degree_one_reference_frame =
             parse_degree_one_reference_frame(prm.get("Degree 1 reference frame"));
+          center_of_mass_absolute_tolerance =
+            prm.get_double("Center of mass absolute tolerance");
           if (degree_one_reference_frame == DegreeOneReferenceFrame::none)
             {
               center_of_mass_correction = false;

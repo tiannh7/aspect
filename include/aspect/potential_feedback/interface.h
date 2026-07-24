@@ -161,6 +161,7 @@ namespace aspect
 
       DegreeOneReferenceFrame degree_one_reference_frame =
         DegreeOneReferenceFrame::none;
+      double center_of_mass_absolute_tolerance = 0.0;
       bool center_of_mass_correction = false;
       bool remove_pure_rotation_from_displacement = false;
       bool citcomsve_degree_one_load_compensation = false;

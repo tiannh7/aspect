@@ -26,6 +26,12 @@
 
 #include <deal.II/base/signaling_nan.h>
 
+#include <cstdlib>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
+#include <string>
+
 namespace aspect
 {
   namespace Assemblers
@@ -67,6 +73,81 @@ namespace aspect
             return potential_feedback;
 
         return nullptr;
+      }
+
+
+      bool
+      polar_wander_rhs_debug_enabled()
+      {
+        const char *enabled = std::getenv("ASPECT_PW_RHS_DEBUG");
+        return enabled != nullptr && std::atof(enabled) != 0.0;
+      }
+
+
+      template <int dim, typename Accessor>
+      void
+      write_polar_wander_rhs_diagnostic(const Accessor &accessor,
+                                        const std::string &component,
+                                        const double cosine,
+                                        const double sine)
+      {
+        if constexpr (dim == 3)
+          {
+            if (!polar_wander_rhs_debug_enabled())
+              return;
+
+            const unsigned int rank =
+              Utilities::MPI::this_mpi_process(accessor.get_mpi_communicator());
+            std::ostringstream filename;
+            filename << accessor.get_parameters().output_directory
+                     << "/aspect_pw_rhs_assembler_diagnostic_rank"
+                     << std::setw(4) << std::setfill('0') << rank;
+
+            static bool header_written = false;
+            std::ofstream output(filename.str(),
+                                 header_written ? std::ios::app : std::ios::out);
+            if (!output)
+              return;
+
+            if (!header_written)
+              {
+                output
+                    << "# ASPECT l2m1 RHS assembler diagnostic\n"
+                    << "# local rank contributions; sum over ranks/files in postprocessing\n"
+                    << "# columns: timestep time component cosine sine\n";
+                header_written = true;
+              }
+
+            output << std::setprecision(16) << std::scientific
+                   << accessor.get_timestep_number() << ' '
+                   << accessor.get_time() << ' '
+                   << component << ' '
+                   << cosine << ' '
+                   << sine << '\n';
+          }
+        else
+          {
+            (void) accessor;
+            (void) component;
+            (void) cosine;
+            (void) sine;
+          }
+      }
+
+
+      template <int dim>
+      std::pair<double,double>
+      y21_at_point(const Point<dim> &point)
+      {
+        if constexpr (dim == 3)
+          {
+            const std::array<double,dim> spherical_coordinates =
+              Utilities::Coordinates::cartesian_to_spherical_coordinates(point);
+            return Utilities::real_spherical_harmonic(
+                     2, 1, spherical_coordinates[2], spherical_coordinates[1]);
+          }
+        else
+          return {0.0, 0.0};
       }
     }
 
@@ -451,6 +532,9 @@ namespace aspect
             }
         }
 
+      double pw_volume_mass_conservation_rhs_cosine = 0.0;
+      double pw_volume_mass_conservation_rhs_sine = 0.0;
+
       // Next, do the integration of matrix and right hand side terms.
       for (unsigned int q=0; q<n_q_points; ++q)
         {
@@ -577,11 +661,13 @@ namespace aspect
                     * JxW;
 
                   if (full_domain_potential != 0.0)
-                    data.local_rhs(i) -=
-                      reference_density
-                      * full_domain_potential
-                      * scratch.div_phi_u[i]
-                      * JxW;
+                    {
+                      data.local_rhs(i) -=
+                        reference_density
+                        * full_domain_potential
+                        * scratch.div_phi_u[i]
+                        * JxW;
+                    }
                 }
 
               if (scratch.rebuild_stokes_matrix)
@@ -634,7 +720,39 @@ namespace aspect
                                               * JxW;
                   }
             }
+
+          if (use_mechanical_mass_conservation
+              && full_domain_potential != 0.0
+              && polar_wander_rhs_debug_enabled())
+            {
+              const Point<dim> position =
+                scratch.finite_element_values.quadrature_point(q);
+              const double radius = position.norm();
+              if (radius > 0.0)
+                {
+                  const std::pair<double,double> y21 =
+                    y21_at_point<dim>(position);
+                  const double radial_test_divergence = 2.0 / radius;
+                  const double contribution =
+                    -reference_density
+                    * full_domain_potential
+                    * radial_test_divergence
+                    * JxW;
+                  pw_volume_mass_conservation_rhs_cosine +=
+                    contribution * y21.first;
+                  pw_volume_mass_conservation_rhs_sine +=
+                    contribution * y21.second;
+                }
+            }
         }
+
+      if (pw_volume_mass_conservation_rhs_cosine != 0.0
+          || pw_volume_mass_conservation_rhs_sine != 0.0)
+        write_polar_wander_rhs_diagnostic<dim>(
+          *this,
+          "volume_mechanical_mass_conservation_full_potential",
+          pw_volume_mass_conservation_rhs_cosine,
+          pw_volume_mass_conservation_rhs_sine);
     }
 
 
@@ -1186,9 +1304,13 @@ namespace aspect
       const typename DoFHandler<dim>::face_iterator face = scratch.cell->face(scratch.face_number);
 
       const auto &traction_bis = this->get_boundary_traction_manager().get_prescribed_boundary_traction_indicators();
+      const BoundaryTraction::PotentialFeedbackTraction<dim> *potential_feedback =
+        active_potential_feedback(this->get_boundary_traction_manager());
 
       if (traction_bis.find(face->boundary_id()) != traction_bis.end())
         {
+          double pw_boundary_feedback_rhs_cosine = 0.0;
+          double pw_boundary_feedback_rhs_sine = 0.0;
           for (unsigned int q=0; q<scratch.face_finite_element_values.n_quadrature_points; ++q)
             {
               const Tensor<1,dim> traction
@@ -1209,6 +1331,37 @@ namespace aspect
                     }
                   ++i;
                 }
+
+              if (potential_feedback != nullptr
+                  && polar_wander_rhs_debug_enabled())
+                {
+                  const Point<dim> position =
+                    scratch.face_finite_element_values.quadrature_point(q);
+                  const Tensor<1,dim> radial_unit = position / position.norm();
+                  const std::pair<double,double> y21 =
+                    y21_at_point<dim>(position);
+                  const Tensor<1,dim> feedback_traction =
+                    potential_feedback->boundary_traction(
+                      face->boundary_id(),
+                      position,
+                      scratch.face_finite_element_values.normal_vector(q));
+                  const double contribution =
+                    (feedback_traction * radial_unit) * JxW;
+                  pw_boundary_feedback_rhs_cosine += contribution * y21.first;
+                  pw_boundary_feedback_rhs_sine += contribution * y21.second;
+                }
+            }
+
+          if (pw_boundary_feedback_rhs_cosine != 0.0
+              || pw_boundary_feedback_rhs_sine != 0.0)
+            {
+              const std::string component =
+                "boundary_feedback_" + std::to_string(face->boundary_id());
+              write_polar_wander_rhs_diagnostic<dim>(
+                *this,
+                component,
+                pw_boundary_feedback_rhs_cosine,
+                pw_boundary_feedback_rhs_sine);
             }
         }
     }
@@ -1354,6 +1507,9 @@ namespace aspect
       std::vector<double> committed_displacements(
         scratch.face_finite_element_values.n_quadrature_points);
 
+      double pw_internal_density_jump_rhs_cosine = 0.0;
+      double pw_internal_density_jump_rhs_sine = 0.0;
+
       for (const unsigned int face_no : scratch.cell->face_indices())
         {
           if (scratch.cell->at_boundary(face_no)
@@ -1361,14 +1517,18 @@ namespace aspect
             continue;
 
           const auto neighbor = scratch.cell->neighbor(face_no);
-          if (scratch.cell->center().norm() >= neighbor->center().norm())
+          const Point<dim> inner_cell_center =
+            density_sources.radial_cell_representative_point(scratch.cell);
+          const Point<dim> outer_cell_center =
+            density_sources.radial_cell_representative_point(neighbor);
+          if (inner_cell_center.norm() >= outer_cell_center.norm())
             continue;
 
           const auto face = scratch.cell->face(face_no);
           const double density_contrast =
             density_sources.internal_density_jump_across_face(
-              scratch.cell->center(),
-              neighbor->center(),
+              inner_cell_center,
+              outer_cell_center,
               face->vertex(0).norm());
           if (density_contrast == 0.0)
             continue;
@@ -1378,8 +1538,8 @@ namespace aspect
             all_vertices_match =
               all_vertices_match
               && (density_sources.internal_density_jump_across_face(
-                    scratch.cell->center(),
-                    neighbor->center(),
+                    inner_cell_center,
+                    outer_cell_center,
                     face->vertex(vertex).norm()) == density_contrast);
           if (!all_vertices_match)
             continue;
@@ -1411,6 +1571,18 @@ namespace aspect
                     ? self_gravity->full_domain_potential(point)
                     : 0.0));
               const double JxW = scratch.face_finite_element_values.JxW(q);
+
+              if (potential != 0.0 && polar_wander_rhs_debug_enabled())
+                {
+                  const std::pair<double,double> y21 =
+                    y21_at_point<dim>(point);
+                  const double contribution =
+                    density_contrast * potential * JxW;
+                  pw_internal_density_jump_rhs_cosine +=
+                    contribution * y21.first;
+                  pw_internal_density_jump_rhs_sine +=
+                    contribution * y21.second;
+                }
 
               for (unsigned int i = 0, i_stokes = 0;
                    i_stokes < stokes_dofs_per_cell;
@@ -1451,6 +1623,14 @@ namespace aspect
                   }
             }
         }
+
+      if (pw_internal_density_jump_rhs_cosine != 0.0
+          || pw_internal_density_jump_rhs_sine != 0.0)
+        write_polar_wander_rhs_diagnostic<dim>(
+          *this,
+          "internal_density_jump_full_potential",
+          pw_internal_density_jump_rhs_cosine,
+          pw_internal_density_jump_rhs_sine);
     }
 
 

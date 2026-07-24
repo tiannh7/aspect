@@ -44,7 +44,6 @@
 
 namespace aspect
 {
-
   template <int dim, int velocity_degree>
   void
   StokesMatrixFreeHandlerLocalSmoothingImplementation<dim, velocity_degree>::declare_parameters(ParameterHandler &prm)
@@ -564,17 +563,26 @@ namespace aspect
                   simulator_interior;
                 typename DoFHandler<dim>::active_cell_iterator outer_cell =
                   simulator_exterior;
-                if (inner_cell->center().norm() > outer_cell->center().norm())
-                  std::swap(inner_cell, outer_cell);
-                if (inner_cell->center().norm() >= outer_cell->center().norm())
+                Point<dim> inner_cell_center =
+                  this->get_density_source_manager()
+                  .radial_cell_representative_point(inner_cell);
+                Point<dim> outer_cell_center =
+                  this->get_density_source_manager()
+                  .radial_cell_representative_point(outer_cell);
+                if (inner_cell_center.norm() > outer_cell_center.norm())
+                  {
+                    std::swap(inner_cell, outer_cell);
+                    std::swap(inner_cell_center, outer_cell_center);
+                  }
+                if (inner_cell_center.norm() >= outer_cell_center.norm())
                   continue;
 
                 const auto geometric_face =
                   simulator_interior->face(matrix_free_interior.second);
                 const double density_contrast =
                   this->get_density_source_manager().internal_density_jump_across_face(
-                    inner_cell->center(),
-                    outer_cell->center(),
+                    inner_cell_center,
+                    outer_cell_center,
                     geometric_face->vertex(0).norm());
                 if (density_contrast == 0.0)
                   continue;
@@ -584,8 +592,8 @@ namespace aspect
                   all_vertices_match =
                     all_vertices_match
                     && (this->get_density_source_manager().internal_density_jump_across_face(
-                          inner_cell->center(),
-                          outer_cell->center(),
+                          inner_cell_center,
+                          outer_cell_center,
                           geometric_face->vertex(vertex).norm()) == density_contrast);
                 if (!all_vertices_match)
                   continue;
@@ -777,17 +785,26 @@ namespace aspect
                     auto outer_cell = matrix_free_exterior.first;
                     if (inner_cell->has_periodic_neighbor(matrix_free_interior.second))
                       continue;
-                    if (inner_cell->center().norm() > outer_cell->center().norm())
-                      std::swap(inner_cell, outer_cell);
-                    if (inner_cell->center().norm() >= outer_cell->center().norm())
+                    Point<dim> inner_cell_center =
+                      this->get_density_source_manager()
+                      .radial_cell_representative_point(inner_cell);
+                    Point<dim> outer_cell_center =
+                      this->get_density_source_manager()
+                      .radial_cell_representative_point(outer_cell);
+                    if (inner_cell_center.norm() > outer_cell_center.norm())
+                      {
+                        std::swap(inner_cell, outer_cell);
+                        std::swap(inner_cell_center, outer_cell_center);
+                      }
+                    if (inner_cell_center.norm() >= outer_cell_center.norm())
                       continue;
 
                     const auto geometric_face =
                       matrix_free_interior.first->face(matrix_free_interior.second);
                     const double density_contrast =
                       this->get_density_source_manager().internal_density_jump_across_face(
-                        inner_cell->center(),
-                        outer_cell->center(),
+                        inner_cell_center,
+                        outer_cell_center,
                         geometric_face->vertex(0).norm());
                     if (density_contrast == 0.0)
                       continue;
@@ -799,8 +816,8 @@ namespace aspect
                       all_vertices_match =
                         all_vertices_match
                         && (this->get_density_source_manager().internal_density_jump_across_face(
-                              inner_cell->center(),
-                              outer_cell->center(),
+                              inner_cell_center,
+                              outer_cell_center,
                               geometric_face->vertex(vertex).norm())
                             == density_contrast);
                     if (!all_vertices_match)
@@ -1842,7 +1859,6 @@ namespace aspect
         internal::ChangeVectorTypes::copy(solution_copy,distributed_stokes_solution);
         internal::ChangeVectorTypes::copy(initial_copy,linearized_stokes_initial_guess);
         internal::ChangeVectorTypes::copy(rhs_copy,distributed_stokes_rhs);
-
         // Compute residual l2_norm
         stokes_matrix.vmult(solution_copy,initial_copy);
         solution_copy.sadd(-1,1,rhs_copy);
@@ -1875,8 +1891,12 @@ namespace aspect
         // if we are solving for the Newton update, then the initial guess of the solution
         // vector is the zero vector, and the starting (nonlinear) residual is simply
         // the norm of the (Newton) right hand side vector
-        const double residual_u = distributed_stokes_rhs.block(0).l2_norm();
-        const double residual_p = distributed_stokes_rhs.block(1).l2_norm();
+        dealii::LinearAlgebra::distributed::BlockVector<double> rhs_copy(2);
+        stokes_matrix.initialize_dof_vector(rhs_copy);
+        internal::ChangeVectorTypes::copy(rhs_copy,distributed_stokes_rhs);
+
+        const double residual_u = rhs_copy.block(0).l2_norm();
+        const double residual_p = rhs_copy.block(1).l2_norm();
         solver_tolerance = this->get_parameters().linear_stokes_solver_tolerance *
                            std::sqrt(residual_u*residual_u+residual_p*residual_p);
 
@@ -1899,7 +1919,6 @@ namespace aspect
 
     internal::ChangeVectorTypes::copy(solution_copy,distributed_stokes_solution);
     internal::ChangeVectorTypes::copy(rhs_copy,distributed_stokes_rhs);
-
     // create Solver controls for the cheap and expensive solver phase
     SolverControl solver_control_cheap (this->get_parameters().n_cheap_stokes_solver_steps,
                                         solver_tolerance, true);
@@ -1952,10 +1971,6 @@ namespace aspect
             inverse_velocity_block_expensive,
             schur_approximation_expensive,
             BT_block);
-
-
-
-
 
     PrimitiveVectorMemory<dealii::LinearAlgebra::distributed::BlockVector<double>> mem;
 
@@ -2314,7 +2329,8 @@ namespace aspect
       DoFRenumbering::hierarchical(dof_handler_v);
 
 #if DEAL_II_VERSION_GTE(9,7,0)
-      const IndexSet locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler_v);
+      const IndexSet locally_relevant_dofs =
+        DoFTools::extract_locally_relevant_dofs(dof_handler_v);
 #else
       IndexSet locally_relevant_dofs;
       DoFTools::extract_locally_relevant_dofs(dof_handler_v, locally_relevant_dofs);

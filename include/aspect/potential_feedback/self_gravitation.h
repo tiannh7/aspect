@@ -216,6 +216,11 @@ namespace aspect
         Tensor<1,dim>
         get_cm_displacement_increment() const;
 
+        /** Return whether the ASPECT-native coupled center-of-mass
+         * reference frame is active. */
+        bool
+        uses_coupled_center_of_mass_reference_frame() const;
+
         /** Return the center-of-mass displacement vector computed from the
          * deformation-only degree-1 surface + CMB mass potential, excluding
          * externally applied surface loads. */
@@ -254,6 +259,10 @@ namespace aspect
         bool potential_is_converged() const;
 
         double potential_relative_change_value() const;
+
+        /** Return the relative change of the three coupled center-of-mass
+         * reference-frame coefficients in the last post-Stokes update. */
+        double center_of_mass_relative_change_value() const;
 
         unsigned int minimum_degree() const;
 
@@ -392,7 +401,8 @@ namespace aspect
           const std::vector<double> &cmb_height_cos,
           const std::vector<double> &cmb_height_sin,
           const double outer_radius,
-          const double inner_radius);
+          const double inner_radius,
+          const bool include_internal_sources);
 
         void
         write_native_center_of_mass_diagnostic(
@@ -419,6 +429,11 @@ namespace aspect
         double potential_convergence_tolerance;
         double potential_iteration_relaxation_factor;
         double potential_relative_change;
+        double center_of_mass_relative_change =
+          std::numeric_limits<double>::infinity();
+        double center_of_mass_absolute_change =
+          std::numeric_limits<double>::infinity();
+        double center_of_mass_absolute_tolerance = 0.0;
         unsigned int maximum_potential_iterations;
         unsigned int current_potential_iteration_step;
         unsigned int potential_iteration_number;

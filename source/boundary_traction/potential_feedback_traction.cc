@@ -19,8 +19,13 @@
 */
 
 #include <aspect/boundary_traction/potential_feedback_traction.h>
+#include <aspect/geometry_model/spherical_shell.h>
+#include <aspect/simulator_signals.h>
 
 #include <algorithm>
+#include <cstdlib>
+#include <fstream>
+#include <iomanip>
 #include <sstream>
 
 namespace aspect
@@ -121,6 +126,222 @@ namespace aspect
 
     template <int dim>
     void
+    PotentialFeedbackTraction<dim>::write_polar_wander_timing_diagnostic(
+      const std::string &stage) const
+    {
+      const char *enabled = std::getenv("ASPECT_PW_TIMING_DEBUG");
+      if (enabled == nullptr || std::atof(enabled) == 0.0)
+        return;
+
+      if (&primary_provider() != this)
+        return;
+
+      if (Utilities::MPI::this_mpi_process(this->get_mpi_communicator()) != 0)
+        return;
+
+      const auto coefficient_or_zero =
+        [](const bool active,
+           const std::function<std::pair<double,double>()> &coefficient)
+      {
+        return active ? coefficient() : std::make_pair(0.0, 0.0);
+      };
+
+      const std::pair<double,double> self_surface =
+        coefficient_or_zero(self_gravity_active,
+                            [this]()
+      {
+        return self_gravity.total_surface_potential_coefficient(2, 1);
+      });
+      const std::pair<double,double> self_cmb =
+        coefficient_or_zero(self_gravity_active,
+                            [this]()
+      {
+        return self_gravity.cmb_mass_potential_coefficient(2, 1);
+      });
+      const std::pair<double,double> rotational_surface =
+        coefficient_or_zero(rotational_feedback_active,
+                            [this]()
+      {
+        return rotational_feedback.surface_potential_coefficient(2, 1);
+      });
+      const std::pair<double,double> rotational_cmb =
+        coefficient_or_zero(rotational_feedback_active,
+                            [this]()
+      {
+        return rotational_feedback.cmb_potential_coefficient(2, 1);
+      });
+
+      double full_surface_phi = 0.0;
+      double full_cmb_phi = 0.0;
+      double full_surface_height = 0.0;
+      double full_cmb_height = 0.0;
+      double full_surface_l21_cosine = 0.0;
+      double full_surface_l21_sine = 0.0;
+      double full_cmb_l21_cosine = 0.0;
+      double full_cmb_l21_sine = 0.0;
+      double boundary_surface_radial_traction = 0.0;
+      double boundary_cmb_radial_traction = 0.0;
+      double gia_surface_mass_density_value = 0.0;
+
+      if constexpr (dim == 3)
+        {
+          const GeometryModel::SphericalShell<dim> &geometry =
+            Plugins::get_plugin_as_type<const GeometryModel::SphericalShell<dim>>(
+              this->get_geometry_model());
+          const double outer_radius = geometry.outer_radius();
+          const double inner_radius = geometry.inner_radius();
+          const Point<dim> unit_point(1.0/std::sqrt(2.0),
+                                      0.0,
+                                      1.0/std::sqrt(2.0));
+          const Point<dim> surface_point = outer_radius * unit_point;
+          const Point<dim> cmb_point = inner_radius * unit_point;
+          const Tensor<1,dim> surface_normal = unit_point;
+          const Tensor<1,dim> cmb_normal = -unit_point;
+          const types::boundary_id top_boundary_id =
+            this->get_geometry_model()
+            .translate_symbolic_boundary_name_to_id("top");
+          const types::boundary_id bottom_boundary_id =
+            this->get_geometry_model()
+            .translate_symbolic_boundary_name_to_id("bottom");
+
+          full_surface_phi = full_domain_potential(surface_point);
+          full_cmb_phi = full_domain_potential(cmb_point);
+          const double surface_g =
+            this->get_gravity_model().gravity_vector(surface_point).norm();
+          const double cmb_g =
+            this->get_gravity_model().gravity_vector(cmb_point).norm();
+          full_surface_height =
+            surface_g > 0.0 ? full_surface_phi / surface_g : 0.0;
+          full_cmb_height = cmb_g > 0.0 ? full_cmb_phi / cmb_g : 0.0;
+
+          constexpr unsigned int n_theta = 64;
+          constexpr unsigned int n_phi = 128;
+          const double dtheta = numbers::PI / n_theta;
+          const double dphi = 2.0 * numbers::PI / n_phi;
+          for (unsigned int theta_index = 0;
+               theta_index < n_theta;
+               ++theta_index)
+            {
+              const double theta = (theta_index + 0.5) * dtheta;
+              const double sin_theta = std::sin(theta);
+              const double cos_theta = std::cos(theta);
+              for (unsigned int phi_index = 0;
+                   phi_index < n_phi;
+                   ++phi_index)
+                {
+                  const double phi = (phi_index + 0.5) * dphi;
+                  const Point<dim> direction(sin_theta * std::cos(phi),
+                                             sin_theta * std::sin(phi),
+                                             cos_theta);
+                  const std::pair<double,double> y21 =
+                    Utilities::real_spherical_harmonic(2, 1, theta, phi);
+                  const double weight = sin_theta * dtheta * dphi;
+                  const Point<dim> surface_projection_point =
+                    outer_radius * direction;
+                  const Point<dim> cmb_projection_point =
+                    inner_radius * direction;
+                  const double surface_projection_g =
+                    this->get_gravity_model()
+                    .gravity_vector(surface_projection_point).norm();
+                  const double cmb_projection_g =
+                    this->get_gravity_model()
+                    .gravity_vector(cmb_projection_point).norm();
+                  const double surface_height =
+                    surface_projection_g > 0.0
+                    ? full_domain_potential(surface_projection_point)
+                    / surface_projection_g
+                    : 0.0;
+                  const double cmb_height =
+                    cmb_projection_g > 0.0
+                    ? full_domain_potential(cmb_projection_point)
+                    / cmb_projection_g
+                    : 0.0;
+
+                  full_surface_l21_cosine +=
+                    surface_height * y21.first * weight;
+                  full_surface_l21_sine +=
+                    surface_height * y21.second * weight;
+                  full_cmb_l21_cosine += cmb_height * y21.first * weight;
+                  full_cmb_l21_sine += cmb_height * y21.second * weight;
+                }
+            }
+
+          boundary_surface_radial_traction =
+            boundary_traction(top_boundary_id,
+                              surface_point,
+                              surface_normal) * surface_normal;
+          boundary_cmb_radial_traction =
+            boundary_traction(bottom_boundary_id,
+                              cmb_point,
+                              cmb_normal) * cmb_normal;
+          if (glacial_isostatic_adjustment_active)
+            gia_surface_mass_density_value =
+              glacial_isostatic_adjustment.surface_mass_density(surface_point);
+        }
+
+      static unsigned int diagnostic_call = 0;
+      const std::string filename =
+        this->get_parameters().output_directory
+        + "/aspect_polar_wander_timing_diagnostic";
+      std::ofstream output(filename,
+                           diagnostic_call == 0 ? std::ios::out
+                           : std::ios::app);
+      if (!output)
+        return;
+
+      if (diagnostic_call == 0)
+        output
+            << "# ASPECT l2m1 polar-wander timing diagnostic\n"
+            << "# Coefficients are Phi/g spherical-harmonic coefficients.\n"
+            << "# columns: call timestep time stage "
+            << "self_total_surface_cos self_total_surface_sin self_cmb_cos self_cmb_sin "
+            << "rot_surface_cos rot_surface_sin rot_cmb_cos rot_cmb_sin "
+            << "total_surface_cos total_surface_sin total_cmb_cos total_cmb_sin "
+            << "full_surface_phi full_cmb_phi full_surface_height full_cmb_height "
+            << "full_surface_l21_cos full_surface_l21_sin "
+            << "full_cmb_l21_cos full_cmb_l21_sin "
+            << "boundary_surface_radial_traction boundary_cmb_radial_traction "
+            << "gia_surface_mass_density self_gravity_rel_change "
+            << "rotational_rel_change potential_converged\n";
+
+      output << std::setprecision(16) << std::scientific
+             << diagnostic_call << ' '
+             << this->get_timestep_number() << ' '
+             << this->get_time() << ' '
+             << stage << ' '
+             << self_surface.first << ' ' << self_surface.second << ' '
+             << self_cmb.first << ' ' << self_cmb.second << ' '
+             << rotational_surface.first << ' '
+             << rotational_surface.second << ' '
+             << rotational_cmb.first << ' ' << rotational_cmb.second << ' '
+             << self_surface.first + rotational_surface.first << ' '
+             << self_surface.second + rotational_surface.second << ' '
+             << self_cmb.first + rotational_cmb.first << ' '
+             << self_cmb.second + rotational_cmb.second << ' '
+             << full_surface_phi << ' ' << full_cmb_phi << ' '
+             << full_surface_height << ' ' << full_cmb_height << ' '
+             << full_surface_l21_cosine << ' '
+             << full_surface_l21_sine << ' '
+             << full_cmb_l21_cosine << ' '
+             << full_cmb_l21_sine << ' '
+             << boundary_surface_radial_traction << ' '
+             << boundary_cmb_radial_traction << ' '
+             << gia_surface_mass_density_value << ' '
+             << (self_gravity_active
+                 ? self_gravity.potential_relative_change_value()
+                 : 0.0) << ' '
+             << (rotational_feedback_active
+                 ? rotational_feedback.potential_relative_change_value()
+                 : 0.0) << ' '
+             << (potential_is_converged() ? 1 : 0)
+             << '\n';
+      ++diagnostic_call;
+    }
+
+
+
+    template <int dim>
+    void
     PotentialFeedbackTraction<dim>::initialize()
     {
       if (&primary_provider() != this)
@@ -179,6 +400,17 @@ namespace aspect
 
       if (glacial_isostatic_adjustment_active)
         glacial_isostatic_adjustment.initialize();
+
+      this->get_signals().post_stokes_solver.connect(
+        [this](const SimulatorAccess<dim> &,
+               const unsigned int,
+               const unsigned int,
+               const SolverControl &,
+               const SolverControl &)
+      {
+        this->write_polar_wander_timing_diagnostic(
+          "after_post_stokes_feedback_signals");
+      });
     }
 
 
@@ -190,17 +422,27 @@ namespace aspect
       if (&primary_provider() != this)
         return;
 
+      write_polar_wander_timing_diagnostic("before_update");
+
       if (glacial_isostatic_adjustment_active)
         glacial_isostatic_adjustment.update();
+
+      write_polar_wander_timing_diagnostic("after_gia_update");
 
       if (self_gravity_active)
         self_gravity.update();
 
+      write_polar_wander_timing_diagnostic("after_self_gravity_update");
+
       if (rotational_feedback_active)
         rotational_feedback.update();
 
+      write_polar_wander_timing_diagnostic("after_rotational_update");
+
       if (glacial_isostatic_adjustment_active)
         glacial_isostatic_adjustment.update_load_from_current_potential();
+
+      write_polar_wander_timing_diagnostic("after_gia_load_from_current_potential");
     }
 
 

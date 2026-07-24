@@ -148,6 +148,7 @@ namespace aspect
         angular_momentum  = 0x80,
         net_surface_rotation = 0x100,
         any_translation = net_translation+linear_momentum,
+        postsolve_translation = net_translation+linear_momentum,
         any_rotation = net_rotation+angular_momentum+net_surface_rotation,
       };
     };

@@ -950,27 +950,34 @@ namespace aspect
                         double tangential_displacement_sin =
                           displacement_coesin[coefficient_index];
 
-                        if (degree_one_displacement_reference_frame == "citcomsve-deformation-cm"
-                            && degree == 1
-                            && self_gravity != nullptr)
+                        if (degree == 1
+                            && self_gravity != nullptr
+                            && (degree_one_displacement_reference_frame ==
+                                "citcomsve-deformation-cm"
+                                || self_gravity
+                                ->uses_coupled_center_of_mass_reference_frame()))
                           {
-                            const Tensor<1,dim> deformation_cm =
-                              self_gravity->get_deformation_cm_displacement_increment();
+                            const Tensor<1,dim> displacement_cm =
+                              (self_gravity
+                               ->uses_coupled_center_of_mass_reference_frame()
+                               ? self_gravity->get_cm_displacement_increment()
+                               : self_gravity
+                               ->get_deformation_cm_displacement_increment());
                             const double normalization =
                               std::sqrt(3.0 / (4.0 * numbers::PI));
 
                             if (order == 0)
                               tangential_displacement_cos -=
                                 degree_one_cm_displacement_scale
-                                * deformation_cm[2] / normalization;
+                                * displacement_cm[2] / normalization;
                             else if (order == 1)
                               {
                                 tangential_displacement_cos +=
                                   degree_one_cm_displacement_scale
-                                  * deformation_cm[0] / normalization;
+                                  * displacement_cm[0] / normalization;
                                 tangential_displacement_sin +=
                                   degree_one_cm_displacement_scale
-                                  * deformation_cm[1] / normalization;
+                                  * displacement_cm[1] / normalization;
                               }
                           }
 
@@ -989,27 +996,34 @@ namespace aspect
                         double radial_displacement_sin =
                           radial_displacement_coesin[coefficient_index];
 
-                        if (degree_one_displacement_reference_frame == "citcomsve-deformation-cm"
-                            && degree == 1
-                            && self_gravity != nullptr)
+                        if (degree == 1
+                            && self_gravity != nullptr
+                            && (degree_one_displacement_reference_frame ==
+                                "citcomsve-deformation-cm"
+                                || self_gravity
+                                ->uses_coupled_center_of_mass_reference_frame()))
                           {
-                            const Tensor<1,dim> deformation_cm =
-                              self_gravity->get_deformation_cm_displacement_increment();
+                            const Tensor<1,dim> displacement_cm =
+                              (self_gravity
+                               ->uses_coupled_center_of_mass_reference_frame()
+                               ? self_gravity->get_cm_displacement_increment()
+                               : self_gravity
+                               ->get_deformation_cm_displacement_increment());
                             const double normalization =
                               std::sqrt(3.0 / (4.0 * numbers::PI));
 
                             if (order == 0)
                               radial_displacement_cos -=
                                 degree_one_cm_displacement_scale
-                                * deformation_cm[2] / normalization;
+                                * displacement_cm[2] / normalization;
                             else if (order == 1)
                               {
                                 radial_displacement_cos +=
                                   degree_one_cm_displacement_scale
-                                  * deformation_cm[0] / normalization;
+                                  * displacement_cm[0] / normalization;
                                 radial_displacement_sin +=
                                   degree_one_cm_displacement_scale
-                                  * deformation_cm[1] / normalization;
+                                  * displacement_cm[1] / normalization;
                               }
                           }
 
@@ -1310,6 +1324,13 @@ namespace aspect
                       unified_output << "# degree1_phi_over_g_* columns are pre-reference-frame-cancellation Phi/g height coefficients in meters.\n";
                       unified_output << "# projection formula for l1m0: delta_U10 = -Phi_10_total_pre/(d(Phi_10/g)/dU10), delta_V10 = ratio*delta_U10.\n";
                       unified_output << "# degree_1_displacement_reference_frame: "
+                                     << ((self_gravity != nullptr
+                                          && self_gravity
+                                          ->uses_coupled_center_of_mass_reference_frame())
+                                         ? "coupled-center-of-mass"
+                                         : degree_one_displacement_reference_frame)
+                                     << "\n";
+                      unified_output << "# raw_displacement_coefficient_files_reference_frame: "
                                      << degree_one_displacement_reference_frame
                                      << "\n";
                       if (self_gravity != nullptr)
@@ -1771,7 +1792,12 @@ namespace aspect
                             "deformation-only center-of-mass increment diagnosed "
                             "by the self-gravity feedback from degree-1 radial "
                             "and poloidal displacement coefficients, matching "
-                            "CitcomSVE's shift_to_CM output-frame operation.");
+                            "CitcomSVE's shift_to_CM output-frame operation. "
+                            "When the ASPECT-native coupled center-of-mass "
+                            "frame is active, its total diagnosed frame "
+                            "translation is always subtracted from degree-1 "
+                            "radial and poloidal output, independently of "
+                            "this diagnostic selection.");
           prm.declare_entry("Degree 1 center of mass displacement scale", "1.0",
                             Patterns::Double(),
                             "Scale factor applied to the diagnosed center-of-mass "

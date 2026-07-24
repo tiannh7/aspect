@@ -27,6 +27,7 @@
 
 #include <deal.II/base/symmetric_tensor.h>
 
+#include <functional>
 #include <string>
 
 namespace aspect
@@ -121,6 +122,30 @@ namespace aspect
       has_internal_density_jumps() const;
 
       /**
+       * Return a radial representative point for @p cell whose radius is the
+       * arithmetic mean of its vertex radii. Unlike `cell->center().norm()',
+       * this radius is not biased inward by averaging Cartesian vertices on
+       * a curved spherical cell.
+       */
+      template <typename CellIterator>
+      Point<dim>
+      radial_cell_representative_point(const CellIterator &cell) const
+      {
+        double radius = 0.0;
+        for (unsigned int vertex = 0;
+             vertex < GeometryInfo<dim>::vertices_per_cell;
+             ++vertex)
+          radius += cell->vertex(vertex).norm();
+        radius /= GeometryInfo<dim>::vertices_per_cell;
+
+        const Point<dim> center = cell->center();
+        AssertThrow(radius > 0.0 && center.norm() > 0.0,
+                    ExcMessage("A radial cell representative point is "
+                               "undefined at radius zero."));
+        return radius * center / center.norm();
+      }
+
+      /**
        * Return the configured density contrast at @p radius, or zero when no
        * interface matches within the configured face tolerance. The contrast
        * is density below minus density above the interface.
@@ -131,9 +156,9 @@ namespace aspect
       /**
        * Return the density contrast across an internal face. For a
        * piecewise-constant tabulated reference state, infer the contrast from
-       * the adjacent inner and outer cell centers so that material interfaces
-       * remain identified after mesh deformation. Explicit jumps retain the
-       * radius-based query at @p face_radius.
+       * radial representative points for the adjacent inner and outer cells
+       * so that material interfaces remain identified after mesh deformation.
+       * Explicit jumps retain the radius-based query at @p face_radius.
        */
       double
       internal_density_jump_across_face(
@@ -193,13 +218,35 @@ namespace aspect
         const std::string &selection) const;
 
       /**
+       * Visit each locally owned discrete internal mass source used by the
+       * full-domain self-gravity calculation. The callback receives the
+       * source mass and its Cartesian position. Surface and CMB sheets are
+       * excluded; displaced internal density interfaces are included.
+       *
+       * Keeping this traversal in one place guarantees that low-order mass
+       * moments and the radial Green-function potential use the same volume
+       * projection selected by @p volume_source_discretization.
+       */
+      void
+      for_each_internal_mass_source(
+        const double legacy_reference_density,
+        const std::string &volume_source_discretization,
+        const std::function<void(const double,
+                                 const Point<dim> &)> &consumer) const;
+
+      /**
        * Integrate the mass dipole and inertia tensor of the selected internal
        * density source. For legacy density selection, @p legacy_reference_density
        * is subtracted from the material density. Non-legacy laws ignore it.
+       * The volume-source discretization must match the full-domain potential
+       * discretization when these moments feed a coupled reference-frame or
+       * rotational-feedback calculation.
        */
       InternalMassMoments
       compute_internal_mass_moments(
-        const double legacy_reference_density) const;
+        const double legacy_reference_density,
+        const std::string &volume_source_discretization =
+          "quadrature point") const;
 
       /** Return whether a frozen reference profile has been initialized. */
       bool

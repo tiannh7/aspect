@@ -395,7 +395,8 @@ namespace aspect
             internal_moments =
               this->get_density_source_manager()
               .compute_internal_mass_moments(
-                reference_density_for_internal_anomalies);
+                reference_density_for_internal_anomalies,
+                full_domain_volume_source_discretization);
             internal_delta_ixz = internal_moments.inertia_tensor[0][2];
             internal_delta_iyz = internal_moments.inertia_tensor[1][2];
           }
@@ -744,7 +745,7 @@ namespace aspect
                    * position[2];
 
           const Point<dim> surface_reference =
-            this->get_geometry_model().representative_point(1.0);
+            this->get_geometry_model().representative_point(0.0);
           const double outer_radius = surface_reference.norm();
           const double surface_gravity =
             this->get_gravity_model().gravity_vector(surface_reference).norm();
@@ -880,6 +881,27 @@ namespace aspect
 
 
     template <int dim>
+    std::pair<double,double>
+    RotationalFeedback<dim>::cmb_potential_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      AssertThrow(dim == 3,
+                  ExcMessage("Spherical-harmonic coefficient access is only "
+                             "available in 3D."));
+      if (!enabled || cmb_potential_cos_coeffs.empty()
+          || degree < min_degree || degree > max_degree)
+        return {0.0, 0.0};
+
+      const unsigned int index = sh_transform->index(degree, order);
+      return {cmb_potential_cos_coeffs.at(index),
+              cmb_potential_sin_coeffs.at(index)
+             };
+    }
+
+
+
+    template <int dim>
     void
     RotationalFeedback<dim>::configure_from_potential_feedback_settings(
       const PotentialFeedback::Settings &settings)
@@ -898,6 +920,8 @@ namespace aspect
         settings.interface_properties.cmb.density_below;
       include_internal_density_anomalies =
         settings.include_internal_density_anomalies;
+      full_domain_volume_source_discretization =
+        settings.full_domain_volume_source_discretization;
       reference_density_for_internal_anomalies =
         settings.reference_density_for_internal_anomalies;
       fluid_love_number = settings.rotational_fluid_love_number;

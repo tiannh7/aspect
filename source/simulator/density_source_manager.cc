@@ -27,7 +27,9 @@
 #include <deal.II/fe/fe_values.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <limits>
 
 namespace aspect
 {
@@ -569,15 +571,23 @@ namespace aspect
 
 
   template <int dim>
-  typename DensitySourceManager<dim>::InternalMassMoments
-  DensitySourceManager<dim>::compute_internal_mass_moments(
-    const double legacy_reference_density) const
+  void
+  DensitySourceManager<dim>::for_each_internal_mass_source(
+    const double legacy_reference_density,
+    const std::string &volume_source_discretization,
+    const std::function<void(const double,
+                             const Point<dim> &)> &consumer) const
   {
-    InternalMassMoments local_moments;
-
     if (this->get_parameters().density_source_law
         == Parameters<dim>::Formulation::DensitySourceLaw::zero_volume_perturbation)
-      return local_moments;
+      return;
+
+    AssertThrow(volume_source_discretization == "quadrature point"
+                || volume_source_discretization == "cell average"
+                || volume_source_discretization == "radial layer midpoint"
+                || volume_source_discretization == "mass lumped radial layer",
+                ExcMessage("Unknown internal volume-source discretization `"
+                           + volume_source_discretization + "'."));
 
     const unsigned int quadrature_degree =
       std::max(2u,
@@ -600,39 +610,250 @@ namespace aspect
     create_additional_material_model_outputs(outputs);
     inputs.requested_properties = MaterialModel::MaterialProperties::density;
 
-    const auto add_mass = [&local_moments]
-                          (const double mass,
-                           const Point<dim> &position)
+    const bool use_mass_lumped_radial_layer =
+      volume_source_discretization == "mass lumped radial layer";
+    const bool use_radial_layer_midpoint =
+      volume_source_discretization == "radial layer midpoint"
+      || use_mass_lumped_radial_layer;
+    const auto linear_vertex_shape_value =
+      [](const unsigned int vertex,
+         const Point<dim> &unit_point)
     {
+      const Point<dim> vertex_point =
+        GeometryInfo<dim>::unit_cell_vertex(vertex);
+      double value = 1.0;
       for (unsigned int d = 0; d < dim; ++d)
-        local_moments.mass_dipole[d] += mass * position[d];
-
-      local_moments.inertia_tensor +=
-        mass
-        * (position.norm_square() * unit_symmetric_tensor<dim>()
-           - symmetrize(outer_product(position, position)));
+        value *= (vertex_point[d] > 0.5
+                  ? unit_point[d]
+                  : 1.0 - unit_point[d]);
+      return value;
     };
+
+    std::array<unsigned int, GeometryInfo<dim>::vertices_per_cell>
+    pressure_shape_index_by_vertex;
+    std::vector<types::global_dof_index> local_dof_indices(
+      this->get_fe().dofs_per_cell);
+    std::vector<double> nodal_source_sum;
+    std::vector<double> nodal_source_weight;
+
+    if (use_mass_lumped_radial_layer)
+      {
+        std::vector<double> local_nodal_source_sum(
+          this->get_dof_handler().n_dofs(), 0.0);
+        std::vector<double> local_nodal_source_weight(
+          this->get_dof_handler().n_dofs(), 0.0);
+
+        const FiniteElement<dim> &finite_element = this->get_fe();
+        const unsigned int pressure_component =
+          this->introspection().component_indices.pressure;
+        for (unsigned int vertex = 0;
+             vertex < GeometryInfo<dim>::vertices_per_cell;
+             ++vertex)
+          {
+            pressure_shape_index_by_vertex[vertex] =
+              finite_element.component_to_system_index(
+                pressure_component,
+                vertex);
+            AssertThrow(
+              std::abs(finite_element.shape_value_component(
+                         pressure_shape_index_by_vertex[vertex],
+                         GeometryInfo<dim>::unit_cell_vertex(vertex),
+                         pressure_component) - 1.0) < 1e-12,
+              ExcMessage(
+                "The mass-lumped radial-layer density source requires "
+                "continuous vertex-supported pressure shape functions."));
+          }
+
+        for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              fe_values.reinit(cell);
+              inputs.reinit(fe_values,
+                            cell,
+                            this->introspection(),
+                            this->get_solution());
+              this->get_material_model().evaluate(inputs, outputs);
+
+              double cell_density_anomaly_sum = 0.0;
+              for (unsigned int q = 0;
+                   q < quadrature_formula.size();
+                   ++q)
+                cell_density_anomaly_sum +=
+                  self_gravity_source_density(
+                    inputs,
+                    outputs,
+                    q,
+                    legacy_reference_density);
+              const double cell_average_density_anomaly =
+                cell_density_anomaly_sum
+                / static_cast<double>(quadrature_formula.size());
+
+              cell->get_dof_indices(local_dof_indices);
+              for (unsigned int vertex = 0;
+                   vertex < GeometryInfo<dim>::vertices_per_cell;
+                   ++vertex)
+                {
+                  double lumped_weight = 0.0;
+                  for (unsigned int q = 0;
+                       q < quadrature_formula.size();
+                       ++q)
+                    lumped_weight +=
+                      linear_vertex_shape_value(
+                        vertex,
+                        quadrature_formula.point(q))
+                      * fe_values.JxW(q);
+
+                  const types::global_dof_index pressure_dof =
+                    local_dof_indices[
+                      pressure_shape_index_by_vertex[vertex]];
+                  local_nodal_source_sum[pressure_dof] +=
+                    cell_average_density_anomaly * lumped_weight;
+                  local_nodal_source_weight[pressure_dof] +=
+                    lumped_weight;
+                }
+            }
+
+        nodal_source_sum.assign(local_nodal_source_sum.size(), 0.0);
+        nodal_source_weight.assign(local_nodal_source_weight.size(), 0.0);
+        dealii::Utilities::MPI::sum(local_nodal_source_sum,
+                                    this->get_mpi_communicator(),
+                                    nodal_source_sum);
+        dealii::Utilities::MPI::sum(local_nodal_source_weight,
+                                    this->get_mpi_communicator(),
+                                    nodal_source_weight);
+      }
 
     for (const auto &cell : this->get_dof_handler().active_cell_iterators())
       if (cell->is_locally_owned())
         {
           fe_values.reinit(cell);
-          inputs.reinit(fe_values,
-                        cell,
-                        this->introspection(),
-                        this->get_solution());
-          this->get_material_model().evaluate(inputs, outputs);
+          std::vector<double> density_anomalies(
+            quadrature_formula.size(), 0.0);
+          if (use_mass_lumped_radial_layer)
+            {
+              cell->get_dof_indices(local_dof_indices);
+              for (unsigned int q = 0;
+                   q < quadrature_formula.size();
+                   ++q)
+                for (unsigned int vertex = 0;
+                     vertex < GeometryInfo<dim>::vertices_per_cell;
+                     ++vertex)
+                  {
+                    const types::global_dof_index pressure_dof =
+                      local_dof_indices[
+                        pressure_shape_index_by_vertex[vertex]];
+                    AssertThrow(nodal_source_weight[pressure_dof] > 0.0,
+                                ExcInternalError());
+                    density_anomalies[q] +=
+                      nodal_source_sum[pressure_dof]
+                      / nodal_source_weight[pressure_dof]
+                      * linear_vertex_shape_value(
+                        vertex,
+                        quadrature_formula.point(q));
+                  }
+            }
+          else
+            {
+              inputs.reinit(fe_values,
+                            cell,
+                            this->introspection(),
+                            this->get_solution());
+              this->get_material_model().evaluate(inputs, outputs);
+
+              double cell_density_anomaly_integral = 0.0;
+              double cell_density_anomaly_sum = 0.0;
+              double cell_volume = 0.0;
+              for (unsigned int q = 0;
+                   q < quadrature_formula.size();
+                   ++q)
+                {
+                  density_anomalies[q] =
+                    self_gravity_source_density(
+                      inputs,
+                      outputs,
+                      q,
+                      legacy_reference_density);
+                  cell_density_anomaly_integral +=
+                    density_anomalies[q] * fe_values.JxW(q);
+                  cell_density_anomaly_sum += density_anomalies[q];
+                  cell_volume += fe_values.JxW(q);
+                }
+
+              if (volume_source_discretization != "quadrature point")
+                {
+                  double cell_average_density_anomaly = 0.0;
+                  if (volume_source_discretization == "cell average")
+                    {
+                      AssertThrow(cell_volume > 0.0, ExcInternalError());
+                      cell_average_density_anomaly =
+                        cell_density_anomaly_integral / cell_volume;
+                    }
+                  else
+                    {
+                      AssertThrow(volume_source_discretization
+                                  == "radial layer midpoint",
+                                  ExcInternalError());
+                      cell_average_density_anomaly =
+                        cell_density_anomaly_sum
+                        / static_cast<double>(quadrature_formula.size());
+                    }
+                  std::fill(density_anomalies.begin(),
+                            density_anomalies.end(),
+                            cell_average_density_anomaly);
+                }
+            }
+
+          double layer_midpoint_radius = 0.0;
+          if (use_radial_layer_midpoint)
+            {
+              double inner_vertex_radius =
+                std::numeric_limits<double>::max();
+              double outer_vertex_radius = 0.0;
+              for (unsigned int vertex = 0;
+                   vertex < GeometryInfo<dim>::vertices_per_cell;
+                   ++vertex)
+                {
+                  const double vertex_radius = cell->vertex(vertex).norm();
+                  inner_vertex_radius =
+                    std::min(inner_vertex_radius, vertex_radius);
+                  outer_vertex_radius =
+                    std::max(outer_vertex_radius, vertex_radius);
+                }
+              AssertThrow(outer_vertex_radius > inner_vertex_radius,
+                          ExcInternalError());
+              layer_midpoint_radius =
+                0.5 * (inner_vertex_radius + outer_vertex_radius);
+            }
 
           for (unsigned int q = 0; q < quadrature_formula.size(); ++q)
             {
-              const double density_anomaly =
-                self_gravity_source_density(inputs,
-                                            outputs,
-                                            q,
-                                            legacy_reference_density);
-              if (density_anomaly != 0.0)
-                add_mass(density_anomaly * fe_values.JxW(q),
-                         inputs.position[q]);
+              if (density_anomalies[q] == 0.0)
+                continue;
+
+              const Point<dim> point = fe_values.quadrature_point(q);
+              const double quadrature_radius = point.norm();
+              const double source_radius =
+                (use_radial_layer_midpoint
+                 ? layer_midpoint_radius
+                 : quadrature_radius);
+              AssertThrow(source_radius > 0.0,
+                          ExcMessage("Internal mass source is undefined at radius zero."));
+
+              double source_mass =
+                density_anomalies[q] * fe_values.JxW(q);
+              Point<dim> source_position = point;
+              if (use_radial_layer_midpoint)
+                {
+                  AssertThrow(quadrature_radius > 0.0,
+                              ExcInternalError());
+                  source_mass *=
+                    std::pow(layer_midpoint_radius / quadrature_radius,
+                             dim - 1);
+                  source_position *=
+                    layer_midpoint_radius / quadrature_radius;
+                }
+
+              consumer(source_mass, source_position);
             }
         }
 
@@ -661,14 +882,18 @@ namespace aspect
                   continue;
 
                 const auto neighbor = cell->neighbor(face_no);
-                if (cell->center().norm() >= neighbor->center().norm())
+                const Point<dim> inner_cell_center =
+                  radial_cell_representative_point(cell);
+                const Point<dim> outer_cell_center =
+                  radial_cell_representative_point(neighbor);
+                if (inner_cell_center.norm() >= outer_cell_center.norm())
                   continue;
 
                 const auto face = cell->face(face_no);
                 const double density_contrast =
                   internal_density_jump_across_face(
-                    cell->center(),
-                    neighbor->center(),
+                    inner_cell_center,
+                    outer_cell_center,
                     face->vertex(0).norm());
                 if (density_contrast == 0.0)
                   continue;
@@ -680,8 +905,8 @@ namespace aspect
                   all_vertices_match =
                     all_vertices_match
                     && (internal_density_jump_across_face(
-                          cell->center(),
-                          neighbor->center(),
+                          inner_cell_center,
+                          outer_cell_center,
                           face->vertex(vertex).norm())
                         == density_contrast);
                 if (!all_vertices_match)
@@ -701,11 +926,37 @@ namespace aspect
                       density_contrast
                       * mechanical_radial_displacement(face_inputs, q);
                     if (surface_density != 0.0)
-                      add_mass(surface_density * face_values.JxW(q),
+                      consumer(surface_density * face_values.JxW(q),
                                face_inputs.position[q]);
                   }
               }
       }
+  }
+
+
+
+  template <int dim>
+  typename DensitySourceManager<dim>::InternalMassMoments
+  DensitySourceManager<dim>::compute_internal_mass_moments(
+    const double legacy_reference_density,
+    const std::string &volume_source_discretization) const
+  {
+    InternalMassMoments local_moments;
+
+    for_each_internal_mass_source(
+      legacy_reference_density,
+      volume_source_discretization,
+      [&local_moments](const double mass,
+                       const Point<dim> &position)
+    {
+      for (unsigned int d = 0; d < dim; ++d)
+        local_moments.mass_dipole[d] += mass * position[d];
+
+      local_moments.inertia_tensor +=
+        mass
+        * (position.norm_square() * unit_symmetric_tensor<dim>()
+           - symmetrize(outer_product(position, position)));
+    });
 
     InternalMassMoments global_moments;
     global_moments.mass_dipole =

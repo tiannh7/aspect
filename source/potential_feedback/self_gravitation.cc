@@ -317,6 +317,75 @@ namespace aspect
 
       update_derived_planetary_constants();
 
+      if (degree_one_reference_frame ==
+          DegreeOneReferenceFrame::center_of_mass)
+        {
+          const auto &parameters = this->get_parameters();
+          AssertThrow(parameters.density_source_law
+                      == Parameters<dim>::Formulation::DensitySourceLaw::
+                      mechanical_mass_conservation,
+                      ExcMessage(
+                        "The coupled center-of-mass reference frame requires "
+                        "the mechanical mass-conservation density source "
+                        "law, so that its constraint and the Stokes forcing "
+                        "use the same discrete mass source."));
+          AssertThrow(self_gravity_mass_feedback_enabled,
+                      ExcMessage(
+                        "The coupled center-of-mass reference frame requires "
+                        "self gravity in Potential feedback/List of feedback "
+                        "mechanisms."));
+          AssertThrow(include_surface_contribution
+                      && include_cmb_contribution,
+                      ExcMessage(
+                        "The coupled center-of-mass reference frame requires "
+                        "both surface and CMB mass feedback."));
+          AssertThrow(include_internal_density_anomalies != "false",
+                      ExcMessage(
+                        "The coupled center-of-mass reference frame requires "
+                        "internal density anomalies so that volume mass and "
+                        "displaced internal interfaces are included in the "
+                        "COM constraint."));
+          AssertThrow(iterate_with_stokes,
+                      ExcMessage(
+                        "The coupled center-of-mass reference frame requires "
+                        "Potential feedback/Potential iteration/Iterate with "
+                        "Stokes = true."));
+          AssertThrow(!freeze_potential_after_timestep_zero,
+                      ExcMessage(
+                        "The coupled center-of-mass reference frame cannot "
+                        "freeze its potential after timestep zero because the "
+                        "mass-dipole constraint must follow the evolving "
+                        "deformation."));
+          AssertThrow(potential_iteration_relaxation_factor > 0.0
+                      && potential_iteration_relaxation_factor <= 1.0,
+                      ExcMessage(
+                        "The coupled center-of-mass reference frame requires "
+                        "a potential-iteration relaxation factor in (0,1]."));
+          AssertThrow(!(parameters.nullspace_removal
+                        & Parameters<dim>::NullspaceRemoval::postsolve_translation),
+                      ExcMessage(
+                        "Do not combine the coupled center-of-mass reference "
+                        "frame with net-translation or linear-momentum "
+                        "nullspace removal because those options project the "
+                        "velocity after the solve."));
+          AssertThrow(parameters.nullspace_removal
+                      & Parameters<dim>::NullspaceRemoval::angular_momentum,
+                      ExcMessage(
+                        "The coupled center-of-mass reference frame requires "
+                        "Nullspace removal/Remove nullspace to include "
+                        "'angular momentum'. A spherical free shell retains "
+                        "a rigid-rotation nullspace, and this density-weighted "
+                        "operation removes it without changing the mass "
+                        "sources or COM constraint."));
+          AssertThrow(!(parameters.nullspace_removal
+                        & (Parameters<dim>::NullspaceRemoval::net_rotation
+                           | Parameters<dim>::NullspaceRemoval::net_surface_rotation)),
+                      ExcMessage(
+                        "Use only the density-weighted 'angular momentum' "
+                        "rotational nullspace operation with the coupled "
+                        "center-of-mass reference frame."));
+        }
+
       const double mm_initial_elastic_dt =
         this->get_material_model().initial_elastic_time_step();
       if (mm_initial_elastic_dt > 0.0 && initial_displacement_timestep == 0.0)
@@ -485,6 +554,8 @@ namespace aspect
         cmb_potential_cos_coeffs;
       const std::vector<double> old_cmb_potential_sin =
         cmb_potential_sin_coeffs;
+      const NativeCenterOfMassDiagnostic old_center_of_mass_diagnostic =
+        native_center_of_mass_diagnostic;
       AssertThrow(Plugins::plugin_type_matches<const GeometryModel::SphericalShell<dim>>(
                     this->get_geometry_model()),
                   ExcMessage("Self-gravitation requires a spherical shell geometry."));
@@ -907,10 +978,23 @@ namespace aspect
                  * outer_radius * outer_radius * outer_radius);
               native_center_of_mass_diagnostic.correctable_mass =
                 native_center_of_mass_diagnostic.total_mass;
+              Tensor<1,3> unrelaxed_translation;
               for (unsigned int d = 0; d < 3; ++d)
-                native_center_of_mass_diagnostic.translation[d] =
+                unrelaxed_translation[d] =
                   native_center_of_mass_diagnostic.mass_dipole_pre[d]
                   / native_center_of_mass_diagnostic.total_mass;
+
+              if (include_current_velocity_increment
+                  && old_center_of_mass_diagnostic.valid)
+                for (unsigned int d = 0; d < 3; ++d)
+                  native_center_of_mass_diagnostic.translation[d] =
+                    (1.0 - potential_iteration_relaxation_factor)
+                    * old_center_of_mass_diagnostic.translation[d]
+                    + potential_iteration_relaxation_factor
+                    * unrelaxed_translation[d];
+              else
+                native_center_of_mass_diagnostic.translation =
+                  unrelaxed_translation;
               for (unsigned int d = 0; d < 3; ++d)
                 native_center_of_mass_diagnostic.mass_dipole_post[d] =
                   native_center_of_mass_diagnostic.mass_dipole_pre[d]
@@ -1055,7 +1139,9 @@ namespace aspect
                                        cos_cmb,
                                        sin_cmb,
                                        outer_radius,
-                                       inner_radius);
+                                       inner_radius,
+                                       include_current_velocity_increment
+                                       || potential_iteration_number > 0);
           if (has_full_domain_potential())
             {
               surface_potential_cos_coeffs =
@@ -1105,25 +1191,44 @@ namespace aspect
                 translation[0] / y1_normalization;
               reference_frame_surface_potential_sin_coeffs[idx11] =
                 translation[1] / y1_normalization;
-              reference_frame_cmb_potential_cos_coeffs[idx10] =
-                reference_frame_surface_potential_cos_coeffs[idx10];
-              reference_frame_cmb_potential_cos_coeffs[idx11] =
-                reference_frame_surface_potential_cos_coeffs[idx11];
-              reference_frame_cmb_potential_sin_coeffs[idx11] =
-                reference_frame_surface_potential_sin_coeffs[idx11];
 
-              for (unsigned int order = 0; order <= 1; ++order)
+              double cmb_reference_frame_scale = 1.0;
+              if (has_full_domain_potential())
                 {
-                  const unsigned int index = sh_transform->index(1, order);
-                  surface_potential_cos_coeffs[index] +=
-                    reference_frame_surface_potential_cos_coeffs[index];
-                  surface_potential_sin_coeffs[index] +=
-                    reference_frame_surface_potential_sin_coeffs[index];
-                  cmb_potential_cos_coeffs[index] +=
-                    reference_frame_cmb_potential_cos_coeffs[index];
-                  cmb_potential_sin_coeffs[index] +=
-                    reference_frame_cmb_potential_sin_coeffs[index];
+                  const double cmb_gravity =
+                    this->get_gravity_model()
+                    .gravity_vector(
+                      geometry.representative_point(
+                        geometry.maximal_depth())).norm();
+                  cmb_reference_frame_scale =
+                    cmb_gravity / full_domain_reference_gravity;
                 }
+              reference_frame_cmb_potential_cos_coeffs[idx10] =
+                cmb_reference_frame_scale
+                * reference_frame_surface_potential_cos_coeffs[idx10];
+              reference_frame_cmb_potential_cos_coeffs[idx11] =
+                cmb_reference_frame_scale
+                * reference_frame_surface_potential_cos_coeffs[idx11];
+              reference_frame_cmb_potential_sin_coeffs[idx11] =
+                cmb_reference_frame_scale
+                * reference_frame_surface_potential_sin_coeffs[idx11];
+
+              // The full-domain cache already contains the reference-frame
+              // potential at every radius. Retain this boundary-only path for
+              // legacy formulations that do not construct that cache.
+              if (!has_full_domain_potential())
+                for (unsigned int order = 0; order <= 1; ++order)
+                  {
+                    const unsigned int index = sh_transform->index(1, order);
+                    surface_potential_cos_coeffs[index] +=
+                      reference_frame_surface_potential_cos_coeffs[index];
+                    surface_potential_sin_coeffs[index] +=
+                      reference_frame_surface_potential_sin_coeffs[index];
+                    cmb_potential_cos_coeffs[index] +=
+                      reference_frame_cmb_potential_cos_coeffs[index];
+                    cmb_potential_sin_coeffs[index] +=
+                      reference_frame_cmb_potential_sin_coeffs[index];
+                  }
 
               for (unsigned int d = 0; d < dim; ++d)
                 {
@@ -1161,10 +1266,39 @@ namespace aspect
                   phi);
               const double surface_gravity =
                 this->get_gravity_model()
-                .gravity_vector(geometry.representative_point(1.0)).norm();
+                .gravity_vector(geometry.representative_point(0.0)).norm();
               for (unsigned int d = 0; d < dim; ++d)
                 reference_frame_acceleration[d] =
                   -surface_gravity * height[d] / outer_radius;
+
+              if (print_self_gravity_diagnostic_once(
+                    "coupled center of mass",
+                    this->get_timestep_number(),
+                    potential_iteration_number))
+                {
+                  const auto print_vector =
+                    [this](const Tensor<1,3> &vector)
+                  {
+                    this->get_pcout()
+                        << "(" << vector[0]
+                        << "," << vector[1]
+                        << "," << vector[2] << ")";
+                  };
+
+                  this->get_pcout()
+                      << "      Coupled center-of-mass constraint: "
+                      << std::scientific << std::setprecision(6)
+                      << "dipole pre [kg m]=";
+                  print_vector(native_center_of_mass_diagnostic.mass_dipole_pre);
+                  this->get_pcout() << ", translation [m]=";
+                  print_vector(native_center_of_mass_diagnostic.translation);
+                  this->get_pcout() << ", dipole residual [kg m]=";
+                  print_vector(native_center_of_mass_diagnostic.mass_dipole_post);
+                  this->get_pcout()
+                      << ", volume source="
+                      << full_domain_volume_source_discretization
+                      << std::defaultfloat << std::endl;
+                }
 
               write_native_center_of_mass_diagnostic(
                 include_current_velocity_increment);
@@ -1395,7 +1529,7 @@ namespace aspect
                   phi);
               const double surface_gravity =
                 this->get_gravity_model()
-                .gravity_vector(geometry.representative_point(1.0)).norm();
+                .gravity_vector(geometry.representative_point(0.0)).norm();
               for (unsigned int d = 0; d < dim; ++d)
                 reference_frame_acceleration[d] =
                   -surface_gravity * height[d] / outer_radius;
@@ -1534,6 +1668,35 @@ namespace aspect
             std::max(std::sqrt(new_norm_squared),
                      std::numeric_limits<double>::min());
 
+          if (native_center_of_mass_diagnostic.valid
+              && old_center_of_mass_diagnostic.valid)
+            {
+              const Tensor<1,3> translation_change =
+                native_center_of_mass_diagnostic.translation
+                - old_center_of_mass_diagnostic.translation;
+              const double translation_scale =
+                std::max(
+                  std::max(native_center_of_mass_diagnostic.translation.norm(),
+                           old_center_of_mass_diagnostic.translation.norm()),
+                  100.0 * std::numeric_limits<double>::epsilon()
+                  * outer_radius);
+              center_of_mass_relative_change =
+                translation_change.norm() / translation_scale;
+              center_of_mass_absolute_change = translation_change.norm();
+            }
+          else if (native_center_of_mass_diagnostic.valid)
+            {
+              center_of_mass_relative_change =
+                std::numeric_limits<double>::infinity();
+              center_of_mass_absolute_change =
+                std::numeric_limits<double>::infinity();
+            }
+          else
+            {
+              center_of_mass_relative_change = 0.0;
+              center_of_mass_absolute_change = 0.0;
+            }
+
           if (print_self_gravity_diagnostic_once("relative change",
                                                  this->get_timestep_number(),
                                                  potential_iteration_number))
@@ -1542,9 +1705,24 @@ namespace aspect
                   << "      Self-gravity potential update: "
                   << "relative SH coefficient change="
                   << std::scientific << std::setprecision(6)
-                  << potential_relative_change << std::defaultfloat << std::endl;
+                  << potential_relative_change;
+              if (native_center_of_mass_diagnostic.valid)
+                this->get_pcout()
+                    << ", relative COM coefficient change="
+                    << center_of_mass_relative_change
+                    << ", absolute COM coefficient change [m]="
+                    << center_of_mass_absolute_change;
+              this->get_pcout() << std::defaultfloat << std::endl;
 
-              if (potential_relative_change > potential_convergence_tolerance
+              const bool center_of_mass_change_is_converged =
+                !native_center_of_mass_diagnostic.valid
+                || center_of_mass_relative_change
+                <= potential_convergence_tolerance
+                || (center_of_mass_absolute_tolerance > 0.0
+                    && center_of_mass_absolute_change
+                    <= center_of_mass_absolute_tolerance);
+              if ((potential_relative_change > potential_convergence_tolerance
+                   || !center_of_mass_change_is_converged)
                   && potential_iteration_number >= maximum_potential_iterations)
                 this->get_pcout()
                     << "        status=maximum iterations reached" << std::endl;
@@ -1558,6 +1736,28 @@ namespace aspect
     bool
     SelfGravitation<dim>::potential_is_converged() const
     {
+      if (degree_one_reference_frame ==
+          DegreeOneReferenceFrame::center_of_mass)
+        {
+          const bool converged =
+            potential_relative_change <= potential_convergence_tolerance
+            && (center_of_mass_relative_change
+                <= potential_convergence_tolerance
+                || (center_of_mass_absolute_tolerance > 0.0
+                    && center_of_mass_absolute_change
+                    <= center_of_mass_absolute_tolerance));
+          AssertThrow(converged
+                      || potential_iteration_number
+                      < maximum_potential_iterations,
+                      ExcMessage(
+                        "The coupled center-of-mass reference-frame solve "
+                        "reached the maximum number of potential iterations "
+                        "without satisfying the potential tolerance and "
+                        "either the relative or enabled absolute COM "
+                        "coefficient-change tolerance."));
+          return converged;
+        }
+
       return potential_relative_change <= potential_convergence_tolerance
              || potential_iteration_number >= maximum_potential_iterations;
     }
@@ -1568,6 +1768,15 @@ namespace aspect
     SelfGravitation<dim>::potential_relative_change_value() const
     {
       return potential_relative_change;
+    }
+
+
+
+    template <int dim>
+    double
+    SelfGravitation<dim>::center_of_mass_relative_change_value() const
+    {
+      return center_of_mass_relative_change;
     }
 
 
@@ -1830,6 +2039,15 @@ namespace aspect
     SelfGravitation<dim>::get_cm_displacement_increment() const
     {
       return cm_displacement_increment;
+    }
+
+
+    template <int dim>
+    bool
+    SelfGravitation<dim>::uses_coupled_center_of_mass_reference_frame() const
+    {
+      return degree_one_reference_frame ==
+             DegreeOneReferenceFrame::center_of_mass;
     }
 
 
@@ -2156,6 +2374,8 @@ namespace aspect
       full_domain_potential_radial_subdivisions =
         settings.full_domain_potential_radial_subdivisions;
       degree_one_reference_frame = settings.degree_one_reference_frame;
+      center_of_mass_absolute_tolerance =
+        settings.center_of_mass_absolute_tolerance;
       center_of_mass_correction = settings.center_of_mass_correction;
       citcomsve_degree_one_load_compensation =
         settings.citcomsve_degree_one_load_compensation;
@@ -2167,6 +2387,10 @@ namespace aspect
       time_between_text_output = 0.0;
       time_steps_between_text_output = 0;
       potential_relative_change = std::numeric_limits<double>::infinity();
+      center_of_mass_relative_change =
+        std::numeric_limits<double>::infinity();
+      center_of_mass_absolute_change =
+        std::numeric_limits<double>::infinity();
       current_potential_iteration_step = (unsigned int)-1;
       potential_iteration_number = 0;
 
@@ -2413,6 +2637,10 @@ namespace aspect
           time_between_text_output = prm.get_double("Time between text output");
           time_steps_between_text_output = prm.get_integer("Time steps between text output");
           potential_relative_change = std::numeric_limits<double>::infinity();
+          center_of_mass_relative_change =
+            std::numeric_limits<double>::infinity();
+          center_of_mass_absolute_change =
+            std::numeric_limits<double>::infinity();
           current_potential_iteration_step = (unsigned int)-1;
           potential_iteration_number = 0;
 
@@ -2547,7 +2775,8 @@ namespace aspect
       const std::vector<double> &,
       const std::vector<double> &,
       const double,
-      const double)
+      const double,
+      const bool)
     {
       full_domain_potential_radii.clear();
       full_domain_potential_cos_coeffs.clear();
@@ -2564,7 +2793,8 @@ namespace aspect
       const std::vector<double> &cmb_height_cos,
       const std::vector<double> &cmb_height_sin,
       const double outer_radius,
-      const double inner_radius)
+      const double inner_radius,
+      const bool include_internal_sources)
     {
       full_domain_potential_radii.clear();
       full_domain_potential_cos_coeffs.clear();
@@ -2621,422 +2851,50 @@ namespace aspect
         include_internal = true;
       else if (include_internal_density_anomalies == "auto")
         include_internal = true;
-
-      const unsigned int quadrature_degree =
-        std::max(2u,
-                 this->introspection().polynomial_degree.temperature + 1u);
+      if (!include_internal_sources)
+        include_internal = false;
 
       if (include_internal)
+        this->get_density_source_manager().for_each_internal_mass_source(
+          reference_density_for_internal_anomalies,
+          full_domain_volume_source_discretization,
+          [this,
+           &internal_green_moments,
+           &source_cos_coefficients,
+           &source_sin_coefficients]
+          (const double source_mass,
+           const Point<3> &point)
         {
-          const QGauss<3> quadrature_formula(quadrature_degree);
-          FEValues<3> fe_values(this->get_mapping(),
-                                this->get_fe(),
-                                quadrature_formula,
-                                update_values |
-                                update_quadrature_points |
-                                update_JxW_values |
-                                update_gradients);
-          MaterialModel::MaterialModelInputs<3>
-          inputs(fe_values.n_quadrature_points,
-                 this->n_compositional_fields());
-          MaterialModel::MaterialModelOutputs<3>
-          outputs(fe_values.n_quadrature_points,
-                  this->n_compositional_fields());
-          this->get_density_source_manager()
-          .create_additional_material_model_outputs(outputs);
-          inputs.requested_properties =
-            MaterialModel::MaterialProperties::density;
+          const double source_radius = point.norm();
+          AssertThrow(source_radius > 0.0,
+                      ExcMessage("Full-domain self-gravity source is undefined at radius zero."));
+          const std::array<double,3> spherical_coordinates =
+            aspect::Utilities::Coordinates::
+            cartesian_to_spherical_coordinates(point);
 
-          const bool use_mass_lumped_radial_layer =
-            full_domain_volume_source_discretization
-            == "mass lumped radial layer";
-          const bool use_radial_layer_midpoint =
-            full_domain_volume_source_discretization
-            == "radial layer midpoint"
-            || use_mass_lumped_radial_layer;
-          const auto linear_vertex_shape_value =
-            [](const unsigned int vertex,
-               const Point<3> &unit_point)
-          {
-            const Point<3> vertex_point =
-              GeometryInfo<3>::unit_cell_vertex(vertex);
-            double value = 1.0;
-            for (unsigned int d = 0; d < 3; ++d)
-              value *= (vertex_point[d] > 0.5
-                        ? unit_point[d]
-                        : 1.0 - unit_point[d]);
-            return value;
-          };
-
-          std::array<unsigned int, GeometryInfo<3>::vertices_per_cell>
-          pressure_shape_index_by_vertex;
-          std::vector<types::global_dof_index> local_dof_indices(
-            this->get_fe().dofs_per_cell);
-          std::vector<double> nodal_source_sum;
-          std::vector<double> nodal_source_weight;
-
-          if (use_mass_lumped_radial_layer)
-            {
-              std::vector<double> local_nodal_source_sum(
-                this->get_dof_handler().n_dofs(), 0.0);
-              std::vector<double> local_nodal_source_weight(
-                this->get_dof_handler().n_dofs(), 0.0);
-
-              const FiniteElement<3> &finite_element = this->get_fe();
-              const unsigned int pressure_component =
-                this->introspection().component_indices.pressure;
-              for (unsigned int vertex = 0;
-                   vertex < GeometryInfo<3>::vertices_per_cell;
-                   ++vertex)
-                {
-                  pressure_shape_index_by_vertex[vertex] =
-                    finite_element.component_to_system_index(
-                      pressure_component,
-                      vertex);
-                  AssertThrow(
-                    std::abs(finite_element.shape_value_component(
-                               pressure_shape_index_by_vertex[vertex],
-                               GeometryInfo<3>::unit_cell_vertex(vertex),
-                               pressure_component) - 1.0) < 1e-12,
-                    ExcMessage(
-                      "The mass-lumped radial-layer self-gravity source "
-                      "requires continuous vertex-supported pressure shape "
-                      "functions."));
-                }
-
-              for (const auto &cell :
-                   this->get_dof_handler().active_cell_iterators())
-                if (cell->is_locally_owned())
-                  {
-                    fe_values.reinit(cell);
-                    inputs.reinit(fe_values,
-                                  cell,
-                                  this->introspection(),
-                                  this->get_solution());
-                    this->get_material_model().evaluate(inputs, outputs);
-
-                    double cell_density_anomaly_sum = 0.0;
-                    for (unsigned int q = 0;
-                         q < quadrature_formula.size();
-                         ++q)
-                      cell_density_anomaly_sum +=
-                        this->get_density_source_manager()
-                        .self_gravity_source_density(
-                          inputs,
-                          outputs,
-                          q,
-                          reference_density_for_internal_anomalies);
-                    const double cell_average_density_anomaly =
-                      cell_density_anomaly_sum
-                      / static_cast<double>(quadrature_formula.size());
-
-                    cell->get_dof_indices(local_dof_indices);
-                    for (unsigned int vertex = 0;
-                         vertex < GeometryInfo<3>::vertices_per_cell;
-                         ++vertex)
-                      {
-                        double lumped_weight = 0.0;
-                        for (unsigned int q = 0;
-                             q < quadrature_formula.size();
-                             ++q)
-                          lumped_weight +=
-                            linear_vertex_shape_value(
-                              vertex,
-                              quadrature_formula.point(q))
-                            * fe_values.JxW(q);
-
-                        const types::global_dof_index pressure_dof =
-                          local_dof_indices[
-                            pressure_shape_index_by_vertex[vertex]];
-                        const double source_contribution =
-                          cell_average_density_anomaly * lumped_weight;
-                        local_nodal_source_sum[pressure_dof] +=
-                          source_contribution;
-                        local_nodal_source_weight[pressure_dof] +=
-                          lumped_weight;
-                      }
-                  }
-
-              nodal_source_sum.assign(
-                local_nodal_source_sum.size(), 0.0);
-              nodal_source_weight.assign(
-                local_nodal_source_weight.size(), 0.0);
-              dealii::Utilities::MPI::sum(
-                local_nodal_source_sum,
-                this->get_mpi_communicator(),
-                nodal_source_sum);
-              dealii::Utilities::MPI::sum(
-                local_nodal_source_weight,
-                this->get_mpi_communicator(),
-                nodal_source_weight);
-            }
-
-          for (const auto &cell : this->get_dof_handler().active_cell_iterators())
-            if (cell->is_locally_owned())
+          unsigned int coefficient_index = 0;
+          for (unsigned int degree = min_degree;
+               degree <= max_degree;
+               ++degree)
+            for (unsigned int order = 0;
+                 order <= degree;
+                 ++order, ++coefficient_index)
               {
-                fe_values.reinit(cell);
-                std::vector<double> density_anomalies(
-                  quadrature_formula.size(), 0.0);
-                if (use_mass_lumped_radial_layer)
-                  {
-                    cell->get_dof_indices(local_dof_indices);
-                    for (unsigned int q = 0;
-                         q < quadrature_formula.size();
-                         ++q)
-                      for (unsigned int vertex = 0;
-                           vertex < GeometryInfo<3>::vertices_per_cell;
-                           ++vertex)
-                        {
-                          const types::global_dof_index pressure_dof =
-                            local_dof_indices[
-                              pressure_shape_index_by_vertex[vertex]];
-                          AssertThrow(nodal_source_weight[pressure_dof] > 0.0,
-                                      ExcInternalError());
-                          density_anomalies[q] +=
-                            nodal_source_sum[pressure_dof]
-                            / nodal_source_weight[pressure_dof]
-                            * linear_vertex_shape_value(
-                              vertex,
-                              quadrature_formula.point(q));
-                        }
-                  }
-                else
-                  {
-                    inputs.reinit(fe_values,
-                                  cell,
-                                  this->introspection(),
-                                  this->get_solution());
-                    this->get_material_model().evaluate(inputs, outputs);
-
-                    double cell_density_anomaly_integral = 0.0;
-                    double cell_density_anomaly_sum = 0.0;
-                    double cell_volume = 0.0;
-                    for (unsigned int q = 0;
-                         q < quadrature_formula.size();
-                         ++q)
-                      {
-                        density_anomalies[q] =
-                          this->get_density_source_manager()
-                          .self_gravity_source_density(
-                            inputs,
-                            outputs,
-                            q,
-                            reference_density_for_internal_anomalies);
-                        cell_density_anomaly_integral +=
-                          density_anomalies[q] * fe_values.JxW(q);
-                        cell_density_anomaly_sum += density_anomalies[q];
-                        cell_volume += fe_values.JxW(q);
-                      }
-
-                    if (full_domain_volume_source_discretization
-                        != "quadrature point")
-                      {
-                        double cell_average_density_anomaly = 0.0;
-                        if (full_domain_volume_source_discretization
-                            == "cell average")
-                          {
-                            AssertThrow(cell_volume > 0.0,
-                                        ExcInternalError());
-                            cell_average_density_anomaly =
-                              cell_density_anomaly_integral / cell_volume;
-                          }
-                        else
-                          {
-                            AssertThrow(
-                              full_domain_volume_source_discretization
-                              == "radial layer midpoint",
-                              ExcInternalError());
-                            cell_average_density_anomaly =
-                              cell_density_anomaly_sum
-                              / static_cast<double>(
-                                quadrature_formula.size());
-                          }
-                        std::fill(density_anomalies.begin(),
-                                  density_anomalies.end(),
-                                  cell_average_density_anomaly);
-                      }
-                  }
-
-                double layer_midpoint_radius = 0.0;
-                if (use_radial_layer_midpoint)
-                  {
-                    double inner_vertex_radius =
-                      std::numeric_limits<double>::max();
-                    double outer_vertex_radius = 0.0;
-                    for (unsigned int vertex = 0;
-                         vertex < GeometryInfo<3>::vertices_per_cell;
-                         ++vertex)
-                      {
-                        const double vertex_radius = cell->vertex(vertex).norm();
-                        inner_vertex_radius =
-                          std::min(inner_vertex_radius, vertex_radius);
-                        outer_vertex_radius =
-                          std::max(outer_vertex_radius, vertex_radius);
-                      }
-                    AssertThrow(outer_vertex_radius > inner_vertex_radius,
-                                ExcInternalError());
-                    layer_midpoint_radius =
-                      0.5 * (inner_vertex_radius + outer_vertex_radius);
-                  }
-
-                for (unsigned int q = 0;
-                     q < quadrature_formula.size();
-                     ++q)
-                  {
-                    const double density_anomaly = density_anomalies[q];
-                    if (density_anomaly == 0.0)
-                      continue;
-
-                    const Point<3> point = fe_values.quadrature_point(q);
-                    const double quadrature_radius = point.norm();
-                    const double source_radius =
-                      (use_radial_layer_midpoint
-                       ? layer_midpoint_radius
-                       : quadrature_radius);
-                    AssertThrow(source_radius > 0.0,
-                                ExcMessage("Full-domain self-gravity source is undefined at radius zero."));
-                    const std::array<double,3> spherical_coordinates =
-                      aspect::Utilities::Coordinates::
-                      cartesian_to_spherical_coordinates(point);
-                    double source_weight =
-                      density_anomaly * fe_values.JxW(q);
-                    if (use_radial_layer_midpoint)
-                      {
-                        AssertThrow(quadrature_radius > 0.0,
-                                    ExcInternalError());
-                        source_weight *=
-                          (layer_midpoint_radius * layer_midpoint_radius)
-                          / (quadrature_radius * quadrature_radius);
-                      }
-
-                    unsigned int coefficient_index = 0;
-                    for (unsigned int degree = min_degree;
-                         degree <= max_degree;
-                         ++degree)
-                      for (unsigned int order = 0;
-                           order <= degree;
-                           ++order, ++coefficient_index)
-                        {
-                          const std::pair<double,double> harmonics =
-                            aspect::Utilities::real_spherical_harmonic(
-                              degree,
-                              order,
-                              spherical_coordinates[2],
-                              spherical_coordinates[1]);
-                          source_cos_coefficients[coefficient_index] =
-                            source_weight * harmonics.first;
-                          source_sin_coefficients[coefficient_index] =
-                            source_weight * harmonics.second;
-                        }
-                    internal_green_moments.add_source(
-                      source_radius,
-                      source_cos_coefficients,
-                      source_sin_coefficients);
-                  }
+                const std::pair<double,double> harmonics =
+                  aspect::Utilities::real_spherical_harmonic(
+                    degree,
+                    order,
+                    spherical_coordinates[2],
+                    spherical_coordinates[1]);
+                source_cos_coefficients[coefficient_index] =
+                  source_mass * harmonics.first;
+                source_sin_coefficients[coefficient_index] =
+                  source_mass * harmonics.second;
               }
-
-          if (this->get_density_source_manager().has_internal_density_jumps())
-            {
-              const QGauss<2> face_quadrature_formula(quadrature_degree);
-              FEFaceValues<3> face_values(this->get_mapping(),
-                                          this->get_fe(),
-                                          face_quadrature_formula,
-                                          update_values |
-                                          update_gradients |
-                                          update_quadrature_points |
-                                          update_JxW_values);
-              MaterialModel::MaterialModelInputs<3> face_inputs(
-                face_values.n_quadrature_points,
-                this->n_compositional_fields());
-
-              for (const auto &cell : this->get_dof_handler().active_cell_iterators())
-                if (cell->is_locally_owned())
-                  for (const unsigned int face_no : cell->face_indices())
-                    {
-                      if (cell->at_boundary(face_no)
-                          || cell->has_periodic_neighbor(face_no))
-                        continue;
-
-                      const auto neighbor = cell->neighbor(face_no);
-                      if (cell->center().norm() >= neighbor->center().norm())
-                        continue;
-
-                      const auto face = cell->face(face_no);
-                      const double density_contrast =
-                        this->get_density_source_manager()
-                        .internal_density_jump_across_face(
-                          cell->center(),
-                          neighbor->center(),
-                          face->vertex(0).norm());
-                      if (density_contrast == 0.0)
-                        continue;
-
-                      bool all_vertices_match = true;
-                      for (unsigned int vertex = 1;
-                           vertex < face->n_vertices();
-                           ++vertex)
-                        all_vertices_match =
-                          all_vertices_match
-                          && (this->get_density_source_manager()
-                              .internal_density_jump_across_face(
-                                cell->center(),
-                                neighbor->center(),
-                                face->vertex(vertex).norm())
-                              == density_contrast);
-                      if (!all_vertices_match)
-                        continue;
-
-                      face_values.reinit(cell, face_no);
-                      face_inputs.reinit(face_values,
-                                         cell,
-                                         this->introspection(),
-                                         this->get_solution());
-
-                      for (unsigned int q = 0;
-                           q < face_values.n_quadrature_points;
-                           ++q)
-                        {
-                          const Point<3> point = face_inputs.position[q];
-                          const double source_radius = point.norm();
-                          AssertThrow(source_radius > 0.0,
-                                      ExcMessage("Full-domain internal sheet potential is undefined at radius zero."));
-                          const double surface_density =
-                            density_contrast
-                            * this->get_density_source_manager()
-                            .mechanical_radial_displacement(face_inputs, q);
-                          const double source_weight =
-                            surface_density * face_values.JxW(q);
-                          const std::array<double,3> spherical_coordinates =
-                            aspect::Utilities::Coordinates::
-                            cartesian_to_spherical_coordinates(point);
-
-                          unsigned int coefficient_index = 0;
-                          for (unsigned int degree = min_degree;
-                               degree <= max_degree;
-                               ++degree)
-                            for (unsigned int order = 0;
-                                 order <= degree;
-                                 ++order, ++coefficient_index)
-                              {
-                                const std::pair<double,double> harmonics =
-                                  aspect::Utilities::real_spherical_harmonic(
-                                    degree,
-                                    order,
-                                    spherical_coordinates[2],
-                                    spherical_coordinates[1]);
-                                source_cos_coefficients[coefficient_index] =
-                                  source_weight * harmonics.first;
-                                source_sin_coefficients[coefficient_index] =
-                                  source_weight * harmonics.second;
-                              }
-                          internal_green_moments.add_source(
-                            source_radius,
-                            source_cos_coefficients,
-                            source_sin_coefficients);
-                        }
-                    }
-            }
-        }
+          internal_green_moments.add_source(source_radius,
+                                            source_cos_coefficients,
+                                            source_sin_coefficients);
+        });
 
       internal_green_moments.mpi_sum(this->get_mpi_communicator());
       const std::pair<std::vector<double>, std::vector<double>>
@@ -3048,7 +2906,7 @@ namespace aspect
 
       const double surface_gravity =
         this->get_gravity_model()
-        .gravity_vector(this->get_geometry_model().representative_point(1.0))
+        .gravity_vector(this->get_geometry_model().representative_point(0.0))
         .norm();
       AssertThrow(surface_gravity > 0.0,
                   ExcMessage("Full-domain self-gravity requires positive surface gravity."));
@@ -3114,6 +2972,64 @@ namespace aspect
                      + global_internal_sin[index]);
               }
         }
+
+      // A translation of the coordinate origin by c changes the spherical
+      // reference potential by -c.grad(Phi_0). Consequently its degree-one
+      // amplitude is proportional to the local reference gravity, not a
+      // constant boundary value. Store this correction in the same radial
+      // cache used by the Stokes volume term and by every density interface.
+      if (native_center_of_mass_diagnostic.valid)
+        {
+          const unsigned int idx10 = sh_transform->index(1, 0);
+          const unsigned int idx11 = sh_transform->index(1, 1);
+          const double y1_normalization =
+            std::sqrt(3.0 / (4.0 * numbers::PI));
+          const Tensor<1,3> &translation =
+            native_center_of_mass_diagnostic.translation;
+
+          std::vector<double> reference_cos(n_coefficients, 0.0);
+          std::vector<double> reference_sin(n_coefficients, 0.0);
+          reference_cos[idx10] = -translation[2] / y1_normalization;
+          reference_cos[idx11] = translation[0] / y1_normalization;
+          reference_sin[idx11] = translation[1] / y1_normalization;
+
+          const GeometryModel::SphericalShell<3> &geometry =
+            Plugins::get_plugin_as_type<
+            const GeometryModel::SphericalShell<3>>(
+              this->get_geometry_model());
+          for (unsigned int radius_index = 0;
+               radius_index < n_radii;
+               ++radius_index)
+            {
+              double local_gravity = surface_gravity;
+              if (radius_index + 1 != n_radii)
+                {
+                  const double depth =
+                    std::min(geometry.maximal_depth(),
+                             std::max(0.0,
+                                      outer_radius
+                                      - full_domain_potential_radii[
+                                        radius_index]));
+                  local_gravity =
+                    this->get_gravity_model()
+                    .gravity_vector(
+                      geometry.representative_point(depth)).norm();
+                }
+              const double radial_scale =
+                local_gravity / surface_gravity;
+
+              for (const unsigned int index :
+              {
+                idx10, idx11
+              })
+              {
+                full_domain_potential_cos_coeffs[radius_index][index] +=
+                  radial_scale * reference_cos[index];
+                full_domain_potential_sin_coeffs[radius_index][index] +=
+                  radial_scale * reference_sin[index];
+              }
+            }
+        }
     }
 
 
@@ -3128,7 +3044,8 @@ namespace aspect
 
       return this->get_density_source_manager()
              .compute_internal_mass_moments(
-               reference_density_for_internal_anomalies)
+               reference_density_for_internal_anomalies,
+               full_domain_volume_source_discretization)
              .mass_dipole;
     }
 
@@ -3325,15 +3242,21 @@ namespace aspect
                     continue;
 
                   const auto neighbor = cell->neighbor(face_no);
-                  if (cell->center().norm() >= neighbor->center().norm())
+                  const Point<3> inner_cell_center =
+                    this->get_density_source_manager()
+                    .radial_cell_representative_point(cell);
+                  const Point<3> outer_cell_center =
+                    this->get_density_source_manager()
+                    .radial_cell_representative_point(neighbor);
+                  if (inner_cell_center.norm() >= outer_cell_center.norm())
                     continue;
 
                   const auto face = cell->face(face_no);
                   const double density_contrast =
                     this->get_density_source_manager()
                     .internal_density_jump_across_face(
-                      cell->center(),
-                      neighbor->center(),
+                      inner_cell_center,
+                      outer_cell_center,
                       face->vertex(0).norm());
                   if (density_contrast == 0.0)
                     continue;
@@ -3346,8 +3269,8 @@ namespace aspect
                       all_vertices_match
                       && (this->get_density_source_manager()
                           .internal_density_jump_across_face(
-                            cell->center(),
-                            neighbor->center(),
+                            inner_cell_center,
+                            outer_cell_center,
                             face->vertex(vertex).norm())
                           == density_contrast);
                   if (!all_vertices_match)

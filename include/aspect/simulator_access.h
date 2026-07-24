@@ -560,6 +560,16 @@ namespace aspect
       get_system_matrix () const;
 
       /**
+       * Return a reference to the right hand side vector of the finite
+       * element system at the current time step.
+       *
+       * Together with get_system_matrix(), this accessor allows diagnostic
+       * plugins to evaluate the residual of the assembled discrete system.
+       */
+      const LinearAlgebra::BlockVector &
+      get_system_rhs () const;
+
+      /**
        * Return a reference to the system preconditioner matrix at the current time step.
        */
       const LinearAlgebra::BlockSparseMatrix &

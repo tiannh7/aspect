@@ -25,9 +25,9 @@ Number of degrees of freedom: 6,880 (2,058+104+686+576+576+576+576+576+576+576)
         Compositional field 4 (ve_stress_xz): 0
         Compositional field 5 (ve_stress_yz): 0
         Compositional field 6 (ve_radial_displacement): 0
-        Stokes system: 137.732
+        Stokes system: 137.726
 
-      Relative nonlinear residual (total system) after nonlinear iteration 1: 1.377316e+02
+      Relative nonlinear residual (total system) after nonlinear iteration 1: 1.377262e+02
 
    Skipping temperature solve because RHS is zero.
    Skipping ve_stress_xx assembly and solve because timestep 0.
@@ -38,7 +38,7 @@ Number of degrees of freedom: 6,880 (2,058+104+686+576+576+576+576+576+576+576)
    Skipping ve_stress_yz assembly and solve because timestep 0.
    Skipping ve_radial_displacement assembly and solve because timestep 0.
    Rebuilding Stokes preconditioner...
-   Solving Stokes system (AMG)... 13+0 iterations.
+   Solving Stokes system (AMG)... 22+0 iterations.
       Relative nonlinear residuals:
         Temperature: 0
         Compositional field 0 (ve_stress_xx): 0
@@ -54,12 +54,12 @@ Number of degrees of freedom: 6,880 (2,058+104+686+576+576+576+576+576+576+576)
 
 
    Postprocessing:
-     Pressure min/avg/max:              -3.782 Pa, -3.761e-05 Pa, 2.213 Pa
+     Pressure min/avg/max:              -0.04886 Pa, -3.855e-05 Pa, 0.05812 Pa
      Velocity statistics (min/max/rms): r    : -5.962e-12 / 5.962e-12 / 1.379e-12 m/s
                                         phi  : -5.962e-12 / 5.962e-12 / 1.379e-12 m/s
                                         theta: -5.962e-12 / 5.962e-12 / 1.379e-12 m/s
                                         total: 0 / 5.962e-12 / 2.389e-12 m/s
-                                        
+
 
 Termination requested by criterion: end time
 
