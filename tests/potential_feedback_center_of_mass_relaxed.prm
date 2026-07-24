@@ -1,0 +1,17 @@
+# Under-relax the reference-frame update so convergence cannot be inferred
+# from one algebraic D/M assignment. The solve must continue until potential
+# change, COM coefficient change, and the normalized D-Mc residual all pass.
+# Manual validation input until a screen-output baseline is generated.
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/potential_feedback_center_of_mass.prm
+
+set Output directory = output-potential-feedback-center-of-mass-relaxed
+
+subsection Potential feedback
+  subsection Potential iteration
+    set Maximum iterations = 20
+    set Relaxation factor  = 0.5
+    set Relative tolerance = 1e-2
+  end
+end
