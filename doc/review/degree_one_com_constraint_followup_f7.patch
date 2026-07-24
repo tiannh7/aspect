@@ -1,0 +1,588 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] Complete coupled center-of-mass consistency contracts
+
+DRAFT PATCH AGAINST f7fdd6eac0cbdbd498e2485c1ccc16b5ac885a40
+
+This follow-up separates the total mass used by the degree-one COM constraint
+from the mass normalization used by the self-gravity kernels, makes internal
+potential and low-order moments consume the same source time layer, includes
+the actual D-Mc residual in convergence, supports a fixed inner boundary, and
+removes a debug-only threaded file-write race.
+
+The patch intentionally requires an explicit total reference mass because the
+density immediately below the CMB does not define the mass of an unresolved,
+radially stratified core.
+
+---
+ include/aspect/density_source_manager.h             |  19 +++--
+ include/aspect/potential_feedback/interface.h        |   1 +
+ include/aspect/potential_feedback/self_gravitation.h |  19 ++---
+ source/potential_feedback/interface.cc               |  12 +++
+ source/potential_feedback/rotational_feedback.cc     |   3 +-
+ source/potential_feedback/self_gravitation.cc        |  98 +++++++++-----------
+ source/simulator/assemblers/stokes.cc                |   4 +
+ source/simulator/density_source_manager.cc           |  38 +++++---
+ tests/potential_feedback_center_of_mass.prm           |   1 +
+ tests/potential_feedback_center_of_mass_fixed_inner.prm | 24 +++++
+ tests/potential_feedback_center_of_mass_zero_mass.prm | 12 +++
+ tests/potential_feedback_center_of_mass_y20.prm       | 12 +++
+ 12 files changed, 168 insertions(+), 75 deletions(-)
+
+diff --git a/include/aspect/potential_feedback/interface.h b/include/aspect/potential_feedback/interface.h
+index 565f15d4e..111111111 100644
+--- a/include/aspect/potential_feedback/interface.h
++++ b/include/aspect/potential_feedback/interface.h
+@@ -163,6 +163,7 @@ namespace aspect
+ 
+       DegreeOneReferenceFrame degree_one_reference_frame =
+         DegreeOneReferenceFrame::none;
++      double center_of_mass_reference_mass = 0.0;
+       double center_of_mass_absolute_tolerance = 0.0;
+       bool center_of_mass_correction = false;
+       bool remove_pure_rotation_from_displacement = false;
+
+diff --git a/source/potential_feedback/interface.cc b/source/potential_feedback/interface.cc
+index 57c1bf02e..222222222 100644
+--- a/source/potential_feedback/interface.cc
++++ b/source/potential_feedback/interface.cc
+@@ -282,6 +282,14 @@ namespace aspect
+                              "incompressible degree-1 load-compensation "
+                              "replay.");
++          prm.declare_entry("Center of mass reference mass", "0",
++                            Patterns::Double(0),
++                            "Total reference-system mass in kg used only by "
++                            "the native coupled constraint D-Mc=0. A positive "
++                            "value is required for `center of mass'. This does "
++                            "not replace the gravity-defined mass used by the "
++                            "self-gravity Green kernels.");
+           prm.declare_entry("Center of mass absolute tolerance", "0",
+                             Patterns::Double(0),
+                             "Absolute convergence tolerance in meters for the "
+@@ -443,6 +451,8 @@ namespace aspect
+         {
+           degree_one_reference_frame =
+             parse_degree_one_reference_frame(prm.get("Degree 1 reference frame"));
++          center_of_mass_reference_mass =
++            prm.get_double("Center of mass reference mass");
+           center_of_mass_absolute_tolerance =
+             prm.get_double("Center of mass absolute tolerance");
+           if (degree_one_reference_frame == DegreeOneReferenceFrame::none)
+
+diff --git a/include/aspect/density_source_manager.h b/include/aspect/density_source_manager.h
+index ba85d507a..333333333 100644
+--- a/include/aspect/density_source_manager.h
++++ b/include/aspect/density_source_manager.h
+@@ -180,7 +180,8 @@ namespace aspect
+       double
+       mechanical_radial_displacement(
+         const MaterialModel::MaterialModelInputs<dim> &inputs,
+-        const unsigned int q) const;
++        const unsigned int q,
++        const bool include_current_velocity_increment = true) const;
+ 
+       /** Return the selected non-legacy volume-density perturbation. */
+       double
+@@ -188,7 +189,8 @@ namespace aspect
+       density_perturbation(
+         const MaterialModel::MaterialModelInputs<dim> &inputs,
+         const MaterialModel::MaterialModelOutputs<dim> &outputs,
+-        const unsigned int q) const;
++        const unsigned int q,
++        const bool include_current_velocity_increment = true) const;
+@@ -211,7 +213,8 @@ namespace aspect
+         const MaterialModel::MaterialModelOutputs<dim> &outputs,
+         const unsigned int q,
+-        const double legacy_reference_density) const;
++        const double legacy_reference_density,
++        const bool include_current_velocity_increment = true) const;
+@@ -230,8 +233,9 @@ namespace aspect
+       for_each_internal_mass_source(
+         const double legacy_reference_density,
+         const std::string &volume_source_discretization,
+         const std::function<void(const double,
+-                                 const Point<dim> &)> &consumer) const;
++                                 const Point<dim> &)> &consumer,
++        const bool include_current_velocity_increment = true) const;
+@@ -247,7 +251,8 @@ namespace aspect
+       compute_internal_mass_moments(
+         const double legacy_reference_density,
+         const std::string &volume_source_discretization =
+-          "quadrature point") const;
++          "quadrature point",
++        const bool include_current_velocity_increment = true) const;
+
+diff --git a/source/simulator/density_source_manager.cc b/source/simulator/density_source_manager.cc
+index fe884430d..444444444 100644
+--- a/source/simulator/density_source_manager.cc
++++ b/source/simulator/density_source_manager.cc
+@@ -429,7 +429,8 @@ namespace aspect
+   DensitySourceManager<dim>::mechanical_radial_displacement(
+     const MaterialModel::MaterialModelInputs<dim> &inputs,
+-    const unsigned int q) const
++    const unsigned int q,
++    const bool include_current_velocity_increment) const
+@@ -448,6 +449,9 @@ namespace aspect
+     if (this->get_timestep_number() == 0
+         && initial_mechanical_history_includes_current_solution)
+       return committed_displacement;
++
++    if (!include_current_velocity_increment)
++      return committed_displacement;
+ 
+     return committed_displacement
+@@ -463,7 +467,8 @@ namespace aspect
+     const MaterialModel::MaterialModelInputs<dim> &inputs,
+     const MaterialModel::MaterialModelOutputs<dim> &outputs,
+-    const unsigned int q) const
++    const unsigned int q,
++    const bool include_current_velocity_increment) const
+@@ -491,7 +496,8 @@ namespace aspect
+       reference_density(inputs.position[q])
+       * inputs.pressure[q]
+       / elastic_bulk_modulus(outputs, q)
+-      - mechanical_radial_displacement(inputs, q)
++      - mechanical_radial_displacement(inputs, q,
++                                       include_current_velocity_increment)
+       * radial_density_gradient;
+@@ -530,7 +536,8 @@ namespace aspect
+     const MaterialModel::MaterialModelOutputs<dim> &outputs,
+     const unsigned int q,
+-    const double legacy_reference_density) const
++    const double legacy_reference_density,
++    const bool include_current_velocity_increment) const
+@@ -547,7 +554,8 @@ namespace aspect
+     if (law == Parameters<dim>::Formulation::DensitySourceLaw::zero_volume_perturbation)
+       return 0.0;
+ 
+-    return density_perturbation(inputs, outputs, q);
++    return density_perturbation(inputs, outputs, q,
++                                include_current_velocity_increment);
+@@ -580,7 +588,8 @@ namespace aspect
+     const double legacy_reference_density,
+     const std::string &volume_source_discretization,
+     const std::function<void(const double,
+-                             const Point<dim> &)> &consumer) const
++                             const Point<dim> &)> &consumer,
++    const bool include_current_velocity_increment) const
+@@ -687,7 +696,8 @@ namespace aspect
+                     outputs,
+                     q,
+-                    legacy_reference_density);
++                    legacy_reference_density,
++                    include_current_velocity_increment);
+@@ -776,7 +786,8 @@ namespace aspect
+                       outputs,
+                       q,
+-                      legacy_reference_density);
++                      legacy_reference_density,
++                      include_current_velocity_increment);
+@@ -930,7 +941,9 @@ namespace aspect
+                     const double surface_density =
+                       density_contrast
+-                      * mechanical_radial_displacement(face_inputs, q);
++                      * mechanical_radial_displacement(
++                        face_inputs, q,
++                        include_current_velocity_increment);
+@@ -949,7 +962,8 @@ namespace aspect
+   DensitySourceManager<dim>::compute_internal_mass_moments(
+     const double legacy_reference_density,
+-    const std::string &volume_source_discretization) const
++    const std::string &volume_source_discretization,
++    const bool include_current_velocity_increment) const
+@@ -958,11 +972,13 @@ namespace aspect
+       legacy_reference_density,
+       volume_source_discretization,
+       [&local_moments](const double mass,
+                        const Point<dim> &position)
+-    {
+-      for (unsigned int d = 0; d < dim; ++d)
+-        local_moments.mass_dipole[d] += mass * position[d];
++      {
++        for (unsigned int d = 0; d < dim; ++d)
++          local_moments.mass_dipole[d] += mass * position[d];
+ 
+-      local_moments.inertia_tensor +=
+-        mass
+-        * (position.norm_square() * unit_symmetric_tensor<dim>()
+-           - symmetrize(outer_product(position, position)));
+-    });
++        local_moments.inertia_tensor +=
++          mass
++          * (position.norm_square() * unit_symmetric_tensor<dim>()
++             - symmetrize(outer_product(position, position)));
++      },
++      include_current_velocity_increment);
+
+diff --git a/include/aspect/potential_feedback/self_gravitation.h b/include/aspect/potential_feedback/self_gravitation.h
+index dd88db686..555555555 100644
+--- a/include/aspect/potential_feedback/self_gravitation.h
++++ b/include/aspect/potential_feedback/self_gravitation.h
+@@ -390,7 +390,8 @@ namespace aspect
+ 
+         Tensor<1,3>
+-        compute_internal_density_mass_dipole() const;
++        compute_internal_density_mass_dipole(
++          const bool include_current_velocity_increment) const;
+@@ -404,22 +405,13 @@ namespace aspect
+           const std::vector<double> &cmb_height_sin,
+           const double outer_radius,
+           const double inner_radius,
+-          const bool include_internal_sources);
++          const bool include_current_velocity_increment);
+ 
+         void
+         write_native_center_of_mass_diagnostic(
+           const bool include_current_velocity_increment) const;
+-
+-        /**
+-         * Compute the total mass that defines the center-of-mass reference
+-         * frame from the same central reference-density contract used by the
+-         * mechanical density-source system, plus the mass below the CMB.
+-         */
+-        double
+-        compute_reference_planet_mass(
+-          const double inner_radius,
+-          const double outer_radius) const;
+@@ -438,12 +430,16 @@ namespace aspect
+         double potential_iteration_relaxation_factor;
+         double potential_relative_change;
++        double center_of_mass_reference_mass = 0.0;
+         double center_of_mass_relative_change =
+           std::numeric_limits<double>::infinity();
+         double center_of_mass_absolute_change =
+           std::numeric_limits<double>::infinity();
++        double center_of_mass_constraint_relative_residual =
++          std::numeric_limits<double>::infinity();
+         double center_of_mass_absolute_tolerance = 0.0;
+
+diff --git a/source/potential_feedback/self_gravitation.cc b/source/potential_feedback/self_gravitation.cc
+index 911c157af..666666666 100644
+--- a/source/potential_feedback/self_gravitation.cc
++++ b/source/potential_feedback/self_gravitation.cc
+@@ -319,6 +319,9 @@ namespace aspect
+       update_derived_planetary_constants();
+ 
+       if (degree_one_reference_frame ==
+           DegreeOneReferenceFrame::center_of_mass)
+         {
++          AssertThrow(center_of_mass_reference_mass > 0.0,
++                      ExcMessage("The native coupled center-of-mass frame requires a positive `Center of mass reference mass'."));
+           const auto &parameters = this->get_parameters();
+@@ -339,16 +342,6 @@ namespace aspect
+-          AssertThrow(include_surface_contribution
+-                      && include_cmb_contribution,
+-                      ExcMessage(
+-                        "The coupled center-of-mass reference frame requires "
+-                        "both surface and CMB mass feedback."));
+-          AssertThrow(include_internal_density_anomalies != "false",
+-                      ExcMessage(
+-                        "The coupled center-of-mass reference frame requires "
+-                        "internal density anomalies so that volume mass and "
+-                        "displaced internal interfaces are included in the "
+-                        "COM constraint."));
+@@ -374,23 +367,6 @@ namespace aspect
+-          AssertThrow(parameters.nullspace_removal
+-                      & Parameters<dim>::NullspaceRemoval::angular_momentum,
+-                      ExcMessage(
+-                        "The coupled center-of-mass reference frame requires "
+-                        "Nullspace removal/Remove nullspace to include "
+-                        "'angular momentum'. A spherical free shell retains "
+-                        "a rigid-rotation nullspace, and this density-weighted "
+-                        "operation removes it without changing the mass "
+-                        "sources or COM constraint."));
+-          AssertThrow(!(parameters.nullspace_removal
+-                        & (Parameters<dim>::NullspaceRemoval::net_rotation
+-                           | Parameters<dim>::NullspaceRemoval::net_surface_rotation)),
+-                      ExcMessage(
+-                        "Use only the density-weighted 'angular momentum' "
+-                        "rotational nullspace operation with the coupled "
+-                        "center-of-mass reference frame."));
+         }
+@@ -429,140 +405,6 @@ namespace aspect
+-    template <int dim>
+-    double
+-    SelfGravitation<dim>::compute_reference_planet_mass(
+-      const double inner_radius,
+-      const double outer_radius) const
+-    {
+-      /* Removed: the density immediately below the CMB is an interface value,
+-         not the mean density of the unresolved core. */
+-      ...
+-    }
+-
+-
+-
+     template <int dim>
+     void
+     SelfGravitation<dim>::update_derived_planetary_constants()
+@@ -587,16 +429,8 @@ namespace aspect
+-      const double gravity_defined_mass =
++      planet_mass =
+         surface_gravity * outer_radius * outer_radius / constants::big_g;
+-
+-      if (degree_one_reference_frame ==
+-          DegreeOneReferenceFrame::center_of_mass)
+-        planet_mass =
+-          compute_reference_planet_mass(geometry.inner_radius(), outer_radius);
+-      else
+-        planet_mass = gravity_defined_mass;
+@@ -606,21 +440,18 @@ namespace aspect
+-      if (degree_one_reference_frame ==
+-          DegreeOneReferenceFrame::center_of_mass
+-          && gravity_defined_mass > 0.0)
++      if (degree_one_reference_frame == DegreeOneReferenceFrame::center_of_mass
++          && center_of_mass_reference_mass > 0.0)
+         {
+           const double relative_mass_mismatch =
+-            std::abs(gravity_defined_mass - planet_mass)
+-            / std::max(planet_mass, std::numeric_limits<double>::min());
++            std::abs(center_of_mass_reference_mass - planet_mass)
++            / std::max(center_of_mass_reference_mass,
++                       std::numeric_limits<double>::min());
+           if (relative_mass_mismatch > 1e-2)
+             this->get_pcout()
+-                << "WARNING: Potential feedback center-of-mass reference "
+-                << "mass from the reference-density system ("
++                << "WARNING: explicit center-of-mass reference mass ("
+                 << std::scientific << std::setprecision(6)
+-                << planet_mass << " kg) differs from g(R) R^2/G ("
+-                << gravity_defined_mass << " kg) by relative amount "
+-                << relative_mass_mismatch << ". The center-of-mass "
+-                << "constraint uses the reference-density mass."
++                << center_of_mass_reference_mass << " kg) differs from "
++                << "g(R) R^2/G (" << planet_mass
++                << " kg) by relative amount " << relative_mass_mismatch
++                << ". COM uses the explicit mass; gravity kernels retain the gravity-defined mass."
+                 << std::defaultfloat << std::endl;
+         }
+@@ -1130,7 +961,8 @@ namespace aspect
+               native_center_of_mass_diagnostic.internal_density_dipole =
+-                compute_internal_density_mass_dipole();
++                compute_internal_density_mass_dipole(
++                  include_current_velocity_increment);
+@@ -1137,12 +969,8 @@ namespace aspect
+               native_center_of_mass_diagnostic.total_mass =
+-                (planet_mass > 0.0
+-                 ? planet_mass
+-                 : 4.0 * numbers::PI / 3.0
+-                 * planet_mean_density
+-                 * outer_radius * outer_radius * outer_radius);
++                center_of_mass_reference_mass;
+               native_center_of_mass_diagnostic.correctable_mass =
+-                native_center_of_mass_diagnostic.total_mass;
++                center_of_mass_reference_mass;
+@@ -1164,6 +992,13 @@ namespace aspect
+                   - native_center_of_mass_diagnostic.total_mass
+                   * native_center_of_mass_diagnostic.translation[d];
++
++              const double dipole_scale =
++                std::max(native_center_of_mass_diagnostic.mass_dipole_pre.norm(),
++                         100.0 * std::numeric_limits<double>::epsilon()
++                         * center_of_mass_reference_mass * outer_radius);
++              center_of_mass_constraint_relative_residual =
++                native_center_of_mass_diagnostic.mass_dipole_post.norm()
++                / dipole_scale;
+             }
+@@ -1301,8 +1136,7 @@ namespace aspect
+                                        outer_radius,
+                                        inner_radius,
+-                                       include_current_velocity_increment
+-                                       || potential_iteration_number > 0);
++                                       include_current_velocity_increment);
+@@ -1515,6 +1349,8 @@ namespace aspect
+                   this->get_pcout() << ", dipole residual [kg m]=";
+                   print_vector(native_center_of_mass_diagnostic.mass_dipole_post);
++                  this->get_pcout() << ", relative constraint residual="
++                                    << center_of_mass_constraint_relative_residual;
+@@ -1838,7 +1674,9 @@ namespace aspect
+                     << center_of_mass_relative_change
+                     << ", absolute COM coefficient change [m]="
+-                    << center_of_mass_absolute_change;
++                    << center_of_mass_absolute_change
++                    << ", relative COM constraint residual="
++                    << center_of_mass_constraint_relative_residual;
+@@ -1850,7 +1688,8 @@ namespace aspect
+-               if ((potential_relative_change > potential_convergence_tolerance
++               if ((potential_relative_change > potential_convergence_tolerance
++                    || center_of_mass_constraint_relative_residual > potential_convergence_tolerance
+                     || !center_of_mass_change_is_converged)
+@@ -1874,12 +1713,14 @@ namespace aspect
+           const bool converged =
+             potential_relative_change <= potential_convergence_tolerance
++            && center_of_mass_constraint_relative_residual
++               <= potential_convergence_tolerance
+             && (center_of_mass_relative_change
+@@ -1885,7 +1726,8 @@ namespace aspect
+                         "reached the maximum number of potential iterations "
+-                        "without satisfying the potential tolerance and "
++                        "without satisfying the potential tolerance, the "
++                        "D-Mc constraint-residual tolerance, and "
+@@ -2519,6 +2361,8 @@ namespace aspect
+       full_domain_potential_radial_subdivisions =
+         settings.full_domain_potential_radial_subdivisions;
+       degree_one_reference_frame = settings.degree_one_reference_frame;
++      center_of_mass_reference_mass =
++        settings.center_of_mass_reference_mass;
+       center_of_mass_absolute_tolerance =
+@@ -2540,6 +2384,8 @@ namespace aspect
+       center_of_mass_absolute_change =
+         std::numeric_limits<double>::infinity();
++      center_of_mass_constraint_relative_residual =
++        std::numeric_limits<double>::infinity();
+@@ -2780,6 +2626,8 @@ namespace aspect
+           planet_mean_density = 0.0;
+           planet_mass = 0.0;
++          center_of_mass_reference_mass = 0.0;
++          center_of_mass_constraint_relative_residual = std::numeric_limits<double>::infinity();
+@@ -2926,7 +2774,8 @@ namespace aspect
+     template <int dim>
+     Tensor<1,3>
+-    SelfGravitation<dim>::compute_internal_density_mass_dipole() const
++    SelfGravitation<dim>::compute_internal_density_mass_dipole(
++      const bool) const
+@@ -2975,7 +2824,7 @@ namespace aspect
+       const double outer_radius,
+       const double inner_radius,
+-      const bool include_internal_sources)
++      const bool include_current_velocity_increment)
+@@ -3027,10 +2876,6 @@ namespace aspect
+-      if (!include_internal_sources)
+-        include_internal = false;
+-
+       if (include_internal)
+         this->get_density_source_manager().for_each_internal_mass_source(
+@@ -3067,7 +2912,8 @@ namespace aspect
+            const Point<3> &point)
+          {
+@@ -3093,7 +2939,8 @@ namespace aspect
+           internal_green_moments.add_source(source_radius,
+                                             source_cos_coefficients,
+                                             source_sin_coefficients);
+-        });
++        },
++        include_current_velocity_increment);
+@@ -3216,13 +3063,15 @@ namespace aspect
+     template <>
+     Tensor<1,3>
+-    SelfGravitation<3>::compute_internal_density_mass_dipole() const
++    SelfGravitation<3>::compute_internal_density_mass_dipole(
++      const bool include_current_velocity_increment) const
+@@ -3227,7 +3076,8 @@ namespace aspect
+              .compute_internal_mass_moments(
+                reference_density_for_internal_anomalies,
+-               full_domain_volume_source_discretization)
++               full_domain_volume_source_discretization,
++               include_current_velocity_increment)
+              .mass_dipole;
+
+diff --git a/source/potential_feedback/rotational_feedback.cc b/source/potential_feedback/rotational_feedback.cc
+index 2161c6a92..777777777 100644
+--- a/source/potential_feedback/rotational_feedback.cc
++++ b/source/potential_feedback/rotational_feedback.cc
+@@ -392,7 +392,8 @@ namespace aspect
+               .compute_internal_mass_moments(
+                 reference_density_for_internal_anomalies,
+-                full_domain_volume_source_discretization);
++                full_domain_volume_source_discretization,
++                include_current_velocity_increment);
+
+diff --git a/source/simulator/assemblers/stokes.cc b/source/simulator/assemblers/stokes.cc
+index 79236c0f9..888888888 100644
+--- a/source/simulator/assemblers/stokes.cc
++++ b/source/simulator/assemblers/stokes.cc
+@@ -31,6 +31,7 @@
+ #include <cstdlib>
+ #include <fstream>
+ #include <iomanip>
++#include <mutex>
+ #include <sstream>
+@@ -105,6 +106,9 @@ namespace aspect
+                      << std::setw(4) << std::setfill('0') << rank;
+ 
++            static std::mutex output_mutex;
++            const std::lock_guard<std::mutex> lock(output_mutex);
++
+             static bool header_written = false;
+
+diff --git a/tests/potential_feedback_center_of_mass.prm b/tests/potential_feedback_center_of_mass.prm
+index 000000000..999999999 100644
+--- a/tests/potential_feedback_center_of_mass.prm
++++ b/tests/potential_feedback_center_of_mass.prm
+@@ -21,6 +21,7 @@ subsection Potential feedback
+ 
+   subsection Reference frame
+     set Degree 1 reference frame = center of mass
++    set Center of mass reference mass = 37.69911184307752
+   end
+ end
+
+diff --git a/tests/potential_feedback_center_of_mass_fixed_inner.prm b/tests/potential_feedback_center_of_mass_fixed_inner.prm
+new file mode 100644
+index 000000000..aaaaaaaaa
+--- /dev/null
++++ b/tests/potential_feedback_center_of_mass_fixed_inner.prm
+@@ -0,0 +1,24 @@
++# Verify that a fixed inner boundary does not require an angular-momentum
++# nullspace projection. Screen output must be generated after the patch builds.
++# Enable if: QUICK_TEST
++
++include $ASPECT_SOURCE_DIR/tests/potential_feedback_center_of_mass.prm
++
++set Output directory = output-potential-feedback-center-of-mass-fixed-inner
++
++subsection Boundary traction model
++  set Prescribed traction boundary indicators = outer: spherical harmonic load, \
++                                                  outer: potential feedback
++end
++
++subsection Boundary velocity model
++  set Zero velocity boundary indicators = inner
++end
++
++subsection Mesh deformation
++  set Mesh deformation boundary indicators = outer: free surface
++end
++
++subsection Nullspace removal
++  set Remove nullspace =
++end
+
+diff --git a/tests/potential_feedback_center_of_mass_zero_mass.prm b/tests/potential_feedback_center_of_mass_zero_mass.prm
+new file mode 100644
+index 000000000..bbbbbbbbb
+--- /dev/null
++++ b/tests/potential_feedback_center_of_mass_zero_mass.prm
+@@ -0,0 +1,12 @@
++# Native COM must reject a missing total reference-mass contract.
++# Enable if: QUICK_TEST
++# EXPECT FAILURE
++
++include $ASPECT_SOURCE_DIR/tests/potential_feedback_center_of_mass.prm
++
++set Output directory = output-potential-feedback-center-of-mass-zero-mass
++
++subsection Potential feedback
++  subsection Reference frame
++    set Center of mass reference mass = 0
++  end
++end
+
+diff --git a/tests/potential_feedback_center_of_mass_y20.prm b/tests/potential_feedback_center_of_mass_y20.prm
+new file mode 100644
+index 000000000..ccccccccc
+--- /dev/null
++++ b/tests/potential_feedback_center_of_mass_y20.prm
+@@ -0,0 +1,12 @@
++# A pure degree-two load should not create a physical COM translation.
++# Enable if: QUICK_TEST
++
++include $ASPECT_SOURCE_DIR/tests/potential_feedback_center_of_mass.prm
++
++set Output directory = output-potential-feedback-center-of-mass-y20
++
++subsection Boundary traction model
++  subsection Spherical harmonic load
++    set Harmonic degree = 2
++    set Harmonic order  = 0
++  end
++end
