@@ -169,7 +169,7 @@ namespace aspect
          * frame cancellation. */
         std::pair<double,double>
         external_load_surface_potential_coefficient(const unsigned int degree,
-                                                    const unsigned int order) const;
+                                                     const unsigned int order) const;
 
         /** Return the cosine/sine coefficient of Phi/g at the surface due
          * to surface deformation before degree-1 reference-frame
@@ -562,6 +562,26 @@ namespace aspect
         citcomsve_degree_one_load_replay_diagnostic;
         NativeCenterOfMassDiagnostic native_center_of_mass_diagnostic;
     };
+
+
+
+    template <>
+    void
+    SelfGravitation<3>::initialize();
+
+    template <>
+    double
+    SelfGravitation<3>::compute_reference_planet_mass(
+      const double inner_radius,
+      const double outer_radius) const;
+
+    template <>
+    void
+    SelfGravitation<3>::update_derived_planetary_constants();
+
+    template <>
+    bool
+    SelfGravitation<3>::potential_is_converged() const;
   }
 }
 
