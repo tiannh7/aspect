@@ -1,7 +1,9 @@
-# Exercise the coupled degree-one center-of-mass reference frame with a
-# self-consistent reference mass. The model has Ri=1, Ro=2, mantle reference
-# density 1, and CMB-below density 2, so M_ref = 12*pi kg and the radial
-# constant gravity is G*M_ref/Ro^2.
+# Exercise the coupled degree-one center-of-mass reference frame. The total
+# reference mass is defined by M=g(R)R^2/G. This synthetic case chooses
+# g(R)=G*(12*pi)/R^2, so the gravity-defined mass is 12*pi kg. The equality
+# with the simple density bookkeeping is intentional test construction, not a
+# general assumption that the density immediately below the CMB is the mean
+# density of the unresolved core.
 # Enable if: QUICK_TEST
 
 include $ASPECT_SOURCE_DIR/tests/potential_feedback_default_none.prm
