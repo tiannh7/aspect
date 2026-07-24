@@ -24,7 +24,7 @@
 #include <aspect/simulator.h>
 
 #include <algorithm>
-#include <iomanip>
+#include <cmath>
 #include <limits>
 
 namespace aspect
@@ -212,8 +212,6 @@ namespace aspect
         {
           double constraint_relative_residual =
             std::numeric_limits<double>::infinity();
-          double constraint_absolute_residual =
-            std::numeric_limits<double>::infinity();
 
           if (native_center_of_mass_diagnostic.valid)
             {
@@ -228,10 +226,9 @@ namespace aspect
                   * native_center_of_mass_diagnostic.total_mass
                   * geometry.outer_radius());
 
-              constraint_absolute_residual =
-                native_center_of_mass_diagnostic.mass_dipole_post.norm();
               constraint_relative_residual =
-                constraint_absolute_residual / residual_scale;
+                native_center_of_mass_diagnostic.mass_dipole_post.norm()
+                / residual_scale;
             }
 
           const bool center_of_mass_change_is_converged =
@@ -243,13 +240,6 @@ namespace aspect
             potential_relative_change <= potential_convergence_tolerance
             && center_of_mass_change_is_converged
             && constraint_relative_residual <= potential_convergence_tolerance;
-
-          this->get_pcout()
-              << "      Coupled center-of-mass constraint residual: relative="
-              << std::scientific << std::setprecision(6)
-              << constraint_relative_residual
-              << ", absolute [kg m]=" << constraint_absolute_residual
-              << std::defaultfloat << std::endl;
 
           AssertThrow(converged
                       || potential_iteration_number
