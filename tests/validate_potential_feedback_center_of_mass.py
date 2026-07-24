@@ -85,11 +85,11 @@ def _diagnostics(output: str, case_name: str) -> list[Diagnostic]:
     return result
 
 
-def _run_case(
+def _execute(
     name: str,
     command: Sequence[str],
     working_directory: Path,
-) -> list[Diagnostic]:
+) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
     environment.setdefault("OMPI_ALLOW_RUN_AS_ROOT", "1")
     environment.setdefault("OMPI_ALLOW_RUN_AS_ROOT_CONFIRM", "1")
@@ -102,12 +102,20 @@ def _run_case(
         text=True,
         check=False,
     )
-    log_path = working_directory / f"{name}.log"
-    log_path.write_text(completed.stdout)
+    (working_directory / f"{name}.log").write_text(completed.stdout)
+    return completed
+
+
+def _run_case(
+    name: str,
+    command: Sequence[str],
+    working_directory: Path,
+) -> list[Diagnostic]:
+    completed = _execute(name, command, working_directory)
     if completed.returncode != 0:
         raise RuntimeError(
             f"{name}: ASPECT exited with {completed.returncode}; "
-            f"see {log_path}"
+            f"see {working_directory / f'{name}.log'}"
         )
 
     diagnostics = _diagnostics(completed.stdout, name)
@@ -123,6 +131,23 @@ def _run_case(
         f"translation={_norm(diagnostics[-1].translation):.6e} m"
     )
     return diagnostics
+
+
+def _run_expected_failure(
+    name: str,
+    command: Sequence[str],
+    working_directory: Path,
+    expected_message: str,
+) -> None:
+    completed = _execute(name, command, working_directory)
+    if completed.returncode == 0:
+        raise RuntimeError(f"{name}: expected failure but ASPECT succeeded")
+    if expected_message not in completed.stdout:
+        raise RuntimeError(
+            f"{name}: failed for an unexpected reason; see "
+            f"{working_directory / f'{name}.log'}"
+        )
+    print(f"{name:20s} expected failure confirmed")
 
 
 def _resolve_command(command: str) -> Path:
@@ -174,6 +199,8 @@ def main() -> int:
         / "tests/potential_feedback_center_of_mass_fixed_inner.prm",
         "native-y20": source_root
         / "tests/potential_feedback_center_of_mass_y20.prm",
+        "missing-free-cmb": source_root
+        / "tests/potential_feedback_center_of_mass_missing_cmb.prm",
     }
 
     remove_output_after_success = arguments.keep_output is None
@@ -188,12 +215,19 @@ def main() -> int:
     succeeded = False
     try:
         results: dict[str, list[Diagnostic]] = {}
-        for name, parameter_file in cases.items():
+        for name in ("native-y10", "relaxed-y10", "fixed-inner", "native-y20"):
             results[name] = _run_case(
                 name,
-                [str(aspect), str(parameter_file)],
+                [str(aspect), str(cases[name])],
                 working_directory,
             )
+
+        _run_expected_failure(
+            "missing-free-cmb",
+            [str(aspect), str(cases["missing-free-cmb"])],
+            working_directory,
+            "CMB mass feedback unless the bottom boundary has zero normal velocity",
+        )
 
         relaxed = results["relaxed-y10"]
         if len(relaxed) < 2:
