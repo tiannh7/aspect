@@ -3,9 +3,7 @@ name: Apply and validate degree-one COM follow-up
 on:
   push:
     branches:
-      - codex/degree-one-com-constraint
-    paths:
-      - doc/review/run_degree_one_com_fix.trigger
+      - agent/degree-one-com-apply-run
 
 permissions:
   contents: write
@@ -62,17 +60,6 @@ jobs:
             git apply --3way "$patch_file"
             git diff --check
 
-            expected_cpp_files=(
-              include/aspect/density_source_manager.h
-              include/aspect/potential_feedback/interface.h
-              include/aspect/potential_feedback/self_gravitation.h
-              source/potential_feedback/interface.cc
-              source/potential_feedback/rotational_feedback.cc
-              source/potential_feedback/self_gravitation.cc
-              source/simulator/assemblers/stokes.cc
-              source/simulator/density_source_manager.cc
-            )
-
             contrib/utilities/indent
             git diff --check
 
@@ -119,7 +106,6 @@ jobs:
             {
               local name="$1"
               shift
-              rm -rf "output-${name}"
               "$@" >"/tmp/degree-one-com-tests/${name}.log" 2>&1
             }
 
