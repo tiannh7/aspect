@@ -1,0 +1,30 @@
+
+Loading shared library <./libviscoelastic_ascii_profile_material_reference_field.release.so>
+
+WARNING: Parameter <Material model/Viscoelastic/Fixed elastic time step> is deprecated. Please use <Material model/Viscoelastic/Initial elastic time step> instead.
+Number of active cells: 4 (on 1 levels)
+Number of degrees of freedom: 320 (59+9+36+36+36+36+36+36+36)
+
+Number of mesh deformation degrees of freedom: 50
+   Solving mesh displacement system... 2 iterations.
+*** Timestep 0:  t=0 years, dt=0 years
+   Solving mesh displacement system... 0 iterations.
+   Solving temperature system... 0 iterations.
+   Skipping ve_stress_xx composition solve because RHS is zero.
+   Skipping ve_stress_yy composition solve because RHS is zero.
+   Skipping ve_stress_xy composition solve because RHS is zero.
+   Skipping ve_stress_xx_old composition solve because RHS is zero.
+   Skipping ve_stress_yy_old composition solve because RHS is zero.
+   Skipping ve_stress_xy_old composition solve because RHS is zero.
+   Solving material_reference_depth system ... 0 iterations.
+   Solving Stokes system (direct)... done.
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 1: 1.000000e+00
+
+   Solving Stokes system (direct)... done.
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 2: 2.457300e-16
+
+
+   Postprocessing:
+     Maximum material-reference-field density error: 4.547474e-13
+
+Termination requested by criterion: end time

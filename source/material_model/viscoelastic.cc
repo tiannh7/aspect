@@ -91,6 +91,8 @@ namespace aspect
       use_ascii_profile(false),
       use_reference_geometry_for_ascii_profile(false),
       use_reference_cell_center_for_ascii_profile(false),
+      ascii_profile_material_reference_field_index(numbers::invalid_unsigned_int),
+      ascii_profile_material_layer_field_index(numbers::invalid_unsigned_int),
       profile_density_index(numbers::invalid_unsigned_int),
       profile_viscosity_index(numbers::invalid_unsigned_int),
       profile_elastic_shear_modulus_index(numbers::invalid_unsigned_int),
@@ -126,6 +128,32 @@ namespace aspect
             material_profile.maybe_get_column_index_from_name("compressibility");
           profile_elastic_lame_lambda_index =
             material_profile.maybe_get_column_index_from_name("lame_lambda");
+
+          if (!ascii_profile_material_layer_boundaries.empty())
+            {
+              const std::vector<double> &profile_depths =
+                material_profile.get_interpolation_point_coordinates();
+              for (const double boundary :
+                   ascii_profile_material_layer_boundaries)
+                {
+                  AssertThrow(
+                    boundary > profile_depths.front()
+                    && boundary < profile_depths.back(),
+                    ExcMessage("Every material layer boundary must lie "
+                               "strictly inside the ASCII profile depth range."));
+                  AssertThrow(
+                    std::lower_bound(profile_depths.begin(),
+                                     profile_depths.end(),
+                                     boundary)
+                    != profile_depths.begin()
+                    && std::upper_bound(profile_depths.begin(),
+                                        profile_depths.end(),
+                                        boundary)
+                    != profile_depths.end(),
+                    ExcMessage("Every material layer boundary requires ASCII "
+                               "profile interpolation points on both sides."));
+                }
+            }
 
           if (enable_compressible_maxwell)
             {
@@ -251,8 +279,37 @@ namespace aspect
           Point<1> profile_position;
           if (use_ascii_profile)
             {
-              if (sample_ascii_profile_at_reference_cell_center)
-                profile_position = reference_cell_center_profile_position;
+              double profile_depth;
+              if (!ascii_profile_material_reference_position_field_indices.empty())
+                {
+                  Point<dim> material_reference_position;
+                  for (unsigned int d = 0; d < dim; ++d)
+                    {
+                      material_reference_position[d] =
+                        in.composition[i][
+                          ascii_profile_material_reference_position_field_indices[d]];
+                      AssertThrow(std::isfinite(material_reference_position[d]),
+                                  ExcMessage("A material reference position field "
+                                             "for the viscoelastic ASCII profile "
+                                             "contains a non-finite value."));
+                    }
+
+                  profile_depth =
+                    this->get_geometry_model().depth(
+                      material_reference_position);
+                }
+              else if (ascii_profile_material_reference_field_index
+                       != numbers::invalid_unsigned_int)
+                {
+                  profile_depth =
+                    in.composition[i][ascii_profile_material_reference_field_index];
+                  AssertThrow(std::isfinite(profile_depth),
+                              ExcMessage("The material reference field for the "
+                                         "viscoelastic ASCII profile contains "
+                                         "a non-finite value."));
+                }
+              else if (sample_ascii_profile_at_reference_cell_center)
+                profile_depth = reference_cell_center_profile_position[0];
               else
                 {
                   Point<dim> profile_sample_position = in.position[i];
@@ -275,9 +332,65 @@ namespace aspect
                         }
                     }
 
-                  profile_position[0] =
+                  profile_depth =
                     this->get_geometry_model().depth(profile_sample_position);
                 }
+
+              const std::vector<double> &profile_depths =
+                material_profile.get_interpolation_point_coordinates();
+              double minimum_profile_depth = profile_depths.front();
+              double maximum_profile_depth = profile_depths.back();
+
+              if (ascii_profile_material_layer_field_index
+                  != numbers::invalid_unsigned_int)
+                {
+                  const double layer_value =
+                    in.composition[i][ascii_profile_material_layer_field_index];
+                  AssertThrow(std::isfinite(layer_value),
+                              ExcMessage("The material layer field for the "
+                                         "viscoelastic ASCII profile contains "
+                                         "a non-finite value."));
+                  const long int rounded_layer = std::lround(layer_value);
+                  const unsigned int n_layers =
+                    ascii_profile_material_layer_boundaries.size() + 1;
+                  const unsigned int layer =
+                    static_cast<unsigned int>(
+                      std::clamp<long int>(rounded_layer,
+                                           0,
+                                           n_layers - 1));
+
+                  if (layer > 0)
+                    {
+                      const auto lower_sample =
+                        std::upper_bound(
+                          profile_depths.begin(),
+                          profile_depths.end(),
+                          ascii_profile_material_layer_boundaries[layer-1]);
+                      Assert(lower_sample != profile_depths.end(),
+                             ExcInternalError());
+                      minimum_profile_depth = *lower_sample;
+                    }
+
+                  if (layer < ascii_profile_material_layer_boundaries.size())
+                    {
+                      const auto upper_sample =
+                        std::lower_bound(
+                          profile_depths.begin(),
+                          profile_depths.end(),
+                          ascii_profile_material_layer_boundaries[layer]);
+                      Assert(upper_sample != profile_depths.begin(),
+                             ExcInternalError());
+                      maximum_profile_depth = *std::prev(upper_sample);
+                    }
+
+                  Assert(minimum_profile_depth <= maximum_profile_depth,
+                         ExcInternalError());
+                }
+
+              profile_position[0] =
+                std::clamp(profile_depth,
+                           minimum_profile_depth,
+                           maximum_profile_depth);
               out.densities[i] =
                 material_profile.get_data_component(profile_position, profile_density_index);
             }
@@ -492,6 +605,52 @@ namespace aspect
                              "reference cell, including discontinuous layered profiles. "
                              "It requires 'Use reference geometry for ascii profile = true'. "
                              "The default samples the profile at each evaluation point.");
+          prm.declare_entry ("Material reference field for ascii profile", "",
+                             Patterns::Anything(),
+                             "Optional name of a generic compositional field whose value "
+                             "is the material reference depth in meters. When set, density "
+                             "and rheological properties are sampled from the ASCII profile "
+                             "at this material label instead of at the current ALE position "
+                             "or a reference-mesh position. Use an advected finite-element "
+                             "field or a particle-mapped field so that the value follows the "
+                             "material with velocity u while the ALE mesh moves with velocity "
+                             "u_m. Values outside the profile depth range are clamped to its "
+                             "end points. For profiles with discontinuous jumps, also provide "
+                             "a particle-carried material layer field so interpolation errors "
+                             "cannot select the wrong side of a discontinuity. This option is "
+                             "mutually exclusive with both "
+                             "reference-geometry profile options.");
+          prm.declare_entry ("Material reference position fields for ascii profile", "",
+                             Patterns::Anything(),
+                             "Optional comma-separated names of dim generic compositional "
+                             "fields containing the Cartesian components of each material "
+                             "point's initial position. The fields must use the 'particles' "
+                             "method and should be mapped to the corresponding components of "
+                             "the particle property 'initial position'. This provides a "
+                             "Lagrangian material label while retaining an independent ALE "
+                             "mesh. The reference position is converted to depth by the "
+                             "geometry model before sampling the profile. For profiles with "
+                             "discontinuous jumps, also provide a particle-carried material "
+                             "layer field so coordinate interpolation cannot select the wrong "
+                             "side of a discontinuity. This option is "
+                             "mutually exclusive with the material-reference-depth field and "
+                             "both reference-geometry profile options.");
+          prm.declare_entry ("Material layer field for ascii profile", "",
+                             Patterns::Anything(),
+                             "Optional name of a generic particle-mapped compositional "
+                             "field containing an integer material-layer index, starting "
+                             "with zero at the shallowest layer. The layer identity limits "
+                             "profile sampling to the corresponding interval and prevents "
+                             "small ALE-coordinate or interpolation errors from crossing a "
+                             "material discontinuity. Enable the 'particles' postprocessor "
+                             "and use a non-averaging particle interpolator for this field.");
+          prm.declare_entry ("Material layer boundaries for ascii profile", "",
+                             Patterns::List(Patterns::Double(0.)),
+                             "Strictly increasing material-layer boundary depths in meters. "
+                             "The list defines N+1 layers for integer indices 0 through N "
+                             "stored in 'Material layer field for ascii profile'. Every "
+                             "boundary must lie strictly inside the ASCII profile range, "
+                             "with profile interpolation points on both sides.");
           aspect::Utilities::AsciiDataProfile<dim>::declare_parameters(prm,
                                                                        "$ASPECT_SOURCE_DIR/data/material-model/viscoelastic/",
                                                                        "viscoelastic_profile.txt",
@@ -582,6 +741,17 @@ namespace aspect
             prm.get_bool("Use reference geometry for ascii profile");
           use_reference_cell_center_for_ascii_profile =
             prm.get_bool("Use reference cell center for ascii profile");
+          ascii_profile_material_reference_field_name =
+            prm.get("Material reference field for ascii profile");
+          ascii_profile_material_reference_position_field_names =
+            Utilities::split_string_list(
+              prm.get("Material reference position fields for ascii profile"));
+          ascii_profile_material_layer_field_name =
+            prm.get("Material layer field for ascii profile");
+          ascii_profile_material_layer_boundaries =
+            Utilities::string_to_double(
+              Utilities::split_string_list(
+                prm.get("Material layer boundaries for ascii profile")));
           material_profile.parse_parameters(prm, "Ascii profile");
           enable_compressible_maxwell = prm.get_bool("Enable compressible Maxwell");
 
@@ -593,6 +763,142 @@ namespace aspect
                       || use_reference_geometry_for_ascii_profile,
                       ExcMessage("'Use reference cell center for ascii profile' "
                                  "requires 'Use reference geometry for ascii profile = true'."));
+          AssertThrow(ascii_profile_material_reference_field_name.empty()
+                      || use_ascii_profile,
+                      ExcMessage("'Material reference field for ascii profile' "
+                                 "requires 'Use ascii profile = true'."));
+          AssertThrow(ascii_profile_material_reference_field_name.empty()
+                      || (!use_reference_geometry_for_ascii_profile
+                          && !use_reference_cell_center_for_ascii_profile),
+                      ExcMessage("'Material reference field for ascii profile' "
+                                 "is mutually exclusive with the reference-geometry "
+                                 "and reference-cell-center profile options."));
+          AssertThrow(ascii_profile_material_reference_position_field_names.empty()
+                      || use_ascii_profile,
+                      ExcMessage("'Material reference position fields for ascii "
+                                 "profile' requires 'Use ascii profile = true'."));
+          AssertThrow(ascii_profile_material_reference_position_field_names.empty()
+                      || (ascii_profile_material_reference_field_name.empty()
+                          && !use_reference_geometry_for_ascii_profile
+                          && !use_reference_cell_center_for_ascii_profile),
+                      ExcMessage("'Material reference position fields for ascii "
+                                 "profile' is mutually exclusive with the material "
+                                 "reference depth field and both reference-geometry "
+                                 "profile options."));
+
+          if (!ascii_profile_material_reference_field_name.empty())
+            {
+              AssertThrow(this->introspection().compositional_name_exists(
+                            ascii_profile_material_reference_field_name),
+                          ExcMessage("The material reference field named '"
+                                     + ascii_profile_material_reference_field_name
+                                     + "' does not exist."));
+              ascii_profile_material_reference_field_index =
+                this->introspection().compositional_index_for_name(
+                  ascii_profile_material_reference_field_name);
+
+              AssertThrow(this->get_parameters().composition_descriptions[
+                            ascii_profile_material_reference_field_index].type
+                          == CompositionalFieldDescription::generic,
+                          ExcMessage("The material reference field for the "
+                                     "viscoelastic ASCII profile must have type "
+                                     "'generic'."));
+              const auto field_method =
+                this->get_parameters().compositional_field_methods[
+                  ascii_profile_material_reference_field_index];
+              AssertThrow(field_method == Parameters<dim>::AdvectionFieldMethod::fem_field
+                          || field_method == Parameters<dim>::AdvectionFieldMethod::particles,
+                          ExcMessage("The material reference field for the "
+                                     "viscoelastic ASCII profile must use either "
+                                     "the 'field' or 'particles' method so that it "
+                                     "follows material independently of the ALE mesh."));
+            }
+
+          if (!ascii_profile_material_reference_position_field_names.empty())
+            {
+              AssertThrow(
+                ascii_profile_material_reference_position_field_names.size()
+                == dim,
+                ExcMessage("'Material reference position fields for ascii "
+                           "profile' must list exactly "
+                           + std::to_string(dim)
+                           + " Cartesian component fields."));
+
+              ascii_profile_material_reference_position_field_indices.clear();
+              for (const std::string &field_name :
+                   ascii_profile_material_reference_position_field_names)
+                {
+                  AssertThrow(
+                    this->introspection().compositional_name_exists(field_name),
+                    ExcMessage("The material reference position field named '"
+                               + field_name + "' does not exist."));
+                  const unsigned int field_index =
+                    this->introspection().compositional_index_for_name(
+                      field_name);
+                  AssertThrow(
+                    this->get_parameters().composition_descriptions[
+                      field_index].type
+                    == CompositionalFieldDescription::generic,
+                    ExcMessage("Every material reference position field for "
+                               "the viscoelastic ASCII profile must have type "
+                               "'generic'."));
+                  AssertThrow(
+                    this->get_parameters().compositional_field_methods[
+                      field_index]
+                    == Parameters<dim>::AdvectionFieldMethod::particles,
+                    ExcMessage("Every material reference position field for "
+                               "the viscoelastic ASCII profile must use the "
+                               "'particles' method."));
+                  ascii_profile_material_reference_position_field_indices
+                  .push_back(field_index);
+                }
+            }
+
+          AssertThrow(
+            ascii_profile_material_layer_field_name.empty()
+            == ascii_profile_material_layer_boundaries.empty(),
+            ExcMessage("'Material layer field for ascii profile' and "
+                       "'Material layer boundaries for ascii profile' must "
+                       "either both be set or both be empty."));
+
+          if (!ascii_profile_material_layer_field_name.empty())
+            {
+              AssertThrow(use_ascii_profile,
+                          ExcMessage("'Material layer field for ascii profile' "
+                                     "requires 'Use ascii profile = true'."));
+              AssertThrow(
+                this->introspection().compositional_name_exists(
+                  ascii_profile_material_layer_field_name),
+                ExcMessage("The material layer field named '"
+                           + ascii_profile_material_layer_field_name
+                           + "' does not exist."));
+              ascii_profile_material_layer_field_index =
+                this->introspection().compositional_index_for_name(
+                  ascii_profile_material_layer_field_name);
+              AssertThrow(
+                this->get_parameters().composition_descriptions[
+                  ascii_profile_material_layer_field_index].type
+                == CompositionalFieldDescription::generic,
+                ExcMessage("The material layer field for the viscoelastic "
+                           "ASCII profile must have type 'generic'."));
+              AssertThrow(
+                this->get_parameters().compositional_field_methods[
+                  ascii_profile_material_layer_field_index]
+                == Parameters<dim>::AdvectionFieldMethod::particles,
+                ExcMessage("The material layer field for the viscoelastic "
+                           "ASCII profile must use the 'particles' method."));
+
+              AssertThrow(
+                std::is_sorted(
+                  ascii_profile_material_layer_boundaries.begin(),
+                  ascii_profile_material_layer_boundaries.end())
+                && std::adjacent_find(
+                  ascii_profile_material_layer_boundaries.begin(),
+                  ascii_profile_material_layer_boundaries.end())
+                == ascii_profile_material_layer_boundaries.end(),
+                ExcMessage("Material layer boundaries for the viscoelastic "
+                           "ASCII profile must be strictly increasing."));
+            }
 
           const std::string bulk_modulus_formulation =
             prm.get("Elastic bulk modulus formulation");

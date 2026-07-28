@@ -1,0 +1,56 @@
+# Verify that a particle-carried material-layer index prevents a profile
+# lookup from crossing a discontinuity. Every particle is assigned layer 0,
+# so both the top and bottom boundaries must sample the shallow 2800 kg/m^3
+# branch even though their current geometric depths straddle 50 km.
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/viscoelastic_ascii_profile_bulk_modulus.prm
+
+set End time         = 0
+set Output directory = output-viscoelastic-ascii-profile-material-layer-field
+
+subsection Compositional fields
+  set Number of fields = 7
+  set Names of fields  = ve_stress_xx, ve_stress_yy, ve_stress_xy, ve_stress_xx_old, ve_stress_yy_old, ve_stress_xy_old, material_layer
+  set Types of fields  = stress, stress, stress, stress, stress, stress, generic
+  set Compositional field methods = field, field, field, field, field, field, particles
+  set Mapped particle properties = material_layer:initial material_layer
+end
+
+subsection Initial composition model
+  subsection Function
+    set Function expression = 0; 0; 0; 0; 0; 0; 0
+  end
+end
+
+subsection Material model
+  subsection Viscoelastic
+    set Material layer field for ascii profile = material_layer
+    set Material layer boundaries for ascii profile = 5.0e4
+
+    subsection Ascii profile
+      set Data file name = viscoelastic_ascii_profile_reference_cell_center.txt
+    end
+  end
+end
+
+subsection Particles
+  set List of particle properties = initial composition
+  set Interpolation scheme = nearest neighbor
+  set Particle generator name = reference cell
+
+  subsection Generator
+    subsection Reference cell
+      set Number of particles per cell per direction = 2
+    end
+  end
+end
+
+subsection Postprocess
+  set List of postprocessors = boundary densities, particles
+
+  subsection Particles
+    set Data output format = none
+    set Time between data output = 0
+  end
+end

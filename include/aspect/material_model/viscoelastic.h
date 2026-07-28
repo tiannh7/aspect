@@ -282,6 +282,42 @@ namespace aspect
          */
         bool use_reference_cell_center_for_ascii_profile;
 
+        /**
+         * Optional generic compositional field whose value is the material's
+         * reference depth in meters. When set, the ASCII profile is sampled
+         * using this advected material label instead of a current or
+         * reference-mesh position.
+         */
+        std::string ascii_profile_material_reference_field_name;
+
+        /** Compositional index of the material-reference-depth field. */
+        unsigned int ascii_profile_material_reference_field_index;
+
+        /**
+         * Optional generic compositional fields that contain the Cartesian
+         * components of a material point's initial position. These are
+         * intended to be mapped from the particle property `initial position'.
+         */
+        std::vector<std::string>
+        ascii_profile_material_reference_position_field_names;
+
+        /** Compositional indices of the material-reference-position fields. */
+        std::vector<unsigned int>
+        ascii_profile_material_reference_position_field_indices;
+
+        /**
+         * Optional generic compositional field that stores a discrete
+         * material-layer index. The index prevents small coordinate errors
+         * from sampling across discontinuities in a layered profile.
+         */
+        std::string ascii_profile_material_layer_field_name;
+
+        /** Compositional index of the discrete material-layer field. */
+        unsigned int ascii_profile_material_layer_field_index;
+
+        /** Depths of the boundaries between consecutive material layers. */
+        std::vector<double> ascii_profile_material_layer_boundaries;
+
         /** Optional one-dimensional material profile. */
         aspect::Utilities::AsciiDataProfile<dim> material_profile;
 

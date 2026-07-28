@@ -1,0 +1,36 @@
+# Verify that a viscoelastic ASCII material profile can be sampled using an
+# independently advected material-reference-depth field. The field deliberately
+# differs from both the current and undeformed geometric depth.
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/viscoelastic_ascii_profile_bulk_modulus.prm
+
+set End time         = 0
+set Output directory = output-viscoelastic-ascii-profile-material-reference-field
+
+subsection Mesh deformation
+  set Mesh deformation boundary indicators = top: prescribed material-reference-field deformation
+end
+
+subsection Compositional fields
+  set Number of fields = 7
+  set Names of fields  = ve_stress_xx, ve_stress_yy, ve_stress_xy, ve_stress_xx_old, ve_stress_yy_old, ve_stress_xy_old, material_reference_depth
+  set Types of fields  = stress, stress, stress, stress, stress, stress, generic
+  set Compositional field methods = field, field, field, field, field, field, field
+end
+
+subsection Initial composition model
+  subsection Function
+    set Function expression = 0; 0; 0; 0; 0; 0; 1.0e4 + 0.2*x + 0.1*y
+  end
+end
+
+subsection Material model
+  subsection Viscoelastic
+    set Material reference field for ascii profile = material_reference_depth
+  end
+end
+
+subsection Postprocess
+  set List of postprocessors = ascii profile material reference field
+end
