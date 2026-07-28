@@ -274,6 +274,14 @@ namespace aspect
          */
         bool use_reference_geometry_for_ascii_profile;
 
+        /**
+         * Whether all material evaluation points in a cell sample the ASCII
+         * profile at the center of that cell on the undeformed reference mesh.
+         * This represents elemental profiles whose properties belong to a
+         * reference cell rather than to an interpolated spatial point.
+         */
+        bool use_reference_cell_center_for_ascii_profile;
+
         /** Optional one-dimensional material profile. */
         aspect::Utilities::AsciiDataProfile<dim> material_profile;
 

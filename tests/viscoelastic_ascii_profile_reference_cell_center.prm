@@ -1,0 +1,29 @@
+# Verify cell-owned sampling of a discontinuous viscoelastic ASCII profile.
+# The Q2/DG support-point quadrature includes the interface at 50 km depth,
+# where point sampling would interpolate between the two layers. Cell-center
+# sampling must instead return the value owned by each reference cell.
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/viscoelastic_ascii_profile_bulk_modulus.prm
+
+set End time         = 0
+set Output directory = output-viscoelastic-ascii-profile-reference-cell-center
+
+subsection Mesh deformation
+  set Mesh deformation boundary indicators = top: prescribed reference-cell deformation
+end
+
+subsection Material model
+  subsection Viscoelastic
+    set Use reference geometry for ascii profile    = true
+    set Use reference cell center for ascii profile = true
+
+    subsection Ascii profile
+      set Data file name = viscoelastic_ascii_profile_reference_cell_center.txt
+    end
+  end
+end
+
+subsection Postprocess
+  set List of postprocessors = ascii profile reference cell center
+end

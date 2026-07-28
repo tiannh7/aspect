@@ -90,6 +90,7 @@ namespace aspect
       :
       use_ascii_profile(false),
       use_reference_geometry_for_ascii_profile(false),
+      use_reference_cell_center_for_ascii_profile(false),
       profile_density_index(numbers::invalid_unsigned_int),
       profile_viscosity_index(numbers::invalid_unsigned_int),
       profile_elastic_shear_modulus_index(numbers::invalid_unsigned_int),
@@ -190,17 +191,38 @@ namespace aspect
       EquationOfStateOutputs<dim> eos_outputs (this->introspection().get_number_of_fields_of_type(CompositionalFieldDescription::chemical_composition)+1);
 
       const std::shared_ptr<MaterialModel::AdditionalMaterialOutputsStokesRHS<dim>>
-      additional_stokes_rhs =
-        out.template get_additional_output_object<MaterialModel::AdditionalMaterialOutputsStokesRHS<dim>>();
+                                                                                 additional_stokes_rhs =
+                                                                                   out.template get_additional_output_object<MaterialModel::AdditionalMaterialOutputsStokesRHS<dim>>();
 
       std::vector<double> average_elastic_shear_moduli (in.n_evaluation_points());
       std::vector<double> elastic_shear_moduli(elastic_rheology.get_elastic_shear_moduli());
       std::vector<double> average_elastic_bulk_moduli(in.n_evaluation_points(),
                                                       numbers::signaling_nan<double>());
       const std::shared_ptr<const ViscoelasticAsciiProfileReferencePositions<dim>>
-      reference_positions =
-        in.template get_additional_input_object<
-        ViscoelasticAsciiProfileReferencePositions<dim>>();
+                                                                                reference_positions =
+                                                                                  in.template get_additional_input_object<
+                                                                                  ViscoelasticAsciiProfileReferencePositions<dim>>();
+
+      Point<1> reference_cell_center_profile_position;
+      const bool sample_ascii_profile_at_reference_cell_center =
+        use_ascii_profile
+        && use_reference_cell_center_for_ascii_profile
+        && this->get_parameters().mesh_deformation_enabled
+        && in.current_cell.state() == IteratorState::valid;
+
+      if (sample_ascii_profile_at_reference_cell_center)
+        {
+          Assert(ascii_profile_reference_mapping != nullptr,
+                 ExcInternalError());
+          Point<dim> unit_cell_center;
+          for (unsigned int d = 0; d < dim; ++d)
+            unit_cell_center[d] = 0.5;
+          const Point<dim> reference_cell_center =
+            ascii_profile_reference_mapping->transform_unit_to_real_cell(in.current_cell,
+                                                                         unit_cell_center);
+          reference_cell_center_profile_position[0] =
+            this->get_geometry_model().depth(reference_cell_center);
+        }
 
       for (unsigned int i=0; i < in.n_evaluation_points(); ++i)
         {
@@ -229,28 +251,33 @@ namespace aspect
           Point<1> profile_position;
           if (use_ascii_profile)
             {
-              Point<dim> profile_sample_position = in.position[i];
-              if (use_reference_geometry_for_ascii_profile
-                  && this->get_parameters().mesh_deformation_enabled
-                  && in.current_cell.state() == IteratorState::valid)
+              if (sample_ascii_profile_at_reference_cell_center)
+                profile_position = reference_cell_center_profile_position;
+              else
                 {
-                  if (reference_positions != nullptr)
-                    profile_sample_position = reference_positions->positions[i];
-                  else
+                  Point<dim> profile_sample_position = in.position[i];
+                  if (use_reference_geometry_for_ascii_profile
+                      && this->get_parameters().mesh_deformation_enabled
+                      && in.current_cell.state() == IteratorState::valid)
                     {
-                      Assert(ascii_profile_reference_mapping != nullptr,
-                             ExcInternalError());
-                      const Point<dim> unit_position =
-                        this->get_mapping().transform_real_to_unit_cell(in.current_cell,
-                                                                        in.position[i]);
-                      profile_sample_position =
-                        ascii_profile_reference_mapping->transform_unit_to_real_cell(in.current_cell,
-                                                                                     unit_position);
+                      if (reference_positions != nullptr)
+                        profile_sample_position = reference_positions->positions[i];
+                      else
+                        {
+                          Assert(ascii_profile_reference_mapping != nullptr,
+                                 ExcInternalError());
+                          const Point<dim> unit_position =
+                            this->get_mapping().transform_real_to_unit_cell(in.current_cell,
+                                                                            in.position[i]);
+                          profile_sample_position =
+                            ascii_profile_reference_mapping->transform_unit_to_real_cell(in.current_cell,
+                                                                                         unit_position);
+                        }
                     }
-                }
 
-              profile_position[0] =
-                this->get_geometry_model().depth(profile_sample_position);
+                  profile_position[0] =
+                    this->get_geometry_model().depth(profile_sample_position);
+                }
               out.densities[i] =
                 material_profile.get_data_component(profile_position, profile_density_index);
             }
@@ -353,7 +380,7 @@ namespace aspect
       if (enable_compressible_maxwell)
         {
           const std::shared_ptr<MaterialModel::ElasticOutputs<dim>> elastic_outputs =
-            out.template get_additional_output_object<MaterialModel::ElasticOutputs<dim>>();
+                                                                   out.template get_additional_output_object<MaterialModel::ElasticOutputs<dim>>();
           if (elastic_outputs != nullptr)
             elastic_outputs->elastic_bulk_moduli = average_elastic_bulk_moduli;
         }
@@ -376,7 +403,7 @@ namespace aspect
       if (use_radial_displacement_history)
         {
           const std::shared_ptr<ReactionRateOutputs<dim>> reaction_rate_out =
-            out.template get_additional_output_object<ReactionRateOutputs<dim>>();
+                                                         out.template get_additional_output_object<ReactionRateOutputs<dim>>();
 
           if (reaction_rate_out != nullptr
               && in.current_cell.state() == IteratorState::valid
@@ -456,6 +483,15 @@ namespace aspect
                              "layered models whose material interfaces should remain attached "
                              "to their reference mesh layers while the ALE mesh deforms. The "
                              "default preserves the existing current-geometry behavior.");
+          prm.declare_entry ("Use reference cell center for ascii profile", "false",
+                             Patterns::Bool(),
+                             "Whether all material evaluation points in a cell sample "
+                             "the ASCII profile at the center of that cell on the "
+                             "undeformed reference mesh. This is intended for elemental "
+                             "profiles whose density and rheology are assigned once per "
+                             "reference cell, including discontinuous layered profiles. "
+                             "It requires 'Use reference geometry for ascii profile = true'. "
+                             "The default samples the profile at each evaluation point.");
           aspect::Utilities::AsciiDataProfile<dim>::declare_parameters(prm,
                                                                        "$ASPECT_SOURCE_DIR/data/material-model/viscoelastic/",
                                                                        "viscoelastic_profile.txt",
@@ -544,6 +580,8 @@ namespace aspect
           use_ascii_profile = prm.get_bool("Use ascii profile");
           use_reference_geometry_for_ascii_profile =
             prm.get_bool("Use reference geometry for ascii profile");
+          use_reference_cell_center_for_ascii_profile =
+            prm.get_bool("Use reference cell center for ascii profile");
           material_profile.parse_parameters(prm, "Ascii profile");
           enable_compressible_maxwell = prm.get_bool("Enable compressible Maxwell");
 
@@ -551,6 +589,10 @@ namespace aspect
                       || use_ascii_profile,
                       ExcMessage("'Use reference geometry for ascii profile' "
                                  "requires 'Use ascii profile = true'."));
+          AssertThrow(!use_reference_cell_center_for_ascii_profile
+                      || use_reference_geometry_for_ascii_profile,
+                      ExcMessage("'Use reference cell center for ascii profile' "
+                                 "requires 'Use reference geometry for ascii profile = true'."));
 
           const std::string bulk_modulus_formulation =
             prm.get("Elastic bulk modulus formulation");
