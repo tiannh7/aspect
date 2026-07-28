@@ -73,6 +73,26 @@ namespace aspect
                                                           const IndexSet &mesh_locally_relevant,
                                                           LinearAlgebra::Vector &output) const
     {
+      project_boundary_field_onto_boundary(mesh_deformation_dof_handler,
+                                           mesh_locally_owned,
+                                           mesh_locally_relevant,
+                                           {},
+                                           true,
+                                           output);
+    }
+
+
+
+    template <int dim>
+    void FreeSurface<dim>::project_boundary_field_onto_boundary(
+      const DoFHandler<dim> &mesh_deformation_dof_handler,
+      const IndexSet &mesh_locally_owned,
+      const IndexSet &mesh_locally_relevant,
+      const std::function<Tensor<1,dim>(const Point<dim> &,
+                                        const Tensor<1,dim> &)> &field,
+      const bool project_along_surface_direction,
+      LinearAlgebra::Vector &output) const
+    {
       // TODO: should we use the extrapolated solution?
 
       // stuff for iterating over the mesh
@@ -150,22 +170,21 @@ namespace aspect
                 fscell->get_dof_indices (cell_dof_indices);
                 fs_fe_face_values.reinit (fscell, face_no);
                 fe_face_values.reinit (cell, face_no);
-                fe_face_values[this->introspection().extractors.velocities].get_function_values(this->get_solution(), velocity_values);
+                if (!field)
+                  fe_face_values[this->introspection().extractors.velocities]
+                  .get_function_values(this->get_solution(), velocity_values);
 
                 cell_vector = 0;
                 cell_matrix = 0;
                 for (unsigned int q=0; q<n_face_q_points; ++q)
                   {
-                    // Select the direction onto which to project the velocity solution
-                    Tensor<1,dim> direction;
-                    if ( advection_direction == SurfaceAdvection::normal ) // project onto normal vector
-                      direction = fs_fe_face_values.normal_vector(q);
-                    else if ( advection_direction == SurfaceAdvection::vertical ) // project onto local gravity
-                      direction = this->get_gravity_model().gravity_vector(fs_fe_face_values.quadrature_point(q));
-                    else
-                      AssertThrow(false, ExcInternalError());
+                    const Tensor<1,dim> direction =
+                      projection_direction(fs_fe_face_values.quadrature_point(q),
+                                           fs_fe_face_values.normal_vector(q));
 
-                    direction *= ( direction.norm() > 0.0 ? 1./direction.norm() : 0.0 );
+                    if (field)
+                      velocity_values[q] = field(fs_fe_face_values.quadrature_point(q),
+                                                 fs_fe_face_values.normal_vector(q));
 
                     const double JxW = fs_fe_face_values.JxW(q);
 
@@ -182,8 +201,10 @@ namespace aspect
                                                 JxW;
                           }
 
-                        cell_vector(i) += (phi_u[i] * direction)
-                                          * (velocity_values[q] * direction)
+                        cell_vector(i) += (project_along_surface_direction
+                                           ? (phi_u[i] * direction)
+                                           * (velocity_values[q] * direction)
+                                           : phi_u[i] * velocity_values[q])
                                           * JxW;
                       }
                   }
@@ -221,6 +242,25 @@ namespace aspect
 
       mass_matrix_constraints.distribute (dist_solution);
       output = dist_solution;
+    }
+
+
+
+    template <int dim>
+    Tensor<1,dim>
+    FreeSurface<dim>::projection_direction(const Point<dim> &position,
+                                           const Tensor<1,dim> &normal) const
+    {
+      Tensor<1,dim> direction;
+      if (advection_direction == SurfaceAdvection::normal)
+        direction = normal;
+      else if (advection_direction == SurfaceAdvection::vertical)
+        direction = this->get_gravity_model().gravity_vector(position);
+      else
+        AssertThrow(false, ExcInternalError());
+
+      direction *= (direction.norm() > 0.0 ? 1.0 / direction.norm() : 0.0);
+      return direction;
     }
 
 

@@ -362,6 +362,37 @@ namespace aspect
         get_projected_free_surface_velocity (const bool force_refresh = false) const;
 
         /**
+         * Apply the inverse mesh-space boundary mass matrix used by the exact
+         * production free-surface projector to a supplied boundary vector
+         * field. If project_along_surface_direction is true, the field is
+         * projected exactly as a Stokes velocity is; otherwise its full vector
+         * action supplies the mesh-space dual load.
+         */
+        LinearAlgebra::Vector
+        project_free_surface_boundary_field (
+          const std::function<Tensor<1,dim>(const Point<dim> &,
+                                            const Tensor<1,dim> &)> &field,
+          const bool project_along_surface_direction) const;
+
+        /** Return the normal/vertical direction used by the free-surface projector. */
+        Tensor<1,dim>
+        free_surface_projection_direction (const Point<dim> &position,
+                                           const Tensor<1,dim> &normal) const;
+
+        /**
+         * Return a mesh-space field q=M_m^{-T}c for the radial surface
+         * potential load c. The load uses the exact current mapping and
+         * production free-surface quadrature.
+         */
+        LinearAlgebra::Vector
+        surface_potential_adjoint_field (
+          const std::function<double(const Point<dim> &,
+                                     const Tensor<1,dim> &)> &potential_load) const;
+
+        /** Invalidate the cached adjoint load after a potential update. */
+        void invalidate_surface_potential_adjoint_field () const;
+
+        /**
          * Return the DoFHandler used to represent the mesh deformation space.
          */
         const DoFHandler<dim> &
@@ -534,6 +565,8 @@ namespace aspect
         /** Boundary velocity shared by post-Stokes predictors and ALE. */
         mutable LinearAlgebra::Vector projected_free_surface_velocity;
         mutable bool projected_free_surface_velocity_is_valid;
+        mutable LinearAlgebra::Vector surface_potential_adjoint;
+        mutable bool surface_potential_adjoint_is_valid = false;
 
         /**
          * Vector for storing the positions of the mesh vertices at the initial timestep.

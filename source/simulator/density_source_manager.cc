@@ -25,11 +25,13 @@
 
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/fe/fe_values.h>
+#include <deal.II/fe/mapping_q1.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>
+#include <memory>
 
 namespace aspect
 {
@@ -427,7 +429,8 @@ namespace aspect
   double
   DensitySourceManager<dim>::mechanical_radial_displacement(
     const MaterialModel::MaterialModelInputs<dim> &inputs,
-    const unsigned int q) const
+    const unsigned int q,
+    const bool include_current_velocity_increment) const
   {
     AssertIndexRange(q, inputs.position.size());
     AssertIndexRange(q, inputs.velocity.size());
@@ -448,6 +451,9 @@ namespace aspect
         && initial_mechanical_history_includes_current_solution)
       return committed_displacement;
 
+    if (!include_current_velocity_increment)
+      return committed_displacement;
+
     return committed_displacement
            + effective_mechanical_time_step()
            * (inputs.velocity[q] * radial_unit);
@@ -460,7 +466,8 @@ namespace aspect
   DensitySourceManager<dim>::density_perturbation(
     const MaterialModel::MaterialModelInputs<dim> &inputs,
     const MaterialModel::MaterialModelOutputs<dim> &outputs,
-    const unsigned int q) const
+    const unsigned int q,
+    const bool include_current_velocity_increment) const
   {
     const auto law = this->get_parameters().density_source_law;
     AssertIndexRange(q, inputs.position.size());
@@ -487,7 +494,9 @@ namespace aspect
       reference_density(inputs.position[q])
       * inputs.pressure[q]
       / elastic_bulk_modulus(outputs, q)
-      - mechanical_radial_displacement(inputs, q)
+      - mechanical_radial_displacement(inputs,
+                                       q,
+                                       include_current_velocity_increment)
       * radial_density_gradient;
   }
 
@@ -523,7 +532,8 @@ namespace aspect
     const MaterialModel::MaterialModelInputs<dim> &inputs,
     const MaterialModel::MaterialModelOutputs<dim> &outputs,
     const unsigned int q,
-    const double legacy_reference_density) const
+    const double legacy_reference_density,
+    const bool include_current_velocity_increment) const
   {
     const auto law = this->get_parameters().density_source_law;
 
@@ -536,7 +546,10 @@ namespace aspect
     if (law == Parameters<dim>::Formulation::DensitySourceLaw::zero_volume_perturbation)
       return 0.0;
 
-    return density_perturbation(inputs, outputs, q);
+    return density_perturbation(inputs,
+                                outputs,
+                                q,
+                                include_current_velocity_increment);
   }
 
 
@@ -576,7 +589,8 @@ namespace aspect
     const double legacy_reference_density,
     const std::string &volume_source_discretization,
     const std::function<void(const double,
-                             const Point<dim> &)> &consumer) const
+                             const Point<dim> &)> &consumer,
+    const bool include_current_velocity_increment) const
   {
     if (this->get_parameters().density_source_law
         == Parameters<dim>::Formulation::DensitySourceLaw::zero_volume_perturbation)
@@ -593,7 +607,24 @@ namespace aspect
       std::max(2u,
                this->introspection().polynomial_degree.temperature + 1u);
     const QGauss<dim> quadrature_formula(quadrature_degree);
-    FEValues<dim> fe_values(this->get_mapping(),
+
+    std::unique_ptr<Mapping<dim>> reference_mapping;
+    const bool use_reference_geometry =
+      this->get_parameters().use_reference_geometry_for_reference_density_sources
+      && (this->get_parameters().density_source_law
+          == Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation);
+    if (use_reference_geometry)
+      {
+        if (this->get_geometry_model().has_curved_elements())
+          reference_mapping = std::make_unique<MappingQGeneric<dim>>(4);
+        else
+          reference_mapping = std::make_unique<MappingQ1<dim>>();
+      }
+
+    const Mapping<dim> &source_mapping =
+      (use_reference_geometry ? *reference_mapping : this->get_mapping());
+
+    FEValues<dim> fe_values(source_mapping,
                             this->get_fe(),
                             quadrature_formula,
                             update_values |
@@ -683,7 +714,8 @@ namespace aspect
                     inputs,
                     outputs,
                     q,
-                    legacy_reference_density);
+                    legacy_reference_density,
+                    include_current_velocity_increment);
               const double cell_average_density_anomaly =
                 cell_density_anomaly_sum
                 / static_cast<double>(quadrature_formula.size());
@@ -772,7 +804,8 @@ namespace aspect
                       inputs,
                       outputs,
                       q,
-                      legacy_reference_density);
+                      legacy_reference_density,
+                      include_current_velocity_increment);
                   cell_density_anomaly_integral +=
                     density_anomalies[q] * fe_values.JxW(q);
                   cell_density_anomaly_sum += density_anomalies[q];
@@ -861,8 +894,12 @@ namespace aspect
         == Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation
         && has_internal_density_jumps())
       {
-        const QGauss<dim-1> face_quadrature_formula(quadrature_degree);
-        FEFaceValues<dim> face_values(this->get_mapping(),
+        // Use the same face quadrature as the Stokes restoring term. The
+        // displaced sheet is the mass counterpart of the radial trace of the
+        // Stokes velocity increment, not of the temperature field.
+        const Quadrature<dim-1> &face_quadrature_formula =
+          this->introspection().face_quadratures.velocities;
+        FEFaceValues<dim> face_values(source_mapping,
                                       this->get_fe(),
                                       face_quadrature_formula,
                                       update_values |
@@ -924,7 +961,10 @@ namespace aspect
                   {
                     const double surface_density =
                       density_contrast
-                      * mechanical_radial_displacement(face_inputs, q);
+                      * mechanical_radial_displacement(
+                        face_inputs,
+                        q,
+                        include_current_velocity_increment);
                     if (surface_density != 0.0)
                       consumer(surface_density * face_values.JxW(q),
                                face_inputs.position[q]);
@@ -939,7 +979,8 @@ namespace aspect
   typename DensitySourceManager<dim>::InternalMassMoments
   DensitySourceManager<dim>::compute_internal_mass_moments(
     const double legacy_reference_density,
-    const std::string &volume_source_discretization) const
+    const std::string &volume_source_discretization,
+    const bool include_current_velocity_increment) const
   {
     InternalMassMoments local_moments;
 
@@ -956,7 +997,8 @@ namespace aspect
         mass
         * (position.norm_square() * unit_symmetric_tensor<dim>()
            - symmetrize(outer_product(position, position)));
-    });
+    },
+    include_current_velocity_increment);
 
     InternalMassMoments global_moments;
     global_moments.mass_dipole =

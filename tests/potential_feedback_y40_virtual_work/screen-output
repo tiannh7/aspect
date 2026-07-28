@@ -1,0 +1,76 @@
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+
+Loading shared library <./libpotential_feedback_y40_virtual_work.release.so>
+
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+Number of active cells: 96 (on 1 levels)
+Number of degrees of freedom: 9,406 (2,910+150+970+768+768+768+768+768+768+768)
+
+Number of mesh deformation degrees of freedom: 2,910
+   Solving mesh displacement system... 0 iterations.
+*** Timestep 0:  t=0 seconds, dt=0 seconds
+      Coupled center-of-mass constraint: dipole pre [kg m]=(5.097709e-14,-6.152478e-14,-5.337093e-14), translation [m]=(1.352209e-15,-1.631995e-15,-1.415708e-15), dipole residual [kg m]=(3.438964e-32,-1.308440e-30,3.691953e-31), volume source=quadrature point
+   Solving mesh displacement system... 0 iterations.
+   Skipping temperature solve because RHS is zero.
+   Skipping ve_stress_xx assembly and solve because timestep 0.
+   Skipping ve_stress_yy assembly and solve because timestep 0.
+   Skipping ve_stress_zz assembly and solve because timestep 0.
+   Skipping ve_stress_xy assembly and solve because timestep 0.
+   Skipping ve_stress_xz assembly and solve because timestep 0.
+   Skipping ve_stress_yz assembly and solve because timestep 0.
+   Solving Stokes system (GMG)... 56+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=3.713095e-10, relative COM coefficient change=5.514056e-02, absolute COM coefficient change [m]=2.448733e-15
+PROJECTION_ADJOINT_WORK solve=0 timestep=0 nonlinear=0 degree=2 source_action=-1.9033413376642229e-11 reverse_action=-1.9033413373357398e-11 direct_normal_action=-1.2468048870482258e-11 relative_residual=1.7258234677481683e-10
+PROJECTION_ADJOINT_WORK solve=0 timestep=0 nonlinear=0 degree=4 source_action=-1.0259131385460559e-13 reverse_action=-1.0259138166854289e-13 direct_normal_action=-7.4775605246989901e-14 relative_residual=6.6101007896914008e-07
+Y40WORK solve=0 timestep=0 nonlinear=0 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=volume_full_domain_potential_rhs work=1.8819617519695856e-19
+Y40WORK solve=0 timestep=0 nonlinear=0 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=volume_local_history_rhs work=0.0000000000000000e+00
+Y40WORK solve=0 timestep=0 nonlinear=0 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=volume_local_current_lhs work=2.6674532570822082e-24
+Y40WORK solve=0 timestep=0 nonlinear=0 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=internal_jump_potential_rhs work=0.0000000000000000e+00
+Y40WORK solve=0 timestep=0 nonlinear=0 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=internal_jump_history_rhs work=0.0000000000000000e+00
+Y40WORK solve=0 timestep=0 nonlinear=0 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=internal_jump_current_lhs work=0.0000000000000000e+00
+Y40WORK solve=0 timestep=0 nonlinear=0 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=boundary_self_gravity_potential_rhs work=2.4998625226748480e-19
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 1: 1.401539e+05
+
+   Solving Stokes system (GMG)... 50+0 iterations.
+      Coupled center-of-mass constraint: dipole pre [kg m]=(3.933648e-15,-2.425713e-15,-2.995936e-16), translation [m]=(1.043432e-16,-6.434404e-17,-7.946967e-18), dipole residual [kg m]=(5.845586e-32,-2.318984e-31,-9.950231e-33), volume source=quadrature point
+      Self-gravity potential update: relative SH coefficient change=2.550536e-13, relative COM coefficient change=1.578889e-06, absolute COM coefficient change [m]=7.011675e-20
+PROJECTION_ADJOINT_WORK solve=1 timestep=0 nonlinear=1 degree=2 source_action=-1.9024317619634548e-11 reverse_action=-1.9024317616311921e-11 direct_normal_action=-1.2462937153661070e-11 relative_residual=1.7465153071546633e-10
+PROJECTION_ADJOINT_WORK solve=1 timestep=0 nonlinear=1 degree=4 source_action=-5.1417683523372504e-14 reverse_action=-5.1417763367061159e-14 direct_normal_action=-4.9797067687402567e-14 relative_residual=1.5528425086298277e-06
+Y40WORK solve=1 timestep=0 nonlinear=1 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=volume_full_domain_potential_rhs work=1.8819617510914812e-19
+Y40WORK solve=1 timestep=0 nonlinear=1 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=volume_local_history_rhs work=0.0000000000000000e+00
+Y40WORK solve=1 timestep=0 nonlinear=1 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=volume_local_current_lhs work=7.8825555738904233e-25
+Y40WORK solve=1 timestep=0 nonlinear=1 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=internal_jump_potential_rhs work=0.0000000000000000e+00
+Y40WORK solve=1 timestep=0 nonlinear=1 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=internal_jump_history_rhs work=0.0000000000000000e+00
+Y40WORK solve=1 timestep=0 nonlinear=1 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=internal_jump_current_lhs work=0.0000000000000000e+00
+Y40WORK solve=1 timestep=0 nonlinear=1 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=boundary_self_gravity_potential_rhs work=2.4998625235691049e-19
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 2: 1.364029e-02
+
+   Solving Stokes system (GMG)... 0+0 iterations.
+      Coupled center-of-mass constraint: dipole pre [kg m]=(3.933648e-15,-2.425713e-15,-2.995936e-16), translation [m]=(1.043432e-16,-6.434404e-17,-7.946967e-18), dipole residual [kg m]=(5.845586e-32,-2.318984e-31,-9.950231e-33), volume source=quadrature point
+      Self-gravity potential update: relative SH coefficient change=0.000000e+00, relative COM coefficient change=0.000000e+00, absolute COM coefficient change [m]=0.000000e+00
+PROJECTION_ADJOINT_WORK solve=2 timestep=0 nonlinear=2 degree=2 source_action=-1.9024317619634551e-11 reverse_action=-1.9024317616311921e-11 direct_normal_action=-1.2462937153661070e-11 relative_residual=1.7465170055989029e-10
+PROJECTION_ADJOINT_WORK solve=2 timestep=0 nonlinear=2 degree=4 source_action=-5.1417683523372226e-14 reverse_action=-5.1417763367060730e-14 direct_normal_action=-4.9797067687402719e-14 relative_residual=1.5528425056841410e-06
+Y40WORK solve=2 timestep=0 nonlinear=2 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=volume_full_domain_potential_rhs work=1.8819617510914812e-19
+Y40WORK solve=2 timestep=0 nonlinear=2 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=volume_local_history_rhs work=0.0000000000000000e+00
+Y40WORK solve=2 timestep=0 nonlinear=2 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=volume_local_current_lhs work=7.8825555738902488e-25
+Y40WORK solve=2 timestep=0 nonlinear=2 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=internal_jump_potential_rhs work=0.0000000000000000e+00
+Y40WORK solve=2 timestep=0 nonlinear=2 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=internal_jump_history_rhs work=0.0000000000000000e+00
+Y40WORK solve=2 timestep=0 nonlinear=2 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=internal_jump_current_lhs work=0.0000000000000000e+00
+Y40WORK solve=2 timestep=0 nonlinear=2 timing=post_stokes_solution_current_feedback_state projection=y40_orthogonal_to_sampled_y20 channel=boundary_self_gravity_potential_rhs work=2.4998625235691049e-19
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 3: 5.364285e-06
+
+
+   Postprocessing:
+
+Termination requested by criterion: end time
+
+
++----------------------------------------------------------+------------+------------+
++----------------------------------------------+-----------+------------+------------+
++----------------------------------------------+-----------+------------+------------+
+
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------

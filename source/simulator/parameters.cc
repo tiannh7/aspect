@@ -951,6 +951,56 @@ namespace aspect
                            "jumps instead use adjacent cell identities and remain active under "
                            "mesh deformation. This value must be positive. "
                            "Units: m.");
+        prm.declare_entry ("Enable internal density jump restoring", "true",
+                           Patterns::Bool(),
+                           "Whether mechanical mass conservation assembles the "
+                           "local Stokes restoring term from displaced internal "
+                           "density interfaces. The default is true. This "
+                           "diagnostic switch does not disable the corresponding "
+                           "internal sheet mass source used by self-gravity and "
+                           "geoid diagnostics.");
+        prm.declare_entry ("Enable mechanical volume restoring", "true",
+                           Patterns::Bool(),
+                           "Whether mechanical mass conservation assembles the "
+                           "local volume restoring terms associated with radial "
+                           "material-displacement history and pressure-induced "
+                           "density perturbations. The default is true. This "
+                           "diagnostic switch does not disable boundary or "
+                           "internal-interface sheet restoring terms.");
+        prm.declare_entry ("Enable mechanical pressure volume restoring", "true",
+                           Patterns::Bool(),
+                           "Whether mechanical mass conservation assembles the "
+                           "pressure-induced local volume restoring coupling. "
+                           "The default is true. This diagnostic switch is "
+                           "applied only when mechanical volume restoring is "
+                           "enabled.");
+        prm.declare_entry ("Enable mechanical radial volume restoring", "true",
+                           Patterns::Bool(),
+                           "Whether mechanical mass conservation assembles the "
+                           "radial-displacement local volume restoring coupling. "
+                           "The default is true. This diagnostic switch is "
+                           "applied only when mechanical volume restoring is "
+                           "enabled.");
+        prm.declare_entry ("Enable full domain potential force", "true",
+                           Patterns::Bool(),
+                           "Whether mechanical mass conservation applies the "
+                           "full-domain self-gravity potential to the "
+                           "reference-density force in the Stokes right-hand "
+                           "side. This includes the equivalent smooth-volume "
+                           "and internal density-jump terms from integration "
+                           "by parts, but does not disable the surface or CMB "
+                           "potential tractions. The default is true.");
+        prm.declare_entry ("Use reference geometry for reference-state density sources", "false",
+                           Patterns::Bool(),
+                           "Whether mechanical-mass-conservation internal "
+                           "volume sources and displaced internal density "
+                           "sheets are integrated on the undeformed reference "
+                           "mesh instead of the current ALE mapping. The "
+                           "radial material displacement is still taken from "
+                           "the viscoelastic displacement history and, when "
+                           "requested by the caller, the current velocity "
+                           "increment. This diagnostic option is disabled by "
+                           "default and does not affect surface or CMB sheets.");
       }
       prm.leave_subsection();
 
@@ -2135,6 +2185,18 @@ namespace aspect
                                                     Utilities::split_string_list(prm.get("Internal density jump density contrasts")));
         internal_density_jump_face_tolerance =
           prm.get_double("Internal density jump face tolerance");
+        enable_internal_density_jump_restoring =
+          prm.get_bool("Enable internal density jump restoring");
+        enable_mechanical_volume_restoring =
+          prm.get_bool("Enable mechanical volume restoring");
+        enable_mechanical_pressure_volume_restoring =
+          prm.get_bool("Enable mechanical pressure volume restoring");
+        enable_mechanical_radial_volume_restoring =
+          prm.get_bool("Enable mechanical radial volume restoring");
+        enable_full_domain_potential_force =
+          prm.get_bool("Enable full domain potential force");
+        use_reference_geometry_for_reference_density_sources =
+          prm.get_bool("Use reference geometry for reference-state density sources");
       }
       prm.leave_subsection();
 

@@ -154,6 +154,38 @@ namespace aspect
                             "radial Green-function moments. A value of 1 "
                             "reproduces the former two-boundary-point cache "
                             "for a constant reference-density model.");
+          prm.declare_entry("Radial transfer scheme", "symmetric support projection",
+                            Patterns::Selection("legacy target interpolation|symmetric support projection|target enriched exact"),
+                            "Radial discretization of the full-domain Green "
+                            "operator. `legacy target interpolation' deposits "
+                            "sources at their physical radii and interpolates "
+                            "only targets. `symmetric support projection' uses "
+                            "the same piecewise-linear stencil to project sources "
+                            "to fixed supports and interpolate targets, forming "
+                            "the reciprocal B K B^T operator without collecting "
+                            "physical radii across MPI ranks. `target enriched "
+                            "exact' retains the non-scalable exact-union "
+                            "diagnostic as an oracle.");
+          prm.declare_entry("Maximum target enriched radial cache supports", "100000",
+                            Patterns::Integer(2),
+                            "Maximum number of unique radial supports allowed "
+                            "by the target-enriched exact radial-cache "
+                            "diagnostic. The cap bounds both MPI collection and "
+                            "cache storage.");
+          prm.declare_entry("Surface angular analysis scheme", "direct quadrature",
+                            Patterns::Selection("direct quadrature|discrete biorthogonal"),
+                            "Diagnostic choice for analyzing outer-surface fields. "
+                            "The default directly integrates against spherical "
+                            "harmonics. `discrete biorthogonal' solves the global "
+                            "weighted Gram system on the production boundary "
+                            "quadrature points, eliminating finite-sampling alias "
+                            "within the configured harmonic space.");
+          prm.declare_entry("Use adjoint consistent surface potential traction", "false",
+                            Patterns::Bool(),
+                            "Whether to apply the surface-potential load through "
+                            "the transpose of the exact free-surface velocity "
+                            "projection. This experimental scheme is disabled by "
+                            "default; the default retains direct normal traction.");
         }
         prm.leave_subsection();
 
@@ -326,6 +358,13 @@ namespace aspect
             prm.get("Full domain volume source discretization");
           full_domain_potential_radial_subdivisions =
             prm.get_integer("Full domain potential radial subdivisions");
+          radial_transfer_scheme = prm.get("Radial transfer scheme");
+          maximum_target_enriched_radial_cache_supports =
+            prm.get_integer("Maximum target enriched radial cache supports");
+          surface_angular_analysis_scheme =
+            prm.get("Surface angular analysis scheme");
+          use_adjoint_consistent_surface_potential_traction =
+            prm.get_bool("Use adjoint consistent surface potential traction");
         }
         prm.leave_subsection();
 

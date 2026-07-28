@@ -174,18 +174,23 @@ namespace aspect
       void
       mark_initial_mechanical_history_initialized();
 
-      /** Return committed radial displacement plus the current trial increment. */
+      /**
+       * Return committed radial displacement and, when requested, the current
+       * trial increment.
+       */
       double
       mechanical_radial_displacement(
         const MaterialModel::MaterialModelInputs<dim> &inputs,
-        const unsigned int q) const;
+        const unsigned int q,
+        const bool include_current_velocity_increment = true) const;
 
       /** Return the selected non-legacy volume-density perturbation. */
       double
       density_perturbation(
         const MaterialModel::MaterialModelInputs<dim> &inputs,
         const MaterialModel::MaterialModelOutputs<dim> &outputs,
-        const unsigned int q) const;
+        const unsigned int q,
+        const bool include_current_velocity_increment = true) const;
 
       /**
        * Return the density used by the Stokes momentum body force. Legacy
@@ -207,7 +212,8 @@ namespace aspect
         const MaterialModel::MaterialModelInputs<dim> &inputs,
         const MaterialModel::MaterialModelOutputs<dim> &outputs,
         const unsigned int q,
-        const double legacy_reference_density) const;
+        const double legacy_reference_density,
+        const bool include_current_velocity_increment = true) const;
 
       /**
        * Resolve the `true|false|auto' internal-density selection shared by
@@ -232,7 +238,8 @@ namespace aspect
         const double legacy_reference_density,
         const std::string &volume_source_discretization,
         const std::function<void(const double,
-                                 const Point<dim> &)> &consumer) const;
+                                 const Point<dim> &)> &consumer,
+        const bool include_current_velocity_increment = true) const;
 
       /**
        * Integrate the mass dipole and inertia tensor of the selected internal
@@ -246,7 +253,8 @@ namespace aspect
       compute_internal_mass_moments(
         const double legacy_reference_density,
         const std::string &volume_source_discretization =
-          "quadrature point") const;
+          "quadrature point",
+        const bool include_current_velocity_increment = true) const;
 
       /** Return whether a frozen reference profile has been initialized. */
       bool

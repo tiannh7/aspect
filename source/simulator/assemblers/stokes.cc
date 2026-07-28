@@ -20,6 +20,7 @@
 
 #include <aspect/simulator/assemblers/stokes.h>
 #include <aspect/boundary_traction/potential_feedback_traction.h>
+#include <aspect/mesh_deformation/interface.h>
 #include <aspect/potential_feedback/self_gravitation.h>
 #include <aspect/simulator.h>
 #include <aspect/utilities.h>
@@ -473,6 +474,18 @@ namespace aspect
       const bool use_mechanical_mass_conservation =
         this->get_parameters().density_source_law
         == Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation;
+      const bool use_mechanical_volume_restoring =
+        use_mechanical_mass_conservation
+        && this->get_parameters().enable_mechanical_volume_restoring;
+      const bool use_mechanical_pressure_volume_restoring =
+        use_mechanical_volume_restoring
+        && this->get_parameters().enable_mechanical_pressure_volume_restoring;
+      const bool use_mechanical_radial_volume_restoring =
+        use_mechanical_volume_restoring
+        && this->get_parameters().enable_mechanical_radial_volume_restoring;
+      const bool use_full_domain_potential_force =
+        use_mechanical_mass_conservation
+        && this->get_parameters().enable_full_domain_potential_force;
       const PotentialFeedback::SelfGravitation<dim> *self_gravity =
         (use_mechanical_mass_conservation
          ? active_self_gravity(this->get_boundary_traction_manager())
@@ -594,12 +607,6 @@ namespace aspect
           if (use_mechanical_mass_conservation)
             {
               AssertThrow(elastic_outputs != nullptr, ExcInternalError());
-              bulk_modulus =
-                this->get_density_source_manager().elastic_bulk_modulus(
-                  scratch.material_model_outputs,
-                  q);
-              const double mechanical_time_step =
-                this->get_density_source_manager().effective_mechanical_time_step();
               const Point<dim> position =
                 scratch.finite_element_values.quadrature_point(q);
               const double radius = position.norm();
@@ -609,16 +616,32 @@ namespace aspect
 
               reference_density =
                 this->get_density_source_manager().reference_density(position);
-              const double gravity_magnitude =
-                this->get_density_source_manager().mechanical_gravity_magnitude(
-                  position,
-                  gravity.norm());
-              current_radial_restoring_coefficient =
-                reference_density * gravity_magnitude * mechanical_time_step;
-              history_radial_restoring_coefficient =
-                reference_density * gravity_magnitude;
-              old_radial_displacement =
-                scratch.material_model_inputs.composition[q][radial_displacement_history_index];
+              if (use_mechanical_pressure_volume_restoring
+                  || use_mechanical_radial_volume_restoring)
+                {
+                  const double gravity_magnitude =
+                    this->get_density_source_manager().mechanical_gravity_magnitude(
+                      position,
+                      gravity.norm());
+                  const double reference_density_times_gravity =
+                    reference_density * gravity_magnitude;
+                  history_radial_restoring_coefficient =
+                    reference_density_times_gravity;
+                  if (use_mechanical_pressure_volume_restoring)
+                    bulk_modulus =
+                      this->get_density_source_manager().elastic_bulk_modulus(
+                        scratch.material_model_outputs,
+                        q);
+                  if (use_mechanical_radial_volume_restoring)
+                    {
+                      const double mechanical_time_step =
+                        this->get_density_source_manager().effective_mechanical_time_step();
+                      current_radial_restoring_coefficient =
+                        reference_density_times_gravity * mechanical_time_step;
+                      old_radial_displacement =
+                        scratch.material_model_inputs.composition[q][radial_displacement_history_index];
+                    }
+                }
             }
 
           const double full_domain_potential =
@@ -652,20 +675,39 @@ namespace aspect
                                        * scratch.phi_p[i]
                                      ) * JxW;
 
-              if (use_mechanical_mass_conservation)
+              if (use_mechanical_radial_volume_restoring)
                 {
                   data.local_rhs(i) +=
                     history_radial_restoring_coefficient
                     * scratch.div_phi_u[i]
                     * old_radial_displacement
                     * JxW;
+                }
 
+              if (use_full_domain_potential_force)
+                {
                   if (full_domain_potential != 0.0)
                     {
+                      const Tensor<1,dim> reference_density_gradient =
+                        this->get_density_source_manager()
+                        .reference_density_gradient(
+                          scratch.finite_element_values.quadrature_point(q));
+
+                      // The full-domain self-gravity force
+                      // rho_0 grad(Phi) is applied in weak form. For a
+                      // radially varying reference density,
+                      // div(rho_0 v) contributes both rho_0 div(v) and
+                      // v.grad(rho_0). The discontinuous counterpart of the
+                      // second term is assembled by
+                      // StokesInternalDensityJumpRestoring below.
                       data.local_rhs(i) -=
                         reference_density
                         * full_domain_potential
                         * scratch.div_phi_u[i]
+                        * JxW;
+                      data.local_rhs(i) -=
+                        full_domain_potential
+                        * (reference_density_gradient * scratch.phi_u[i])
                         * JxW;
                     }
                 }
@@ -688,14 +730,14 @@ namespace aspect
                                                    pressure_scaling * pressure_scaling *
                                                    prescribed_dilation->dilation_lhs_term[q] *
                                                    scratch.phi_p[i] * scratch.phi_p[j])
-                                                + (use_mechanical_mass_conservation
+                                                + (use_mechanical_pressure_volume_restoring
                                                    ? pressure_scaling
                                                    * history_radial_restoring_coefficient
                                                    / bulk_modulus
                                                    * (scratch.phi_u[i] * radial_unit)
                                                    * scratch.phi_p[j]
                                                    : 0.0)
-                                                - (use_mechanical_mass_conservation
+                                                - (use_mechanical_radial_volume_restoring
                                                    ? current_radial_restoring_coefficient
                                                    * scratch.div_phi_u[i]
                                                    * (scratch.phi_u[j] * radial_unit)
@@ -721,7 +763,7 @@ namespace aspect
                   }
             }
 
-          if (use_mechanical_mass_conservation
+          if (use_full_domain_potential_force
               && full_domain_potential != 0.0
               && polar_wander_rhs_debug_enabled())
             {
@@ -1309,6 +1351,45 @@ namespace aspect
 
       if (traction_bis.find(face->boundary_id()) != traction_bis.end())
         {
+          const PotentialFeedback::SelfGravitation<dim> *self_gravity =
+            active_self_gravity(this->get_boundary_traction_manager());
+          const bool use_surface_adjoint =
+            (self_gravity != nullptr
+             && self_gravity->uses_adjoint_consistent_surface_potential_traction()
+             && this->get_mesh_deformation_handler()
+             .get_free_surface_boundary_indicators().count(face->boundary_id()) > 0);
+          LinearAlgebra::Vector surface_adjoint;
+          std::unique_ptr<FEFaceValues<dim>> mesh_face_values;
+          std::vector<Tensor<1,dim>> surface_adjoint_values;
+          if (use_surface_adjoint)
+            {
+              surface_adjoint = this->get_mesh_deformation_handler()
+                                .surface_potential_adjoint_field(
+                                  [self_gravity] (const Point<dim> &position,
+                                                  const Tensor<1,dim> &)
+              {
+                return self_gravity->surface_potential_traction_load(position);
+              });
+              const DoFHandler<dim> &mesh_dof_handler =
+                this->get_mesh_deformation_handler()
+                .get_mesh_deformation_dof_handler();
+              const typename DoFHandler<dim>::active_cell_iterator mesh_cell(
+                &this->get_triangulation(),
+                scratch.cell->level(),
+                scratch.cell->index(),
+                &mesh_dof_handler);
+              mesh_face_values = std::make_unique<FEFaceValues<dim>>(
+                                   this->get_mapping(),
+                                   mesh_dof_handler.get_fe(),
+                                   scratch.face_finite_element_values.get_quadrature(),
+                                   update_values);
+              mesh_face_values->reinit(mesh_cell, scratch.face_number);
+              surface_adjoint_values.resize(
+                scratch.face_finite_element_values.n_quadrature_points);
+              (*mesh_face_values)[FEValuesExtractors::Vector(0)].get_function_values(
+                surface_adjoint, surface_adjoint_values);
+            }
+
           double pw_boundary_feedback_rhs_cosine = 0.0;
           double pw_boundary_feedback_rhs_sine = 0.0;
           for (unsigned int q=0; q<scratch.face_finite_element_values.n_quadrature_points; ++q)
@@ -1325,8 +1406,23 @@ namespace aspect
                 {
                   if (introspection.is_stokes_component(fe.system_to_component_index(i).first))
                     {
-                      data.local_rhs(i_stokes) += scratch.face_finite_element_values[introspection.extractors.velocities].value(i,q) *
-                                                  traction * JxW;
+                      const Tensor<1,dim> velocity_test =
+                        scratch.face_finite_element_values[introspection.extractors.velocities]
+                        .value(i,q);
+                      data.local_rhs(i_stokes) += velocity_test * traction * JxW;
+                      if (use_surface_adjoint)
+                        {
+                          const Point<dim> position =
+                            scratch.face_finite_element_values.quadrature_point(q);
+                          const Tensor<1,dim> direction =
+                            this->get_mesh_deformation_handler()
+                            .free_surface_projection_direction(
+                              position,
+                              scratch.face_finite_element_values.normal_vector(q));
+                          data.local_rhs(i_stokes) +=
+                            (velocity_test * direction)
+                            * (surface_adjoint_values[q] * direction) * JxW;
+                        }
                       ++i_stokes;
                     }
                   ++i;
@@ -1489,7 +1585,8 @@ namespace aspect
         dynamic_cast<internal::Assembly::CopyData::StokesSystem<dim>&> (data_base);
 
       const auto &density_sources = this->get_density_source_manager();
-      if (!density_sources.has_internal_density_jumps())
+      if (!this->get_parameters().enable_internal_density_jump_restoring
+          || !density_sources.has_internal_density_jumps())
         return;
       const PotentialFeedback::SelfGravitation<dim> *self_gravity =
         active_self_gravity(this->get_boundary_traction_manager());
@@ -1503,6 +1600,8 @@ namespace aspect
         introspection.compositional_index_for_name("ve_radial_displacement");
       const double mechanical_time_step =
         density_sources.effective_mechanical_time_step();
+      const bool use_full_domain_potential_force =
+        this->get_parameters().enable_full_domain_potential_force;
 
       std::vector<double> committed_displacements(
         scratch.face_finite_element_values.n_quadrature_points);
@@ -1564,12 +1663,14 @@ namespace aspect
               const double gravity_magnitude =
                 this->get_gravity_model().gravity_vector(point).norm();
               const double potential =
-                (potential_feedback != nullptr
-                 ? potential_feedback->full_domain_potential(point)
-                 : (self_gravity != nullptr
-                    && self_gravity->has_full_domain_potential()
-                    ? self_gravity->full_domain_potential(point)
-                    : 0.0));
+                (use_full_domain_potential_force
+                 ? (potential_feedback != nullptr
+                    ? potential_feedback->full_domain_potential(point)
+                    : (self_gravity != nullptr
+                       && self_gravity->has_full_domain_potential()
+                       ? self_gravity->full_domain_potential(point)
+                       : 0.0))
+                 : 0.0);
               const double JxW = scratch.face_finite_element_values.JxW(q);
 
               if (potential != 0.0 && polar_wander_rhs_debug_enabled())

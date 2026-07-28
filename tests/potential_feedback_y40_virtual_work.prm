@@ -1,0 +1,8 @@
+# Exercise the opt-in, test-plugin Y40 generalized-work observer on the small
+# coupled self-gravity model. The plugin only integrates diagnostics after each
+# Stokes solve and does not modify the assembled matrix or right-hand side.
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/potential_feedback_center_of_mass_y20.prm
+
+set Output directory = output-potential-feedback-y40-virtual-work

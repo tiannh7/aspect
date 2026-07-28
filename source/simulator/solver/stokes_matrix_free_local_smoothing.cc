@@ -355,10 +355,21 @@ namespace aspect
     active_cell_data.use_elastic_pressure_evolution =
       this->get_parameters().formulation_mass_conservation
       == Parameters<dim>::Formulation::MassConservation::elastic_pressure_evolution;
-    active_cell_data.use_mechanical_mass_conservation =
+    const bool use_mechanical_mass_conservation_law =
       active_cell_data.use_elastic_pressure_evolution
       && (this->get_parameters().density_source_law
           == Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation);
+    const bool use_mechanical_pressure_volume_restoring =
+      use_mechanical_mass_conservation_law
+      && this->get_parameters().enable_mechanical_volume_restoring
+      && this->get_parameters().enable_mechanical_pressure_volume_restoring;
+    const bool use_mechanical_radial_volume_restoring =
+      use_mechanical_mass_conservation_law
+      && this->get_parameters().enable_mechanical_volume_restoring
+      && this->get_parameters().enable_mechanical_radial_volume_restoring;
+    active_cell_data.use_mechanical_mass_conservation =
+      use_mechanical_pressure_volume_restoring
+      || use_mechanical_radial_volume_restoring;
 
     if (active_cell_data.use_elastic_pressure_evolution)
       {
@@ -370,7 +381,7 @@ namespace aspect
         AssertThrow(elastic_time_step > 0.0,
                     ExcMessage("Elastic pressure evolution requires a positive effective time step."));
         mechanical_time_step =
-          (active_cell_data.use_mechanical_mass_conservation
+          (use_mechanical_mass_conservation_law
            ? this->get_density_source_manager().effective_mechanical_time_step()
            : 0.0);
 
@@ -382,17 +393,21 @@ namespace aspect
 
         if (active_cell_data.use_mechanical_mass_conservation)
           {
-            active_cell_data.radial_restoring_coefficient.reinit(
-              TableIndices<2>(n_cells, n_q_points));
-            active_cell_data.pressure_to_velocity_radial_coefficient.reinit(
-              TableIndices<2>(n_cells, n_q_points));
+            if (use_mechanical_radial_volume_restoring)
+              active_cell_data.radial_restoring_coefficient.reinit(
+                TableIndices<2>(n_cells, n_q_points));
+            if (use_mechanical_pressure_volume_restoring)
+              active_cell_data.pressure_to_velocity_radial_coefficient.reinit(
+                TableIndices<2>(n_cells, n_q_points));
             active_cell_data.radial_unit_vector.reinit(
               TableIndices<2>(n_cells, n_q_points));
             for (unsigned int cell=0; cell<n_cells; ++cell)
               for (unsigned int q=0; q<n_q_points; ++q)
                 {
-                  active_cell_data.radial_restoring_coefficient(cell,q) = 0.0;
-                  active_cell_data.pressure_to_velocity_radial_coefficient(cell,q) = 0.0;
+                  if (use_mechanical_radial_volume_restoring)
+                    active_cell_data.radial_restoring_coefficient(cell,q) = 0.0;
+                  if (use_mechanical_pressure_volume_restoring)
+                    active_cell_data.pressure_to_velocity_radial_coefficient(cell,q) = 0.0;
                   for (unsigned int d=0; d<dim; ++d)
                     active_cell_data.radial_unit_vector(cell,q)[d] = 0.0;
                 }
@@ -469,10 +484,12 @@ namespace aspect
                           this->get_density_source_manager().reference_density(position)
                           * gravity_magnitude;
 
-                        active_cell_data.radial_restoring_coefficient(cell,q)[i] =
-                          reference_density_times_gravity * mechanical_time_step;
-                        active_cell_data.pressure_to_velocity_radial_coefficient(cell,q)[i] =
-                          reference_density_times_gravity / bulk_modulus;
+                        if (use_mechanical_radial_volume_restoring)
+                          active_cell_data.radial_restoring_coefficient(cell,q)[i] =
+                            reference_density_times_gravity * mechanical_time_step;
+                        if (use_mechanical_pressure_volume_restoring)
+                          active_cell_data.pressure_to_velocity_radial_coefficient(cell,q)[i] =
+                            reference_density_times_gravity / bulk_modulus;
                         for (unsigned int d=0; d<dim; ++d)
                           active_cell_data.radial_unit_vector(cell,q)[d][i] =
                             radial_unit[d];
@@ -504,7 +521,8 @@ namespace aspect
       this->get_parameters().citcom_style_cmb_radial_restoring_scale;
 
     active_cell_data.use_internal_density_jump_restoring =
-      active_cell_data.use_mechanical_mass_conservation
+      use_mechanical_mass_conservation_law
+      && this->get_parameters().enable_internal_density_jump_restoring
       && this->get_density_source_manager().has_internal_density_jumps();
 
     if (active_cell_data.use_internal_density_jump_restoring)
@@ -655,7 +673,11 @@ namespace aspect
         level_cell_data[level].use_elastic_pressure_evolution =
           active_cell_data.use_elastic_pressure_evolution;
         level_cell_data[level].use_mechanical_mass_conservation =
-          active_cell_data.use_mechanical_mass_conservation;
+          use_mechanical_radial_volume_restoring;
+        const bool use_level_mechanical_mass_conservation_law =
+          level_cell_data[level].use_elastic_pressure_evolution
+          && (this->get_parameters().density_source_law
+              == Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation);
 
         // Restrict the free-surface stabilization to boundaries with an
         // explicit density contrast. This makes the level operator independent
@@ -737,7 +759,8 @@ namespace aspect
           }
 
         level_cell_data[level].use_internal_density_jump_restoring =
-          level_cell_data[level].use_mechanical_mass_conservation
+          use_level_mechanical_mass_conservation_law
+          && this->get_parameters().enable_internal_density_jump_restoring
           && this->get_density_source_manager().has_internal_density_jumps();
 
         if (level_cell_data[level].use_internal_density_jump_restoring)
@@ -1426,8 +1449,8 @@ namespace aspect
     // Therefore, we don't need to include Newton terms here.
 
     const bool is_compressible = this->get_material_model().is_compressible();
-    const bool use_mechanical_mass_conservation =
-      active_cell_data.use_mechanical_mass_conservation;
+    const bool apply_radial_restoring =
+      active_cell_data.radial_restoring_coefficient.size(0) != 0;
 
     dealii::LinearAlgebra::distributed::BlockVector<double> rhs_correction(2);
     dealii::LinearAlgebra::distributed::BlockVector<double> u0(2);
@@ -1461,7 +1484,7 @@ namespace aspect
     const bool use_viscosity_at_quadrature_points
       = (active_cell_data.viscosity.size(1) == velocity.n_q_points);
     const EvaluationFlags::EvaluationFlags velocity_evaluation_flags =
-      use_mechanical_mass_conservation
+      apply_radial_restoring
       ? EvaluationFlags::values | EvaluationFlags::gradients
       : EvaluationFlags::gradients;
 
@@ -1506,7 +1529,7 @@ namespace aspect
               for (unsigned int d=0; d<dim; ++d)
                 sym_grad_u[d][d] -= viscosity_x_2/3.0*div;
 
-            if (use_mechanical_mass_conservation)
+            if (apply_radial_restoring)
               {
                 const Tensor<1,dim,VectorizedArray<double>> radial_unit =
                   active_cell_data.radial_unit_vector(cell,q);
@@ -2484,6 +2507,7 @@ namespace aspect
       const bool use_internal_density_jump_restoring =
         (this->get_parameters().density_source_law
          == Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation)
+        && this->get_parameters().enable_internal_density_jump_restoring
         && this->get_density_source_manager().has_internal_density_jumps();
       const bool use_boundary_face_operators =
         (this->get_parameters().mesh_deformation_enabled
@@ -2671,6 +2695,7 @@ namespace aspect
             const bool use_internal_density_jump_restoring =
               (this->get_parameters().density_source_law
                == Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation)
+              && this->get_parameters().enable_internal_density_jump_restoring
               && this->get_density_source_manager().has_internal_density_jumps();
             if (use_internal_density_jump_restoring)
               additional_data.mapping_update_flags_inner_faces =

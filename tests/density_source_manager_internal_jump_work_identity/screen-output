@@ -1,0 +1,92 @@
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+
+Loading shared library <./libdensity_source_manager_internal_jump_work_identity.release.so>
+
+Internal density jump work identity checker: registered
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+Number of active cells: 72 (on 1 levels)
+Number of degrees of freedom: 6,298 (2,058+104+104+576+576+576+576+576+576+576)
+
+Number of mesh deformation degrees of freedom: 2,058
+   Solving mesh displacement system... 0 iterations.
+*** Timestep 0:  t=0 seconds, dt=0 seconds
+Self-gravity cache state: phase=pre-Stokes, timestep=0, cache_error=7.754818e-26, zero_source_difference=6.070352e-11, state_counterfactual_difference=0.000000e+00, volume_magnitude=5.276581e-11, sheet_magnitude=7.937715e-12
+   Solving mesh displacement system... 0 iterations.
+   Skipping temperature solve because RHS is zero.
+   Skipping ve_stress_xx assembly and solve because timestep 0.
+   Skipping ve_stress_yy assembly and solve because timestep 0.
+   Skipping ve_stress_zz assembly and solve because timestep 0.
+   Skipping ve_stress_xy assembly and solve because timestep 0.
+   Skipping ve_stress_xz assembly and solve because timestep 0.
+   Skipping ve_stress_yz assembly and solve because timestep 0.
+   Skipping ve_radial_displacement assembly and solve because timestep 0.
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... 288+0 iterations.
+Internal density jump work identity: faces=24, q=216, matrix_error=0.000000e+00, rhs_error=0.000000e+00
+Internal displaced-sheet consumers: faces=24, q=216, dipole_error=0.000000e+00, inertia_error=0.000000e+00, potential_error=1.387779e-16, old_moment_difference=2.207062e-01, old_potential_difference=2.236230e-03
+Internal source state: timestep=0, committed_moment_error=0.000000e+00, trial_moment_error=0.000000e+00, committed_coefficient_error=0.000000e+00, trial_coefficient_error=0.000000e+00, volume_delta=3.923436e-01, sheet_delta=7.183252e-02, delta_error=0.000000e+00, zero_committed_difference=3.457575e+01, reused_trial_difference=4.641761e-01, combined_reciprocity_error=3.053113e-16, omitted_volume_difference=4.013486e-01, omitted_sheet_difference=6.239662e-02, wrong_sheet_sign_difference=1.247932e-01
+      Self-gravity potential update: relative SH coefficient change=1.218604e-01
+Self-gravity cache state: phase=post-Stokes, timestep=0, cache_error=8.401053e-26, zero_source_difference=5.522683e-11, state_counterfactual_difference=5.476631e-12, volume_magnitude=4.813664e-11, sheet_magnitude=7.090191e-12
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 1: 9.952831e+01
+
+
+   WARNING: The nonlinear solver in the current timestep failed to converge.
+   Acting according to the parameter 'Nonlinear solver failure strategy':
+   Continuing to the next timestep even though solution is not fully converged.
+
+   Postprocessing:
+     Pressure min/avg/max:              -66.06 Pa, -42.02 Pa, -7.937 Pa
+     Velocity statistics (min/max/rms): r    : -5.081e-05 / -5.081e-05 / 5.081e-05 m/s
+                                        phi  : -1.614e-10 / 1.606e-10 / 6.709e-11 m/s
+                                        theta: -1.335e-10 / 1.574e-10 / 6.585e-11 m/s
+                                        total: 5.081e-05 / 5.081e-05 / 5.081e-05 m/s
+
+
+*** Timestep 1:  t=1 seconds, dt=1 seconds
+Self-gravity cache state: phase=pre-Stokes, timestep=1, cache_error=3.231174e-27, zero_source_difference=5.021190e-12, state_counterfactual_difference=5.476631e-12, volume_magnitude=4.244960e-12, sheet_magnitude=7.762299e-13
+   Solving mesh displacement system... 16 iterations.
+   Solving composition reactions... in 1 substep(s).
+   Skipping temperature solve because RHS is zero.
+   Solving ve_stress_xx system ... 2 iterations.
+   Solving ve_stress_yy system ... 1 iterations.
+   Solving ve_stress_zz system ... 1 iterations.
+   Solving ve_stress_xy system ... 2 iterations.
+   Solving ve_stress_xz system ... 1 iterations.
+   Solving ve_stress_yz system ... 1 iterations.
+   Solving ve_radial_displacement system ... 1 iterations.
+   Rebuilding Stokes preconditioner...
+   Solving Stokes system (AMG)... 290+0 iterations.
+Internal density jump work identity: faces=48, q=432, matrix_error=0.000000e+00, rhs_error=0.000000e+00
+Internal displaced-sheet consumers: faces=24, q=216, dipole_error=0.000000e+00, inertia_error=0.000000e+00, potential_error=2.507218e-19, old_moment_difference=3.301181e-03, old_potential_difference=4.032414e-04
+Internal source state: timestep=1, committed_moment_error=0.000000e+00, trial_moment_error=0.000000e+00, committed_coefficient_error=0.000000e+00, trial_coefficient_error=0.000000e+00, volume_delta=3.882363e-01, sheet_delta=7.108053e-02, delta_error=0.000000e+00, zero_committed_difference=4.255691e-01, reused_trial_difference=4.593168e-01, combined_reciprocity_error=8.673617e-19, omitted_volume_difference=3.476060e-03, omitted_sheet_difference=6.462451e-04, wrong_sheet_sign_difference=1.292490e-03
+      Self-gravity potential update: relative SH coefficient change=1.360583e+01
+Self-gravity cache state: phase=post-Stokes, timestep=1, cache_error=5.048710e-29, zero_source_difference=3.981879e-13, state_counterfactual_difference=5.419219e-12, volume_magnitude=3.357648e-13, sheet_magnitude=6.242310e-14
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 1: 1.000004e+00
+
+
+   WARNING: The nonlinear solver in the current timestep failed to converge.
+   Acting according to the parameter 'Nonlinear solver failure strategy':
+   Continuing to the next timestep even though solution is not fully converged.
+
+   Postprocessing:
+     Pressure min/avg/max:              -0.8116 Pa, -0.0024 Pa, 1.082 Pa
+     Velocity statistics (min/max/rms): r    : 5.028e-05 / 5.028e-05 / 5.028e-05 m/s
+                                        phi  : -1.601e-10 / 1.633e-10 / 6.739e-11 m/s
+                                        theta: -1.586e-10 / 1.352e-10 / 6.661e-11 m/s
+                                        total: 5.028e-05 / 5.028e-05 / 5.028e-05 m/s
+
+
+Termination requested by criterion: end time
+
+
++----------------------------------------------------------+------------+------------+
++----------------------------------------------+-----------+------------+------------+
++----------------------------------------------+-----------+------------+------------+
+
+
+WARNING: During this computation 2 nonlinear solver failures occurred!
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------

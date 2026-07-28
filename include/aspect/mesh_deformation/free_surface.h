@@ -81,6 +81,26 @@ namespace aspect
                                              LinearAlgebra::Vector &output) const;
 
         /**
+         * Apply the mesh-space boundary mass solve used by
+         * project_velocity_onto_boundary() to an arbitrary vector field. This
+         * exposes the exact production projection operator for constructing
+         * its discrete adjoint without duplicating its quadrature, mapping, or
+         * normal/vertical projection choices.
+         */
+        void project_boundary_field_onto_boundary (
+          const DoFHandler<dim> &free_surface_dof_handler,
+          const IndexSet &mesh_locally_owned,
+          const IndexSet &mesh_locally_relevant,
+          const std::function<Tensor<1,dim>(const Point<dim> &,
+                                            const Tensor<1,dim> &)> &field,
+          const bool project_along_surface_direction,
+          LinearAlgebra::Vector &output) const;
+
+        /** Return the normalized direction used by the production projector. */
+        Tensor<1,dim> projection_direction (const Point<dim> &position,
+                                            const Tensor<1,dim> &normal) const;
+
+        /**
          * Returns whether or not the plugin requires surface stabilization
          */
         bool needs_surface_stabilization () const override;

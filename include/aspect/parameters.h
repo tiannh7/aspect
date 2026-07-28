@@ -836,6 +836,42 @@ namespace aspect
     double                         internal_density_jump_face_tolerance;
 
     /**
+     * Whether mechanical mass conservation assembles the local Stokes
+     * restoring term for displaced internal density interfaces.
+     */
+    bool                           enable_internal_density_jump_restoring;
+
+    /**
+     * Whether mechanical mass conservation assembles the local volume
+     * restoring terms from the radial displacement history.
+     */
+    bool                           enable_mechanical_volume_restoring;
+
+    /**
+     * Whether mechanical mass conservation assembles the pressure-induced
+     * local volume restoring coupling.
+     */
+    bool                           enable_mechanical_pressure_volume_restoring;
+
+    /**
+     * Whether mechanical mass conservation assembles the radial-displacement
+     * local volume restoring coupling.
+     */
+    bool                           enable_mechanical_radial_volume_restoring;
+
+    /**
+     * Whether mechanical mass conservation applies the full-domain
+     * self-gravity potential to the reference density in the Stokes RHS.
+     */
+    bool                           enable_full_domain_potential_force;
+
+    /**
+     * Whether internal reference-state density sources are integrated on the
+     * undeformed reference mesh instead of the current ALE mapping.
+     */
+    bool                           use_reference_geometry_for_reference_density_sources;
+
+    /**
      * Whether the Stokes pressure formulation uses dynamic (perturbation)
      * pressure. If true, the material density body-force is reduced by
      * rho_ref * g through the additional Stokes RHS.

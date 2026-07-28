@@ -796,6 +796,7 @@ namespace aspect
       // The cached field has now been consumed by the ALE update. Do not let
       // the next time step reuse a projection of the previous Stokes solution.
       projected_free_surface_velocity_is_valid = false;
+      surface_potential_adjoint_is_valid = false;
 
       // After changing the mesh we need to rebuild things
       sim.rebuild_stokes_matrix = sim.rebuild_stokes_preconditioner = true;
@@ -2007,8 +2008,6 @@ namespace aspect
       return use_displacement_history_in_surface_stabilization;
     }
 
-
-
     template <int dim>
     bool
     MeshDeformationHandler<dim>::has_free_surface_stabilization_density_contrast(
@@ -2081,6 +2080,84 @@ namespace aspect
         }
 
       return projected_free_surface_velocity;
+    }
+
+
+
+    template <int dim>
+    LinearAlgebra::Vector
+    MeshDeformationHandler<dim>::project_free_surface_boundary_field(
+      const std::function<Tensor<1,dim>(const Point<dim> &,
+                                        const Tensor<1,dim> &)> &field,
+      const bool project_along_surface_direction) const
+    {
+      AssertThrow(!free_surface_boundary_indicators.empty(),
+                  ExcMessage("A free-surface boundary field was requested, "
+                             "but no free-surface mesh deformation boundary is active."));
+
+      const IndexSet &mesh_locally_owned =
+        mesh_deformation_dof_handler.locally_owned_dofs();
+      const IndexSet mesh_locally_relevant =
+        DoFTools::extract_locally_relevant_dofs(mesh_deformation_dof_handler);
+      LinearAlgebra::Vector result;
+      result.reinit(mesh_locally_owned,
+                    mesh_locally_relevant,
+                    sim.mpi_communicator);
+
+      const auto &free_surface =
+        get_matching_mesh_deformation_object<FreeSurface<dim>>();
+      free_surface.project_boundary_field_onto_boundary(
+        mesh_deformation_dof_handler,
+        mesh_locally_owned,
+        mesh_locally_relevant,
+        field,
+        project_along_surface_direction,
+        result);
+      return result;
+    }
+
+
+
+    template <int dim>
+    Tensor<1,dim>
+    MeshDeformationHandler<dim>::free_surface_projection_direction(
+      const Point<dim> &position,
+      const Tensor<1,dim> &normal) const
+    {
+      const auto &free_surface =
+        get_matching_mesh_deformation_object<FreeSurface<dim>>();
+      return free_surface.projection_direction(position, normal);
+    }
+
+
+
+    template <int dim>
+    LinearAlgebra::Vector
+    MeshDeformationHandler<dim>::surface_potential_adjoint_field(
+      const std::function<double(const Point<dim> &,
+                                 const Tensor<1,dim> &)> &potential_load) const
+    {
+      if (surface_potential_adjoint_is_valid)
+        return surface_potential_adjoint;
+
+      surface_potential_adjoint = project_free_surface_boundary_field(
+                                    [potential_load] (const Point<dim> &position,
+                                                      const Tensor<1,dim> &normal)
+      {
+        return potential_load(position, normal) * (position / position.norm());
+      },
+      false);
+      surface_potential_adjoint_is_valid = true;
+      return surface_potential_adjoint;
+    }
+
+
+
+    template <int dim>
+    void
+    MeshDeformationHandler<dim>::invalidate_surface_potential_adjoint_field() const
+    {
+      surface_potential_adjoint_is_valid = false;
     }
 
 

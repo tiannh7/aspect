@@ -133,6 +133,10 @@ namespace aspect
       double internal_density_anomaly_tolerance = 0.0;
       std::string full_domain_volume_source_discretization = "quadrature point";
       unsigned int full_domain_potential_radial_subdivisions = 32;
+      std::string radial_transfer_scheme = "symmetric support projection";
+      unsigned int maximum_target_enriched_radial_cache_supports = 100000;
+      std::string surface_angular_analysis_scheme = "direct quadrature";
+      bool use_adjoint_consistent_surface_potential_traction = false;
 
       std::string tidal_model_name = "none";
       unsigned int tidal_harmonic_degree = 2;

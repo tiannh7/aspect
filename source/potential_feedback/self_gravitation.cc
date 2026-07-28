@@ -29,6 +29,7 @@
 
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/fe/fe_values.h>
+#include <deal.II/lac/full_matrix.h>
 
 #include <algorithm>
 #include <iomanip>
@@ -92,6 +93,164 @@ namespace aspect
 
     namespace internal
     {
+      RadialInterpolationStencil
+      radial_interpolation_stencil(const std::vector<double> &radii,
+                                   const double radius)
+      {
+        AssertThrow(!radii.empty(),
+                    ExcMessage("Radial interpolation requires at least one support."));
+        AssertThrow(std::is_sorted(radii.begin(), radii.end()),
+                    ExcMessage("Radial cache radii must be sorted."));
+        AssertThrow(std::adjacent_find(radii.begin(), radii.end()) == radii.end(),
+                    ExcMessage("Radial cache radii must be distinct."));
+
+        const auto upper = std::upper_bound(radii.begin(), radii.end(), radius);
+        if (upper == radii.begin())
+          return {{{0, 0}}, {{1.0, 0.0}}};
+        if (upper == radii.end())
+          {
+            const unsigned int last = radii.size() - 1;
+            return {{{last, last}}, {{1.0, 0.0}}};
+          }
+
+        const unsigned int upper_index =
+          std::distance(radii.begin(), upper);
+        const unsigned int lower_index = upper_index - 1;
+        const double upper_weight =
+          (radius - radii[lower_index])
+          / (radii[upper_index] - radii[lower_index]);
+        return {{{lower_index, upper_index}},
+          {{1.0 - upper_weight, upper_weight}}
+        };
+      }
+
+
+
+      double
+      interpolate_radial_cache(
+        const std::vector<double> &radii,
+        const std::vector<std::vector<double>> &values,
+        const unsigned int value_index,
+        const double radius)
+      {
+        AssertThrow(!radii.empty() && radii.size() == values.size(),
+                    ExcMessage("Radial cache radii and values must have equal nonzero sizes."));
+        for (const auto &radial_values : values)
+          AssertIndexRange(value_index, radial_values.size());
+
+        const RadialInterpolationStencil stencil =
+          radial_interpolation_stencil(radii, radius);
+        return stencil.weights[0] * values[stencil.indices[0]][value_index]
+               + stencil.weights[1] * values[stencil.indices[1]][value_index];
+      }
+
+
+
+      double
+      lookup_radial_cache_exact(
+        const std::vector<double> &radii,
+        const std::vector<std::vector<double>> &values,
+        const unsigned int value_index,
+        const double radius)
+      {
+        AssertThrow(!radii.empty() && radii.size() == values.size(),
+                    ExcMessage("Radial cache radii and values must have equal nonzero sizes."));
+        AssertThrow(std::is_sorted(radii.begin(), radii.end()),
+                    ExcMessage("Radial cache radii must be sorted."));
+
+        const auto support = std::lower_bound(radii.begin(), radii.end(), radius);
+        AssertThrow(support != radii.end() && *support == radius,
+                    ExcMessage("Target-enriched exact radial cache lookup found "
+                               "no support at radius " + Utilities::to_string(radius) + "."));
+        const unsigned int support_index =
+          std::distance(radii.begin(), support);
+        AssertIndexRange(value_index, values[support_index].size());
+        return values[support_index][value_index];
+      }
+
+
+
+      std::vector<double>
+      merge_radial_cache_supports(
+        const std::vector<std::vector<double>> &support_vectors,
+        const unsigned int maximum_supports)
+      {
+        AssertThrow(maximum_supports > 0,
+                    ExcMessage("The radial cache support cap must be positive."));
+
+        std::vector<double> supports;
+        for (const std::vector<double> &support_vector : support_vectors)
+          {
+            supports.insert(supports.end(),
+                            support_vector.begin(),
+                            support_vector.end());
+            std::sort(supports.begin(), supports.end());
+            supports.erase(std::unique(supports.begin(), supports.end()),
+                           supports.end());
+            AssertThrow(supports.size() <= maximum_supports,
+                        ExcMessage("Target-enriched exact radial cache exceeded "
+                                   "the configured support cap of "
+                                   + Utilities::to_string(maximum_supports) + "."));
+          }
+        return supports;
+      }
+
+
+
+      std::vector<double>
+      collect_global_radial_cache_supports(
+        const std::vector<double> &local_supports,
+        const unsigned int maximum_supports,
+        const MPI_Comm &mpi_communicator)
+      {
+        const unsigned int local_support_count = local_supports.size();
+        const unsigned int maximum_local_support_count =
+          dealii::Utilities::MPI::max(local_support_count, mpi_communicator);
+        AssertThrow(maximum_local_support_count <= maximum_supports,
+                    ExcMessage("Target-enriched exact radial cache exceeded "
+                               "the configured local support cap of "
+                               + Utilities::to_string(maximum_supports) + "."));
+        const std::vector<double> unique_local_supports =
+          merge_radial_cache_supports({local_supports}, maximum_supports);
+        const unsigned int n_processes =
+          dealii::Utilities::MPI::n_mpi_processes(mpi_communicator);
+        const unsigned int my_rank =
+          dealii::Utilities::MPI::this_mpi_process(mpi_communicator);
+
+        std::vector<double> global_supports;
+        for (unsigned int root = 0; root < n_processes; ++root)
+          {
+            unsigned int root_size =
+              (root == my_rank ? unique_local_supports.size() : 0);
+            int ierr = MPI_Bcast(&root_size,
+                                 1,
+                                 MPI_UNSIGNED,
+                                 root,
+                                 mpi_communicator);
+            AssertThrowMPI(ierr);
+            AssertThrow(root_size <= maximum_supports,
+                        ExcMessage("Target-enriched exact radial cache exceeded "
+                                   "the configured support cap of "
+                                   + Utilities::to_string(maximum_supports) + "."));
+
+            std::vector<double> root_supports(root_size);
+            if (root == my_rank)
+              root_supports = unique_local_supports;
+            ierr = MPI_Bcast(root_supports.data(),
+                             root_size,
+                             MPI_DOUBLE,
+                             root,
+                             mpi_communicator);
+            AssertThrowMPI(ierr);
+            global_supports =
+              merge_radial_cache_supports({global_supports, root_supports},
+                                          maximum_supports);
+          }
+        return global_supports;
+      }
+
+
+
       RadialGreenMomentAccumulator::RadialGreenMomentAccumulator(
         const std::vector<double> &evaluation_radii,
         const unsigned int minimum_degree,
@@ -182,6 +341,38 @@ namespace aspect
             outer_sin_moments[index] +=
               source_sin_coefficients[coefficient_index] * outer_factor;
           }
+      }
+
+
+
+      void
+      RadialGreenMomentAccumulator::add_interpolated_source(
+        const double source_radius,
+        const std::vector<double> &source_cos_coefficients,
+        const std::vector<double> &source_sin_coefficients)
+      {
+        AssertDimension(source_cos_coefficients.size(), n_coefficients);
+        AssertDimension(source_sin_coefficients.size(), n_coefficients);
+        const RadialInterpolationStencil stencil =
+          radial_interpolation_stencil(evaluation_radii, source_radius);
+        std::vector<double> weighted_cos(n_coefficients);
+        std::vector<double> weighted_sin(n_coefficients);
+        for (unsigned int entry = 0; entry < 2; ++entry)
+          if (stencil.weights[entry] != 0.0)
+            {
+              for (unsigned int coefficient = 0;
+                   coefficient < source_cos_coefficients.size();
+                   ++coefficient)
+                {
+                  weighted_cos[coefficient] =
+                    stencil.weights[entry] * source_cos_coefficients[coefficient];
+                  weighted_sin[coefficient] =
+                    stencil.weights[entry] * source_sin_coefficients[coefficient];
+                }
+              add_source(evaluation_radii[stencil.indices[entry]],
+                         weighted_cos,
+                         weighted_sin);
+            }
       }
 
 
@@ -658,10 +849,100 @@ namespace aspect
                                          phi,
                                          cache);
 
-      return sh_transform->analyze_multiple_with_basis(basis,
-                                                       weights,
-                                                       values,
-                                                       mpi_comm);
+      std::vector<std::pair<std::vector<double>, std::vector<double>>> result =
+        sh_transform->analyze_multiple_with_basis(basis,
+                                                  weights,
+                                                  values,
+                                                  mpi_comm);
+
+      if (analysis_boundary != AnalysisBoundary::surface
+          || surface_angular_analysis_scheme == "direct quadrature")
+        return result;
+
+      // On a cubed-sphere boundary quadrature, the continuum-orthonormal
+      // harmonics are not exactly orthogonal under the discrete surface
+      // measure. Direct analysis therefore returns Y^T W f and aliases even a
+      // represented pure harmonic into other coefficients. Solve
+      // (Y^T W Y)c=Y^T W f so that analysis is biorthogonal to synthesis on
+      // these exact production points and weights. This diagnostic scheme is
+      // intentionally limited to moderate degree because the dense solve is
+      // cubic in the number of real harmonic modes.
+      const unsigned int n_coefficients = basis.n_coefficients;
+      const unsigned int n_real_modes =
+        (max_degree + 1) * (max_degree + 1) - min_degree * min_degree;
+      AssertThrow(max_degree <= 12,
+                  ExcMessage("The discrete biorthogonal surface angular "
+                             "analysis diagnostic currently supports Maximum "
+                             "degree at most 12."));
+
+      std::vector<unsigned int> cosine_mode(n_coefficients,
+                                            numbers::invalid_unsigned_int);
+      std::vector<unsigned int> sine_mode(n_coefficients,
+                                          numbers::invalid_unsigned_int);
+      unsigned int coefficient = 0;
+      unsigned int mode = 0;
+      for (unsigned int degree = min_degree; degree <= max_degree; ++degree)
+        for (unsigned int order = 0; order <= degree; ++order, ++coefficient)
+          {
+            cosine_mode[coefficient] = mode++;
+            if (order > 0)
+              sine_mode[coefficient] = mode++;
+          }
+      AssertDimension(mode, n_real_modes);
+
+      std::vector<double> local_gram(
+        static_cast<std::size_t>(n_real_modes) * n_real_modes, 0.0);
+      std::vector<double> point_basis(n_real_modes);
+      for (unsigned int point = 0; point < basis.n_points; ++point)
+        {
+          const std::size_t point_offset =
+            static_cast<std::size_t>(point) * n_coefficients;
+          for (unsigned int index = 0; index < n_coefficients; ++index)
+            {
+              point_basis[cosine_mode[index]] =
+                basis.cosine[point_offset + index];
+              if (sine_mode[index] != numbers::invalid_unsigned_int)
+                point_basis[sine_mode[index]] =
+                  basis.sine[point_offset + index];
+            }
+
+          for (unsigned int row = 0; row < n_real_modes; ++row)
+            for (unsigned int column = 0; column < n_real_modes; ++column)
+              local_gram[static_cast<std::size_t>(row) * n_real_modes + column]
+              += weights[point] * point_basis[row] * point_basis[column];
+        }
+
+      std::vector<double> global_gram(local_gram.size());
+      Utilities::MPI::sum(local_gram, mpi_comm, global_gram);
+      FullMatrix<double> inverse_gram(n_real_modes, n_real_modes);
+      for (unsigned int row = 0; row < n_real_modes; ++row)
+        for (unsigned int column = 0; column < n_real_modes; ++column)
+          inverse_gram(row, column) =
+            global_gram[static_cast<std::size_t>(row) * n_real_modes + column];
+      inverse_gram.gauss_jordan();
+
+      for (auto &[cosine_coefficients, sine_coefficients] : result)
+        {
+          Vector<double> direct(n_real_modes);
+          Vector<double> biorthogonal(n_real_modes);
+          for (unsigned int index = 0; index < n_coefficients; ++index)
+            {
+              direct[cosine_mode[index]] = cosine_coefficients[index];
+              if (sine_mode[index] != numbers::invalid_unsigned_int)
+                direct[sine_mode[index]] = sine_coefficients[index];
+            }
+          inverse_gram.vmult(biorthogonal, direct);
+          for (unsigned int index = 0; index < n_coefficients; ++index)
+            {
+              cosine_coefficients[index] = biorthogonal[cosine_mode[index]];
+              sine_coefficients[index] =
+                (sine_mode[index] == numbers::invalid_unsigned_int
+                 ? 0.0
+                 : biorthogonal[sine_mode[index]]);
+            }
+        }
+
+      return result;
     }
 
 
@@ -684,6 +965,18 @@ namespace aspect
     SelfGravitation<dim>::update()
     {
       compute_self_gravity_correction(false);
+      if (use_adjoint_consistent_surface_potential_traction
+          && this->get_parameters().mesh_deformation_enabled)
+        {
+          auto &mesh_deformation_handler =
+            this->get_mesh_deformation_handler();
+          mesh_deformation_handler.invalidate_surface_potential_adjoint_field();
+          mesh_deformation_handler.surface_potential_adjoint_field(
+            [this] (const Point<dim> &position, const Tensor<1,dim> &)
+          {
+            return surface_potential_traction_load(position);
+          });
+        }
     }
 
 
@@ -692,6 +985,18 @@ namespace aspect
     SelfGravitation<dim>::update_after_stokes_solve()
     {
       compute_self_gravity_correction(true);
+      if (use_adjoint_consistent_surface_potential_traction
+          && this->get_parameters().mesh_deformation_enabled)
+        {
+          auto &mesh_deformation_handler =
+            this->get_mesh_deformation_handler();
+          mesh_deformation_handler.invalidate_surface_potential_adjoint_field();
+          mesh_deformation_handler.surface_potential_adjoint_field(
+            [this] (const Point<dim> &position, const Tensor<1,dim> &)
+          {
+            return surface_potential_traction_load(position);
+          });
+        }
     }
 
 
@@ -1125,7 +1430,8 @@ namespace aspect
                   delta_rho_cmb,
                   inner_radius);
               native_center_of_mass_diagnostic.internal_density_dipole =
-                compute_internal_density_mass_dipole();
+                compute_internal_density_mass_dipole(
+                  include_current_velocity_increment);
               native_center_of_mass_diagnostic.mass_dipole_pre =
                 native_center_of_mass_diagnostic.surface_interface_dipole
                 + native_center_of_mass_diagnostic.cmb_interface_dipole
@@ -1301,8 +1607,7 @@ namespace aspect
                                        sin_cmb,
                                        outer_radius,
                                        inner_radius,
-                                       include_current_velocity_increment
-                                       || potential_iteration_number > 0);
+                                       include_current_velocity_increment);
           if (has_full_domain_potential())
             {
               surface_potential_cos_coeffs =
@@ -1979,30 +2284,6 @@ namespace aspect
           AssertThrow(radius > 0.0,
                       ExcMessage("Full-domain self-gravity potential is undefined at radius zero."));
 
-          const auto upper =
-            std::upper_bound(full_domain_potential_radii.begin(),
-                             full_domain_potential_radii.end(),
-                             radius);
-          unsigned int lower_index = 0;
-          unsigned int upper_index = 0;
-          double upper_weight = 0.0;
-
-          if (upper == full_domain_potential_radii.begin())
-            lower_index = upper_index = 0;
-          else if (upper == full_domain_potential_radii.end())
-            lower_index = upper_index =
-                            full_domain_potential_radii.size() - 1;
-          else
-            {
-              upper_index =
-                std::distance(full_domain_potential_radii.begin(), upper);
-              lower_index = upper_index - 1;
-              upper_weight =
-                (radius - full_domain_potential_radii[lower_index])
-                / (full_domain_potential_radii[upper_index]
-                   - full_domain_potential_radii[lower_index]);
-            }
-
           const std::array<double,3> spherical_coordinates =
             aspect::Utilities::Coordinates::
             cartesian_to_spherical_coordinates(position);
@@ -2022,19 +2303,29 @@ namespace aspect
                     spherical_coordinates[2],
                     spherical_coordinates[1]);
                 const double cosine_coefficient =
-                  (1.0 - upper_weight)
-                  * full_domain_potential_cos_coeffs[lower_index]
-                  [coefficient_index]
-                  + upper_weight
-                  * full_domain_potential_cos_coeffs[upper_index]
-                  [coefficient_index];
+                  (radial_transfer_scheme == "target enriched exact"
+                   ? internal::lookup_radial_cache_exact(
+                     full_domain_potential_radii,
+                     full_domain_potential_cos_coeffs,
+                     coefficient_index,
+                     radius)
+                   : internal::interpolate_radial_cache(
+                     full_domain_potential_radii,
+                     full_domain_potential_cos_coeffs,
+                     coefficient_index,
+                     radius));
                 const double sine_coefficient =
-                  (1.0 - upper_weight)
-                  * full_domain_potential_sin_coeffs[lower_index]
-                  [coefficient_index]
-                  + upper_weight
-                  * full_domain_potential_sin_coeffs[upper_index]
-                  [coefficient_index];
+                  (radial_transfer_scheme == "target enriched exact"
+                   ? internal::lookup_radial_cache_exact(
+                     full_domain_potential_radii,
+                     full_domain_potential_sin_coeffs,
+                     coefficient_index,
+                     radius)
+                   : internal::interpolate_radial_cache(
+                     full_domain_potential_radii,
+                     full_domain_potential_sin_coeffs,
+                     coefficient_index,
+                     radius));
                 potential_height +=
                   cosine_coefficient * harmonics.first
                   + sine_coefficient * harmonics.second;
@@ -2342,6 +2633,34 @@ namespace aspect
 
 
     template <int dim>
+    bool
+    SelfGravitation<dim>::uses_adjoint_consistent_surface_potential_traction() const
+    {
+      return use_adjoint_consistent_surface_potential_traction
+             && enable_surface_potential_traction;
+    }
+
+
+
+    template <int dim>
+    double
+    SelfGravitation<dim>::surface_potential_traction_load(
+      const Point<dim> &position) const
+    {
+      const double gravity_magnitude =
+        this->get_gravity_model().gravity_vector(position).norm();
+      const double potential_gravity =
+        internal::potential_traction_gravity(
+          has_full_domain_potential(),
+          full_domain_reference_gravity,
+          gravity_magnitude);
+      return density_below_surface * potential_gravity
+             * potential_height(top_boundary_id, position);
+    }
+
+
+
+    template <int dim>
     Tensor<1, dim>
     SelfGravitation<dim>::boundary_traction(
       const types::boundary_id boundary_indicator,
@@ -2379,7 +2698,6 @@ namespace aspect
         (is_surface ? surface_potential_cos_coeffs : cmb_potential_cos_coeffs);
       const std::vector<double> &potential_sin =
         (is_surface ? surface_potential_sin_coeffs : cmb_potential_sin_coeffs);
-
       double potential_height = 0.0;
       double cmb_topography = 0.0;
       double degree_one_load_compensation_topography = 0.0;
@@ -2471,6 +2789,7 @@ namespace aspect
           return density_below_surface
                  * (-g_magnitude * committed_surface_topography
                     + (enable_surface_potential_traction
+                       && !use_adjoint_consistent_surface_potential_traction
                        ? potential_gravity * potential_height
                        : 0.0)) * normal_vector
                  - density_below_surface * g_magnitude
@@ -2534,6 +2853,13 @@ namespace aspect
         settings.full_domain_volume_source_discretization;
       full_domain_potential_radial_subdivisions =
         settings.full_domain_potential_radial_subdivisions;
+      radial_transfer_scheme = settings.radial_transfer_scheme;
+      maximum_target_enriched_radial_cache_supports =
+        settings.maximum_target_enriched_radial_cache_supports;
+      surface_angular_analysis_scheme =
+        settings.surface_angular_analysis_scheme;
+      use_adjoint_consistent_surface_potential_traction =
+        settings.use_adjoint_consistent_surface_potential_traction;
       degree_one_reference_frame = settings.degree_one_reference_frame;
       center_of_mass_absolute_tolerance =
         settings.center_of_mass_absolute_tolerance;
@@ -2670,6 +2996,12 @@ namespace aspect
                             "applied as a non-local traction at the outer "
                             "surface. Harmonic analysis and output remain "
                             "active when this switch is false.");
+          prm.declare_entry("Use adjoint consistent surface potential traction", "false",
+                            Patterns::Bool(),
+                            "Whether to apply the surface-potential load through "
+                            "the transpose of the exact free-surface velocity "
+                            "projection. This experimental scheme is disabled by "
+                            "default; the default retains direct normal traction.");
           prm.declare_entry("Enable CMB potential traction", "true",
                             Patterns::Bool(),
                             "Diagnostic switch controlling whether Phi/g is "
@@ -2725,6 +3057,32 @@ namespace aspect
                             "radial Green-function moments. A value of 1 "
                             "reproduces the former two-boundary-point cache "
                             "for a constant reference-density model.");
+          prm.declare_entry("Radial transfer scheme", "symmetric support projection",
+                            Patterns::Selection("legacy target interpolation|symmetric support projection|target enriched exact"),
+                            "Radial discretization of the full-domain Green "
+                            "operator. `legacy target interpolation' deposits "
+                            "sources at their physical radii and interpolates "
+                            "only targets. `symmetric support projection' uses "
+                            "the same piecewise-linear stencil to project sources "
+                            "to fixed supports and interpolate targets, forming "
+                            "the reciprocal B K B^T operator without collecting "
+                            "physical radii across MPI ranks. `target enriched "
+                            "exact' retains the non-scalable exact-union "
+                            "diagnostic as an oracle.");
+          prm.declare_entry("Maximum target enriched radial cache supports", "100000",
+                            Patterns::Integer(2),
+                            "Maximum number of unique radial supports allowed "
+                            "by the target-enriched exact radial-cache "
+                            "diagnostic. The cap bounds both MPI collection and "
+                            "cache storage.");
+          prm.declare_entry("Surface angular analysis scheme", "direct quadrature",
+                            Patterns::Selection("direct quadrature|discrete biorthogonal"),
+                            "Diagnostic choice for analyzing outer-surface fields. "
+                            "The default directly integrates against spherical "
+                            "harmonics. `discrete biorthogonal' solves the global "
+                            "weighted Gram system on the production boundary "
+                            "quadrature points, eliminating finite-sampling alias "
+                            "within the configured harmonic space.");
           prm.declare_entry("Time between text output", "0.",
                             Patterns::Double(0.),
                             "The time interval in years between text outputs for self-gravity diagnostics. "
@@ -2768,6 +3126,8 @@ namespace aspect
             prm.get_integer("Maximum potential iterations");
           enable_surface_potential_traction =
             prm.get_bool("Enable surface potential traction");
+          use_adjoint_consistent_surface_potential_traction =
+            prm.get_bool("Use adjoint consistent surface potential traction");
           enable_cmb_potential_traction =
             prm.get_bool("Enable CMB potential traction");
           center_of_mass_correction =
@@ -2795,6 +3155,11 @@ namespace aspect
             prm.get("Full domain volume source discretization");
           full_domain_potential_radial_subdivisions =
             prm.get_integer("Full domain potential radial subdivisions");
+          radial_transfer_scheme = prm.get("Radial transfer scheme");
+          maximum_target_enriched_radial_cache_supports =
+            prm.get_integer("Maximum target enriched radial cache supports");
+          surface_angular_analysis_scheme =
+            prm.get("Surface angular analysis scheme");
           time_between_text_output = prm.get_double("Time between text output");
           time_steps_between_text_output = prm.get_integer("Time steps between text output");
           potential_relative_change = std::numeric_limits<double>::infinity();
@@ -2921,7 +3286,8 @@ namespace aspect
 
     template <int dim>
     Tensor<1,3>
-    SelfGravitation<dim>::compute_internal_density_mass_dipole() const
+    SelfGravitation<dim>::compute_internal_density_mass_dipole(
+      const bool) const
     {
       AssertThrow(false, ExcNotImplemented());
       return Tensor<1,3>();
@@ -2955,7 +3321,7 @@ namespace aspect
       const std::vector<double> &cmb_height_sin,
       const double outer_radius,
       const double inner_radius,
-      const bool include_internal_sources)
+      const bool include_current_velocity_increment)
     {
       full_domain_potential_radii.clear();
       full_domain_potential_cos_coeffs.clear();
@@ -2985,12 +3351,145 @@ namespace aspect
         for (const double radius : parameters.tabulated_reference_radii)
           if (radius > inner_radius && radius < outer_radius)
             full_domain_potential_radii.push_back(radius);
+      for (const double radius : parameters.internal_density_jump_radii)
+        if (radius > inner_radius && radius < outer_radius)
+          full_domain_potential_radii.push_back(radius);
       std::sort(full_domain_potential_radii.begin(),
                 full_domain_potential_radii.end());
       full_domain_potential_radii.erase(
         std::unique(full_domain_potential_radii.begin(),
                     full_domain_potential_radii.end()),
         full_domain_potential_radii.end());
+
+      bool include_internal = false;
+      if (include_internal_density_anomalies == "true")
+        include_internal = true;
+      else if (include_internal_density_anomalies == "auto")
+        include_internal = true;
+
+      if (radial_transfer_scheme == "target enriched exact")
+        {
+          std::set<double> local_target_and_source_radius_set;
+          const auto add_local_support =
+            [this, &local_target_and_source_radius_set](const double radius)
+          {
+            local_target_and_source_radius_set.insert(radius);
+            AssertThrow(local_target_and_source_radius_set.size()
+                        <= maximum_target_enriched_radial_cache_supports,
+                        ExcMessage("Target-enriched exact radial cache exceeded "
+                                   "the configured local support cap of "
+                                   + Utilities::to_string(
+                                     maximum_target_enriched_radial_cache_supports)
+                                   + "."));
+          };
+          const Quadrature<3> &volume_quadrature =
+            this->introspection().quadratures.velocities;
+          FEValues<3> volume_values(this->get_mapping(),
+                                    this->get_fe(),
+                                    volume_quadrature,
+                                    update_quadrature_points);
+          for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+            if (cell->is_locally_owned())
+              {
+                volume_values.reinit(cell);
+                for (const Point<3> &point : volume_values.get_quadrature_points())
+                  add_local_support(point.norm());
+              }
+
+          if (this->get_density_source_manager().has_internal_density_jumps())
+            {
+              const Quadrature<2> &face_quadrature =
+                this->introspection().face_quadratures.velocities;
+              FEFaceValues<3> face_values(this->get_mapping(),
+                                          this->get_fe(),
+                                          face_quadrature,
+                                          update_quadrature_points);
+              for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+                if (cell->is_locally_owned())
+                  for (const unsigned int face_no : cell->face_indices())
+                    {
+                      if (cell->at_boundary(face_no)
+                          || cell->has_periodic_neighbor(face_no))
+                        continue;
+
+                      const auto neighbor = cell->neighbor(face_no);
+                      const Point<3> inner_cell_center =
+                        this->get_density_source_manager()
+                        .radial_cell_representative_point(cell);
+                      const Point<3> outer_cell_center =
+                        this->get_density_source_manager()
+                        .radial_cell_representative_point(neighbor);
+                      if (inner_cell_center.norm() >= outer_cell_center.norm())
+                        continue;
+
+                      const auto face = cell->face(face_no);
+                      const double density_contrast =
+                        this->get_density_source_manager()
+                        .internal_density_jump_across_face(
+                          inner_cell_center,
+                          outer_cell_center,
+                          face->vertex(0).norm());
+                      if (density_contrast == 0.0)
+                        continue;
+
+                      bool all_vertices_match = true;
+                      for (unsigned int vertex = 1;
+                           vertex < face->n_vertices();
+                           ++vertex)
+                        all_vertices_match =
+                          all_vertices_match
+                          && (this->get_density_source_manager()
+                              .internal_density_jump_across_face(
+                                inner_cell_center,
+                                outer_cell_center,
+                                face->vertex(vertex).norm())
+                              == density_contrast);
+                      if (!all_vertices_match)
+                        continue;
+
+                      face_values.reinit(cell, face_no);
+                      for (const Point<3> &point :
+                           face_values.get_quadrature_points())
+                        add_local_support(point.norm());
+                    }
+            }
+
+          if (include_internal)
+            this->get_density_source_manager().for_each_internal_mass_source(
+              reference_density_for_internal_anomalies,
+              full_domain_volume_source_discretization,
+              [&add_local_support](const double,
+                                   const Point<3> &point)
+            {
+              add_local_support(point.norm());
+            },
+          include_current_velocity_increment);
+
+          const std::vector<double> local_target_and_source_radii(
+            local_target_and_source_radius_set.begin(),
+            local_target_and_source_radius_set.end());
+          const std::vector<double> global_enriched_radii =
+            internal::collect_global_radial_cache_supports(
+              local_target_and_source_radii,
+              maximum_target_enriched_radial_cache_supports,
+              this->get_mpi_communicator());
+          const unsigned int base_support_count =
+            full_domain_potential_radii.size();
+          const unsigned int maximum_base_support_count =
+            dealii::Utilities::MPI::max(base_support_count,
+                                        this->get_mpi_communicator());
+          AssertThrow(maximum_base_support_count
+                      <= maximum_target_enriched_radial_cache_supports,
+                      ExcMessage("The base radial cache exceeds the configured "
+                                 "target-enriched support cap of "
+                                 + Utilities::to_string(
+                                   maximum_target_enriched_radial_cache_supports)
+                                 + "."));
+          full_domain_potential_radii =
+            internal::merge_radial_cache_supports(
+          {full_domain_potential_radii, global_enriched_radii},
+          maximum_target_enriched_radial_cache_supports);
+        }
 
       const unsigned int n_coefficients = sh_transform->n_coefficients();
       const unsigned int n_radii = full_domain_potential_radii.size();
@@ -3006,14 +3505,6 @@ namespace aspect
         outer_radius);
       std::vector<double> source_cos_coefficients(n_coefficients, 0.0);
       std::vector<double> source_sin_coefficients(n_coefficients, 0.0);
-
-      bool include_internal = false;
-      if (include_internal_density_anomalies == "true")
-        include_internal = true;
-      else if (include_internal_density_anomalies == "auto")
-        include_internal = true;
-      if (!include_internal_sources)
-        include_internal = false;
 
       if (include_internal)
         this->get_density_source_manager().for_each_internal_mass_source(
@@ -3052,10 +3543,17 @@ namespace aspect
                 source_sin_coefficients[coefficient_index] =
                   source_mass * harmonics.second;
               }
-          internal_green_moments.add_source(source_radius,
-                                            source_cos_coefficients,
-                                            source_sin_coefficients);
-        });
+          if (radial_transfer_scheme == "symmetric support projection")
+            internal_green_moments.add_interpolated_source(
+              source_radius,
+              source_cos_coefficients,
+              source_sin_coefficients);
+          else
+            internal_green_moments.add_source(source_radius,
+                                              source_cos_coefficients,
+                                              source_sin_coefficients);
+        },
+      include_current_velocity_increment);
 
       internal_green_moments.mpi_sum(this->get_mpi_communicator());
       const std::pair<std::vector<double>, std::vector<double>>
@@ -3196,7 +3694,8 @@ namespace aspect
 
     template <>
     Tensor<1,3>
-    SelfGravitation<3>::compute_internal_density_mass_dipole() const
+    SelfGravitation<3>::compute_internal_density_mass_dipole(
+      const bool include_current_velocity_increment) const
     {
       if (!this->get_density_source_manager()
           .internal_density_anomalies_are_enabled(
@@ -3206,7 +3705,8 @@ namespace aspect
       return this->get_density_source_manager()
              .compute_internal_mass_moments(
                reference_density_for_internal_anomalies,
-               full_domain_volume_source_discretization)
+               full_domain_volume_source_discretization,
+               include_current_velocity_increment)
              .mass_dipole;
     }
 
@@ -3382,7 +3882,12 @@ namespace aspect
 
       if (this->get_density_source_manager().has_internal_density_jumps())
         {
-          const QGauss<2> face_quadrature_formula(quadrature_degree);
+          // Match the active displaced-sheet source and the Stokes restoring
+          // term. The sheet displacement is the radial trace of the Stokes
+          // velocity increment, so its face integration must not depend on
+          // the temperature polynomial degree.
+          const Quadrature<2> &face_quadrature_formula =
+            this->introspection().face_quadratures.velocities;
           FEFaceValues<3> face_values(this->get_mapping(),
                                       this->get_fe(),
                                       face_quadrature_formula,

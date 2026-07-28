@@ -396,7 +396,8 @@ namespace aspect
               this->get_density_source_manager()
               .compute_internal_mass_moments(
                 reference_density_for_internal_anomalies,
-                full_domain_volume_source_discretization);
+                full_domain_volume_source_discretization,
+                include_current_velocity_increment);
             internal_delta_ixz = internal_moments.inertia_tensor[0][2];
             internal_delta_iyz = internal_moments.inertia_tensor[1][2];
           }

@@ -51,6 +51,53 @@ namespace aspect
         const double local_gravity);
 
       /**
+       * The at most two nonzero entries in one row of the piecewise-linear
+       * radial interpolation matrix. Outside the support interval the stencil
+       * clamps to the nearest endpoint.
+       */
+      struct RadialInterpolationStencil
+      {
+        std::array<unsigned int,2> indices;
+        std::array<double,2> weights;
+      };
+
+      RadialInterpolationStencil
+      radial_interpolation_stencil(const std::vector<double> &radii,
+                                   const double radius);
+
+      /** Linearly interpolate scalar values at sorted radial cache supports. */
+      double
+      interpolate_radial_cache(
+        const std::vector<double> &radii,
+        const std::vector<std::vector<double>> &values,
+        const unsigned int value_index,
+        const double radius);
+
+      /** Return the value at an exactly matching sorted radial cache support. */
+      double
+      lookup_radial_cache_exact(
+        const std::vector<double> &radii,
+        const std::vector<std::vector<double>> &values,
+        const unsigned int value_index,
+        const double radius);
+
+      /**
+       * Merge sorted radial support vectors, remove duplicates, and enforce a
+       * cap before constructing the result.
+       */
+      std::vector<double>
+      merge_radial_cache_supports(
+        const std::vector<std::vector<double>> &support_vectors,
+        const unsigned int maximum_supports);
+
+      /** Return the deterministic MPI-global union of local radial supports. */
+      std::vector<double>
+      collect_global_radial_cache_supports(
+        const std::vector<double> &local_supports,
+        const unsigned int maximum_supports,
+        const MPI_Comm &mpi_communicator);
+
+      /**
        * Accumulate the radial Green-function moments of spherical-harmonic
        * source coefficients. The two moment arrays permit evaluating all
        * configured radii with prefix and suffix sums instead of applying the
@@ -69,6 +116,14 @@ namespace aspect
           add_source(const double source_radius,
                      const std::vector<double> &source_cos_coefficients,
                      const std::vector<double> &source_sin_coefficients);
+
+          /** Deposit a physical source with B^T onto the fixed evaluation
+           * supports using the shared piecewise-linear radial stencil. */
+          void
+          add_interpolated_source(
+            const double source_radius,
+            const std::vector<double> &source_cos_coefficients,
+            const std::vector<double> &source_sin_coefficients);
 
           void
           mpi_sum(const MPI_Comm &mpi_communicator);
@@ -151,6 +206,12 @@ namespace aspect
         /** Return the current non-local potential height Phi/g. */
         double potential_height(const types::boundary_id boundary_indicator,
                                 const Point<dim> &position) const;
+
+        /** Return whether the experimental adjoint surface traction is active. */
+        bool uses_adjoint_consistent_surface_potential_traction() const;
+
+        /** Return only the scalar surface-potential traction load. */
+        double surface_potential_traction_load(const Point<dim> &position) const;
 
         /** Add a load owned by the unified potential-feedback adapter. */
         void set_additional_load_traction_function(
@@ -388,7 +449,8 @@ namespace aspect
           const double radius) const;
 
         Tensor<1,3>
-        compute_internal_density_mass_dipole() const;
+        compute_internal_density_mass_dipole(
+          const bool include_current_velocity_increment) const;
 
         /**
          * Cache Phi/g_surface spherical-harmonic coefficients on radial
@@ -402,7 +464,7 @@ namespace aspect
           const std::vector<double> &cmb_height_sin,
           const double outer_radius,
           const double inner_radius,
-          const bool include_internal_sources);
+          const bool include_current_velocity_increment);
 
         void
         write_native_center_of_mass_diagnostic(
@@ -449,6 +511,7 @@ namespace aspect
         unsigned int potential_iteration_number;
         bool   enable_surface_potential_traction;
         bool   enable_cmb_potential_traction;
+        bool   use_adjoint_consistent_surface_potential_traction = false;
         DegreeOneReferenceFrame degree_one_reference_frame;
         bool   center_of_mass_correction;
         bool   citcomsve_degree_one_load_compensation;
@@ -459,6 +522,9 @@ namespace aspect
         double internal_density_anomaly_tolerance;
         std::string full_domain_volume_source_discretization = "quadrature point";
         unsigned int full_domain_potential_radial_subdivisions = 32;
+        std::string radial_transfer_scheme = "symmetric support projection";
+        unsigned int maximum_target_enriched_radial_cache_supports = 100000;
+        std::string surface_angular_analysis_scheme = "direct quadrature";
 
         double time_between_text_output;
         unsigned int time_steps_between_text_output;

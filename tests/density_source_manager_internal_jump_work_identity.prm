@@ -1,0 +1,176 @@
+# Check that ASPECT internal density-jump restoring uses the same
+# velocity-face quadrature and work identity as the displaced sheet source.
+# This is a self-contained three-dimensional counterpart of the tabulated
+# radial piecewise-density case; it intentionally does not include the
+# diagnostic postprocessor test PRM, because this test replaces the production
+# internal-jump assembler with a work-identity wrapper before assembly.
+# Enable if: QUICK_TEST
+
+set Additional shared libraries  = ./libdensity_source_manager_internal_jump_work_identity.so
+set Dimension                    = 3
+set End time                     = 1
+set Max nonlinear iterations     = 1
+set Maximum time step            = 1
+set Min nonlinear iterations     = 1
+set Nonlinear solver scheme      = single Advection, iterated Stokes
+set Nonlinear solver tolerance   = 1
+set Output directory             = output-density-source-manager-internal-jump-work-identity
+set Pressure normalization       = no
+set Use operator splitting       = true
+set Use years instead of seconds = false
+
+subsection Compositional fields
+  set Names of fields                       = ve_stress_xx, ve_stress_yy, ve_stress_zz, ve_stress_xy, \
+                                              ve_stress_xz, ve_stress_yz, ve_radial_displacement
+  set Number of fields                      = 7
+  set Skip composition assembly at timestep = 0
+  set Types of fields                       = stress, stress, stress, stress, stress, stress, generic
+end
+
+subsection Discretization
+  set Composition polynomial degree                = 1
+  set Stokes velocity polynomial degree            = 2
+  set Temperature polynomial degree                = 1
+  set Use discontinuous composition discretization = true
+end
+
+subsection Formulation
+  set Enable elasticity = true
+  set Mass conservation = elastic pressure evolution
+
+  subsection Density sources
+    set Density source law                        = mechanical mass conservation
+    set Reference density model                   = tabulated radial
+    set Internal density jump density contrasts   = 100
+    set Internal density jump face tolerance      = 0.01
+    set Internal density jump radii               = 1.5
+    set Tabulated reference density interpolation = linear
+    set Tabulated reference radii                 = 1, 1.5, 2
+    set Tabulated reference densities             = 4100, 4000, 3700
+  end
+
+  subsection Elasticity
+    set Use old stress fields = false
+  end
+end
+
+subsection Geometry model
+  set Model name = spherical shell
+
+  subsection Spherical shell
+    set Custom mesh subdivision    = list of radial values
+    set Initial lateral refinement = 1
+    set Inner radius               = 1
+    set List of radial values      = 1.5, 1.75
+    set Outer radius               = 2
+  end
+end
+
+subsection Gravity model
+  set Model name = radial constant
+
+  subsection Radial constant
+    set Magnitude = 10
+  end
+end
+
+subsection Initial composition model
+  set Model name = function
+
+  subsection Function
+    set Coordinate system   = cartesian
+    set Function expression = 0; 0; 0; 0; 0; 0; 0.001*(1 + 0.3*x + 0.2*x*z + 0.1*y*y)
+    set Variable names      = x,y,z
+  end
+end
+
+subsection Boundary traction model
+  set Prescribed traction boundary indicators = outer: potential feedback, \
+                                                  outer: self gravity cache observer, \
+                                                  inner: potential feedback
+end
+
+subsection Potential feedback
+  set List of feedback mechanisms = self gravity
+
+  subsection Potential iteration
+    set Initial displacement time step = 1
+    set Iterate with Stokes             = true
+    set Maximum iterations              = 2
+    set Relative tolerance              = 1
+    set Relaxation factor               = 1
+  end
+
+  subsection Reference frame
+    set Degree 1 reference frame = none
+  end
+
+  subsection Self gravity
+    set Density above CMB                          = 4100
+    set Density above surface                      = 0
+    set Density below CMB                          = 4100
+    set Density below surface                      = 0
+    set Full domain potential radial subdivisions = 1
+    set Full domain volume source discretization  = quadrature point
+    set Include internal density anomalies        = true
+    set Maximum degree                            = 2
+  end
+end
+
+subsection Initial temperature model
+  set Model name = function
+
+  subsection Function
+    set Function expression = 0
+  end
+end
+
+subsection Material model
+  set Model name = viscoelastic
+  set Material averaging = harmonic average only viscosity
+
+  subsection Viscoelastic
+    set Densities                   = 4000
+    set Elastic bulk moduli         = 2e11
+    set Elastic shear moduli        = 1e11
+    set Enable compressible Maxwell = true
+    set Initial elastic time step   = 1
+    set Initial response mode       = instantaneous elastic
+    set Use fixed elastic time step = false
+    set Viscosities                 = 1e21
+  end
+end
+
+subsection Mesh deformation
+  set Mesh deformation boundary indicators = outer: free surface, inner: free surface
+
+  subsection Free surface
+    set Free surface stabilization theta                    = 1
+    set Initial stabilization density contrasts             = outer: 400, inner: 0
+    set Stabilization density contrasts                     = outer: 400, inner: 0
+    set Surface velocity projection                         = normal
+    set Use displacement history in free surface stabilization = true
+  end
+end
+
+subsection Mesh refinement
+  set Initial adaptive refinement = 0
+  set Initial global refinement   = 0
+end
+
+subsection Postprocess
+  set List of postprocessors = pressure statistics, velocity statistics
+end
+
+subsection Solver parameters
+  subsection Operator splitting parameters
+    set Reaction solver type                   = fixed step
+    set Reaction time step                     = 1
+    set Reaction time steps per advection step = 1
+  end
+
+  subsection Stokes solver parameters
+    set Linear solver tolerance = 1e-12
+    set Stokes solver type      = block AMG
+  end
+end

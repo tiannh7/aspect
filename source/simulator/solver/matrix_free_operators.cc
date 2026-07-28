@@ -202,8 +202,16 @@ namespace aspect
     FEEvaluation<dim,degree_v,degree_v+1,dim,number> u_eval(data, 0);
     FEEvaluation<dim,degree_v-1,degree_v+1,1,number> p_eval(data, /*dofh*/1);
 
+    const bool apply_radial_restoring =
+      cell_data->radial_restoring_coefficient.size(0) != 0;
+    const bool apply_pressure_to_velocity =
+      cell_data->pressure_to_velocity_radial_coefficient.size(0) != 0;
     const EvaluationFlags::EvaluationFlags velocity_evaluation_flags =
-      cell_data->use_mechanical_mass_conservation
+      apply_radial_restoring
+      ? EvaluationFlags::values | EvaluationFlags::gradients
+      : EvaluationFlags::gradients;
+    const EvaluationFlags::EvaluationFlags velocity_integration_flags =
+      apply_pressure_to_velocity
       ? EvaluationFlags::values | EvaluationFlags::gradients
       : EvaluationFlags::gradients;
 
@@ -308,21 +316,25 @@ namespace aspect
                 velocity_terms[d][d] -= viscosity_x_2 / 3. * div_u;
 
             Tensor<1,dim,VectorizedArray<number>> velocity_values;
-            if (cell_data->use_mechanical_mass_conservation)
+            if (apply_radial_restoring || apply_pressure_to_velocity)
               {
                 const Tensor<1,dim,VectorizedArray<number>> radial_unit =
                   cell_data->radial_unit_vector(cell,q);
-                const VectorizedArray<number> radial_restoring =
-                  cell_data->radial_restoring_coefficient(cell,q);
-                const VectorizedArray<number> radial_velocity =
-                  u_eval.get_value(q) * radial_unit;
+                if (apply_radial_restoring)
+                  {
+                    const VectorizedArray<number> radial_restoring =
+                      cell_data->radial_restoring_coefficient(cell,q);
+                    const VectorizedArray<number> radial_velocity =
+                      u_eval.get_value(q) * radial_unit;
 
-                for (unsigned int d=0; d<dim; ++d)
-                  velocity_terms[d][d] -= radial_restoring * radial_velocity;
+                    for (unsigned int d=0; d<dim; ++d)
+                      velocity_terms[d][d] -= radial_restoring * radial_velocity;
+                  }
 
-                velocity_values += cell_data->pressure_scaling
-                                   * cell_data->pressure_to_velocity_radial_coefficient(cell,q)
-                                   * val_p * radial_unit;
+                if (apply_pressure_to_velocity)
+                  velocity_values += cell_data->pressure_scaling
+                                     * cell_data->pressure_to_velocity_radial_coefficient(cell,q)
+                                     * val_p * radial_unit;
               }
 
             // Add the Newton derivatives if required.
@@ -385,12 +397,12 @@ namespace aspect
               }
 
             u_eval.submit_symmetric_gradient(velocity_terms, q);
-            if (cell_data->use_mechanical_mass_conservation)
+            if (apply_pressure_to_velocity)
               u_eval.submit_value(velocity_values, q);
             p_eval.submit_value(pressure_terms, q);
           }
 
-        u_eval.integrate_scatter(velocity_evaluation_flags, dst.block(0));
+        u_eval.integrate_scatter(velocity_integration_flags, dst.block(0));
         p_eval.integrate_scatter(EvaluationFlags::values, dst.block(1));
       }
   }
@@ -587,8 +599,10 @@ namespace aspect
     FEEvaluation<dim,degree_v,degree_v+1,dim,number> u_eval(data, 0);
     FEEvaluation<dim,degree_v-1,degree_v+1,1,number> p_eval(data, /*dofh*/1);
 
+    const bool apply_pressure_to_velocity =
+      cell_data->pressure_to_velocity_radial_coefficient.size(0) != 0;
     const EvaluationFlags::EvaluationFlags velocity_integration_flags =
-      cell_data->use_mechanical_mass_conservation
+      apply_pressure_to_velocity
       ? EvaluationFlags::values | EvaluationFlags::gradients
       : EvaluationFlags::gradients;
 
@@ -611,7 +625,7 @@ namespace aspect
               velocity_terms[d][d] -= cell_data->pressure_scaling * val_p;
             u_eval.submit_symmetric_gradient(velocity_terms, q);
 
-            if (cell_data->use_mechanical_mass_conservation)
+            if (apply_pressure_to_velocity)
               u_eval.submit_value(cell_data->pressure_scaling
                                   * cell_data->pressure_to_velocity_radial_coefficient(cell,q)
                                   * val_p * cell_data->radial_unit_vector(cell,q),
