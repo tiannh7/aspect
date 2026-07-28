@@ -1,0 +1,24 @@
+# Verify that a viscoelastic ASCII material profile can remain attached to
+# reference-mesh layers when ALE mesh deformation is enabled. The test plugin
+# applies a laterally varying initial deformation and compares the evaluated
+# density against the profile depth on the undeformed mesh.
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/viscoelastic_ascii_profile_bulk_modulus.prm
+
+set End time         = 0
+set Output directory = output-viscoelastic-ascii-profile-reference-geometry
+
+subsection Mesh deformation
+  set Mesh deformation boundary indicators = top: prescribed reference-profile deformation
+end
+
+subsection Material model
+  subsection Viscoelastic
+    set Use reference geometry for ascii profile = true
+  end
+end
+
+subsection Postprocess
+  set List of postprocessors = ascii profile reference geometry
+end

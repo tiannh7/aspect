@@ -22,6 +22,10 @@
 #include <aspect/material_model/viscoelastic.h>
 #include <aspect/utilities.h>
 #include <aspect/global.h>
+
+#include <deal.II/fe/mapping_q_generic.h>
+#include <deal.II/fe/mapping_q1.h>
+
 #include <algorithm>
 #include <numeric>
 
@@ -30,9 +34,62 @@ namespace aspect
   namespace MaterialModel
   {
     template <int dim>
+    ViscoelasticAsciiProfileReferencePositions<dim>::
+    ViscoelasticAsciiProfileReferencePositions(
+      const unsigned int n_points,
+      const Mapping<dim> &current_mapping,
+      const Mapping<dim> &reference_mapping)
+      :
+      positions(n_points),
+      current_mapping(&current_mapping),
+      reference_mapping(&reference_mapping)
+    {}
+
+
+
+    template <int dim>
+    void
+    ViscoelasticAsciiProfileReferencePositions<dim>::
+    fill(const LinearAlgebra::BlockVector &,
+         const FEValuesBase<dim> &fe_values,
+         const Introspection<dim> &)
+    {
+      positions.resize(fe_values.n_quadrature_points);
+
+      const FEValues<dim> *cell_fe_values =
+        dynamic_cast<const FEValues<dim> *>(&fe_values);
+      if (cell_fe_values != nullptr)
+        {
+          if (reference_fe_values == nullptr)
+            reference_fe_values = std::make_unique<FEValues<dim>>(
+                                    *reference_mapping,
+                                    fe_values.get_fe(),
+                                    cell_fe_values->get_quadrature(),
+                                    update_quadrature_points);
+
+          reference_fe_values->reinit(fe_values.get_cell());
+          positions = reference_fe_values->get_quadrature_points();
+          return;
+        }
+
+      for (unsigned int q = 0; q < fe_values.n_quadrature_points; ++q)
+        {
+          const Point<dim> unit_position =
+            current_mapping->transform_real_to_unit_cell(fe_values.get_cell(),
+                                                         fe_values.quadrature_point(q));
+          positions[q] =
+            reference_mapping->transform_unit_to_real_cell(fe_values.get_cell(),
+                                                           unit_position);
+        }
+    }
+
+
+
+    template <int dim>
     Viscoelastic<dim>::Viscoelastic ()
       :
       use_ascii_profile(false),
+      use_reference_geometry_for_ascii_profile(false),
       profile_density_index(numbers::invalid_unsigned_int),
       profile_viscosity_index(numbers::invalid_unsigned_int),
       profile_elastic_shear_modulus_index(numbers::invalid_unsigned_int),
@@ -47,6 +104,16 @@ namespace aspect
     void
     Viscoelastic<dim>::initialize ()
     {
+      if (use_ascii_profile
+          && use_reference_geometry_for_ascii_profile
+          && this->get_parameters().mesh_deformation_enabled)
+        {
+          if (this->get_geometry_model().has_curved_elements())
+            ascii_profile_reference_mapping = std::make_unique<MappingQGeneric<dim>>(4);
+          else
+            ascii_profile_reference_mapping = std::make_unique<MappingQ1<dim>>();
+        }
+
       if (use_ascii_profile)
         {
           material_profile.initialize(this->get_mpi_communicator());
@@ -130,6 +197,10 @@ namespace aspect
       std::vector<double> elastic_shear_moduli(elastic_rheology.get_elastic_shear_moduli());
       std::vector<double> average_elastic_bulk_moduli(in.n_evaluation_points(),
                                                       numbers::signaling_nan<double>());
+      const std::shared_ptr<const ViscoelasticAsciiProfileReferencePositions<dim>>
+      reference_positions =
+        in.template get_additional_input_object<
+        ViscoelasticAsciiProfileReferencePositions<dim>>();
 
       for (unsigned int i=0; i < in.n_evaluation_points(); ++i)
         {
@@ -158,7 +229,28 @@ namespace aspect
           Point<1> profile_position;
           if (use_ascii_profile)
             {
-              profile_position[0] = this->get_geometry_model().depth(in.position[i]);
+              Point<dim> profile_sample_position = in.position[i];
+              if (use_reference_geometry_for_ascii_profile
+                  && this->get_parameters().mesh_deformation_enabled
+                  && in.current_cell.state() == IteratorState::valid)
+                {
+                  if (reference_positions != nullptr)
+                    profile_sample_position = reference_positions->positions[i];
+                  else
+                    {
+                      Assert(ascii_profile_reference_mapping != nullptr,
+                             ExcInternalError());
+                      const Point<dim> unit_position =
+                        this->get_mapping().transform_real_to_unit_cell(in.current_cell,
+                                                                        in.position[i]);
+                      profile_sample_position =
+                        ascii_profile_reference_mapping->transform_unit_to_real_cell(in.current_cell,
+                                                                                     unit_position);
+                    }
+                }
+
+              profile_position[0] =
+                this->get_geometry_model().depth(profile_sample_position);
               out.densities[i] =
                 material_profile.get_data_component(profile_position, profile_density_index);
             }
@@ -353,6 +445,17 @@ namespace aspect
                              "of state. If both columns are present, they must satisfy "
                              "K=1/compressibility=lame_lambda+2G/3. This option is disabled by "
                              "default and does not by itself enable finite compressibility.");
+          prm.declare_entry ("Use reference geometry for ascii profile", "false",
+                             Patterns::Bool(),
+                             "Whether the depth used to sample the one-dimensional ASCII "
+                             "material profile is measured on the undeformed reference mesh "
+                             "instead of the current ALE mapping. This option changes only "
+                             "the material-profile lookup coordinate: velocity gradients, "
+                             "quadrature weights, and all other kinematic quantities continue "
+                             "to use the current deformed mesh. It is useful for interface-fitted "
+                             "layered models whose material interfaces should remain attached "
+                             "to their reference mesh layers while the ALE mesh deforms. The "
+                             "default preserves the existing current-geometry behavior.");
           aspect::Utilities::AsciiDataProfile<dim>::declare_parameters(prm,
                                                                        "$ASPECT_SOURCE_DIR/data/material-model/viscoelastic/",
                                                                        "viscoelastic_profile.txt",
@@ -439,8 +542,15 @@ namespace aspect
           options.property_name = "Thermal conductivities";
           thermal_conductivities = Utilities::MapParsing::parse_map_to_double_array (prm.get("Thermal conductivities"), options);
           use_ascii_profile = prm.get_bool("Use ascii profile");
+          use_reference_geometry_for_ascii_profile =
+            prm.get_bool("Use reference geometry for ascii profile");
           material_profile.parse_parameters(prm, "Ascii profile");
           enable_compressible_maxwell = prm.get_bool("Enable compressible Maxwell");
+
+          AssertThrow(!use_reference_geometry_for_ascii_profile
+                      || use_ascii_profile,
+                      ExcMessage("'Use reference geometry for ascii profile' "
+                                 "requires 'Use ascii profile = true'."));
 
           const std::string bulk_modulus_formulation =
             prm.get("Elastic bulk modulus formulation");
@@ -523,6 +633,37 @@ namespace aspect
       this->model_dependence.compressibility = NonlinearDependence::none;
       this->model_dependence.specific_heat = NonlinearDependence::compositional_fields;
       this->model_dependence.thermal_conductivity = NonlinearDependence::compositional_fields;
+    }
+
+
+
+    template <int dim>
+    void
+    Viscoelastic<dim>::fill_additional_material_model_inputs(
+      MaterialModel::MaterialModelInputs<dim> &input,
+      const LinearAlgebra::BlockVector &solution,
+      const FEValuesBase<dim> &fe_values,
+      const Introspection<dim> &introspection) const
+    {
+      if (use_ascii_profile
+          && use_reference_geometry_for_ascii_profile
+          && this->get_parameters().mesh_deformation_enabled
+          && !input.template has_additional_input_object<
+          ViscoelasticAsciiProfileReferencePositions<dim>>())
+        {
+          Assert(ascii_profile_reference_mapping != nullptr,
+                 ExcInternalError());
+          input.additional_inputs.emplace_back(
+            std::make_unique<ViscoelasticAsciiProfileReferencePositions<dim>>(
+              input.n_evaluation_points(),
+              this->get_mapping(),
+              *ascii_profile_reference_mapping));
+        }
+
+      MaterialModel::Interface<dim>::fill_additional_material_model_inputs(input,
+                                                                           solution,
+                                                                           fe_values,
+                                                                           introspection);
     }
 
 

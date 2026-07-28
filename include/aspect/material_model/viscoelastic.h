@@ -32,6 +32,33 @@ namespace aspect
   namespace MaterialModel
   {
     /**
+     * Undeformed positions corresponding to the evaluation points in a
+     * MaterialModelInputs object.
+     */
+    template <int dim>
+    class ViscoelasticAsciiProfileReferencePositions
+      : public AdditionalMaterialInputs<dim>
+    {
+      public:
+        ViscoelasticAsciiProfileReferencePositions(
+          const unsigned int n_points,
+          const Mapping<dim> &current_mapping,
+          const Mapping<dim> &reference_mapping);
+
+        void
+        fill(const LinearAlgebra::BlockVector &solution,
+             const FEValuesBase<dim> &fe_values,
+             const Introspection<dim> &introspection) override;
+
+        std::vector<Point<dim>> positions;
+
+      private:
+        const Mapping<dim> *current_mapping;
+        const Mapping<dim> *reference_mapping;
+        std::unique_ptr<FEValues<dim>> reference_fe_values;
+    };
+
+    /**
      * An implementation of a simple linear viscoelastic rheology that only
      * includes the deviatoric components of elasticity. Specifically, the
      * viscoelastic rheology only takes into account the elastic shear
@@ -204,6 +231,13 @@ namespace aspect
         void
         create_additional_named_outputs(MaterialModel::MaterialModelOutputs<dim> &out) const override;
 
+        void
+        fill_additional_material_model_inputs(
+          MaterialModel::MaterialModelInputs<dim> &input,
+          const LinearAlgebra::BlockVector &solution,
+          const FEValuesBase<dim> &fe_values,
+          const Introspection<dim> &introspection) const override;
+
         bool
         use_instantaneous_elastic_response_at_timestep_zero() const override;
 
@@ -234,8 +268,17 @@ namespace aspect
         /** Whether density, viscosity, and shear modulus come from a depth profile. */
         bool use_ascii_profile;
 
+        /**
+         * Whether the depth used to sample the ASCII profile is measured on
+         * the undeformed reference mesh instead of the current ALE mapping.
+         */
+        bool use_reference_geometry_for_ascii_profile;
+
         /** Optional one-dimensional material profile. */
         aspect::Utilities::AsciiDataProfile<dim> material_profile;
+
+        /** Mapping used to recover undeformed profile-sampling positions. */
+        std::unique_ptr<Mapping<dim>> ascii_profile_reference_mapping;
 
         unsigned int profile_density_index;
         unsigned int profile_viscosity_index;
