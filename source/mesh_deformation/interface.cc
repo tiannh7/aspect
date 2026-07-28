@@ -515,6 +515,21 @@ namespace aspect
                           Patterns::Selection("cg|gmres|bicgstab"),
                           "The Krylov subspace method to use when solving the mesh deformation\n"
                           "linear system. Options: cg, gmres, bicgstab.");
+        prm.declare_entry("Mesh velocity formulation", "harmonic extension",
+                          Patterns::Selection("harmonic extension|material velocity"),
+                          "How to determine the mesh velocity in the domain interior. "
+                          "'harmonic extension' preserves the standard ALE behavior and "
+                          "solves a vector Laplace problem that extends prescribed boundary "
+                          "mesh velocities into the interior. 'material velocity' projects "
+                          "the complete Stokes material velocity onto the mesh-deformation "
+                          "finite element space and moves every mesh vertex with it. The "
+                          "latter is a fully Lagrangian formulation up to projection error "
+                          "and is intended for sufficiently small deformations where mesh "
+                          "quality remains acceptable. In this mode, boundary velocities "
+                          "provided by mesh deformation plugins are not imposed: the "
+                          "material velocity determines both boundary and interior mesh "
+                          "motion. Mesh deformation plugins can still affect other parts "
+                          "of the formulation, such as free-surface stabilization.");
       }
       prm.leave_subsection ();
 
@@ -540,6 +555,8 @@ namespace aspect
                                  "Valid options are: cg, gmres, bicgstab."));
           mesh_deformation_solver = solver;
         }
+        use_material_velocity_for_mesh_deformation =
+          prm.get("Mesh velocity formulation") == "material velocity";
 
         // Create the map of prescribed mesh movement boundary indicators
         // Each boundary indicator can carry a number of mesh deformation plugin names.
@@ -729,8 +746,8 @@ namespace aspect
             {
               mesh_deformation_objects[boundary_and_object_names.first].push_back(
                 std::unique_ptr<Interface<dim>> (std::get<dim>(registered_plugins)
-                                                  .create_plugin (object_name,
-                                                                  "Mesh deformation::Model names")));
+                                                 .create_plugin (object_name,
+                                                                 "Mesh deformation::Model names")));
 
               if (SimulatorAccess<dim> *sim = dynamic_cast<SimulatorAccess<dim>*>(mesh_deformation_objects[boundary_and_object_names.first].back().get()))
                 sim->initialize_simulator (this->get_simulator());
@@ -778,15 +795,20 @@ namespace aspect
 
       old_mesh_displacements = mesh_displacements;
 
-      // Make the constraints for the elliptic problem.
+      // Make the constraints for the mesh-velocity problem.
       make_constraints();
 
-      // Assemble and solve the vector Laplace problem which determines
-      // the mesh displacements in the interior of the domain
-      if (this->is_stokes_matrix_free())
-        compute_mesh_displacements_gmg();
+      if (use_material_velocity_for_mesh_deformation)
+        compute_lagrangian_mesh_displacements();
       else
-        compute_mesh_displacements();
+        {
+          // Assemble and solve the vector Laplace problem which determines
+          // the mesh displacements in the interior of the domain.
+          if (this->is_stokes_matrix_free())
+            compute_mesh_displacements_gmg();
+          else
+            compute_mesh_displacements();
+        }
 
       // Interpolate the mesh velocity into the same
       // finite element space as used in the Stokes solve, which
@@ -841,6 +863,16 @@ namespace aspect
                                                p.first.second,
                                                p.second,
                                                mesh_velocity_constraints);
+
+      // In a Lagrangian formulation the material velocity determines the
+      // motion of every mesh point, including boundary points. The Stokes
+      // velocity already satisfies the material boundary conditions, so only
+      // conformity and periodicity constraints are needed for its projection.
+      if (use_material_velocity_for_mesh_deformation)
+        {
+          mesh_velocity_constraints.close();
+          return;
+        }
 
       // Zero out the displacement for the zero-velocity boundaries
       // if the boundary is not in the set of tangential mesh boundaries and not in the set of mesh deformation boundary indicators
@@ -1071,6 +1103,151 @@ namespace aspect
       mesh_velocity_constraints.merge(plugin_constraints,
                                       AffineConstraints<double>::left_object_wins);
       mesh_velocity_constraints.close();
+    }
+
+
+
+    template <int dim>
+    void MeshDeformationHandler<dim>::compute_lagrangian_mesh_displacements()
+    {
+      if (sim.parameters.skip_mesh_deformation_assembly_at_timestep < -1
+          || (sim.parameters.skip_mesh_deformation_assembly_at_timestep >= 0
+              && static_cast<int>(this->get_timestep_number())
+              == sim.parameters.skip_mesh_deformation_assembly_at_timestep))
+        {
+          const std::string reason =
+            (sim.parameters.skip_mesh_deformation_assembly_at_timestep < -1)
+            ? "parameter set to skip all timesteps"
+            : "timestep " + std::to_string(this->get_timestep_number());
+          this->get_pcout()
+              << "   Skipping Lagrangian mesh-velocity projection because "
+              << reason << "." << std::endl;
+          fs_mesh_velocity = 0;
+          return;
+        }
+
+      const unsigned int quadrature_degree =
+        std::max(mesh_deformation_fe.degree, sim.finite_element.degree) + 1;
+      const QGauss<dim> quadrature(quadrature_degree);
+      const UpdateFlags update_flags =
+        UpdateFlags(update_values | update_JxW_values);
+      FEValues<dim> mesh_fe_values(*sim.mapping,
+                                   mesh_deformation_fe,
+                                   quadrature,
+                                   update_flags);
+      FEValues<dim> stokes_fe_values(*sim.mapping,
+                                     sim.finite_element,
+                                     quadrature,
+                                     update_flags);
+
+      const unsigned int dofs_per_cell = mesh_fe_values.dofs_per_cell;
+      const unsigned int n_q_points = quadrature.size();
+      std::vector<types::global_dof_index> cell_dof_indices(dofs_per_cell);
+      Vector<double> cell_rhs(dofs_per_cell);
+      FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
+      std::vector<Tensor<1,dim>> material_velocity_values(n_q_points);
+      const FEValuesExtractors::Vector mesh_velocity_extractor(0);
+
+      LinearAlgebra::SparseMatrix mass_matrix;
+      LinearAlgebra::DynamicSparsityPattern sparsity_pattern(
+        mesh_locally_owned,
+        mesh_locally_owned,
+        mesh_locally_relevant,
+        sim.mpi_communicator);
+      DoFTools::make_sparsity_pattern(mesh_deformation_dof_handler,
+                                      sparsity_pattern,
+                                      mesh_velocity_constraints,
+                                      false,
+                                      Utilities::MPI::this_mpi_process(
+                                        sim.mpi_communicator));
+      sparsity_pattern.compress();
+      mass_matrix.reinit(sparsity_pattern);
+
+      LinearAlgebra::Vector rhs;
+      LinearAlgebra::Vector solution;
+      rhs.reinit(mesh_locally_owned, sim.mpi_communicator);
+      solution.reinit(mesh_locally_owned, sim.mpi_communicator);
+
+      auto stokes_cell = sim.dof_handler.begin_active();
+      const auto end_stokes_cell = sim.dof_handler.end();
+      auto mesh_cell = mesh_deformation_dof_handler.begin_active();
+      for (; stokes_cell != end_stokes_cell; ++stokes_cell, ++mesh_cell)
+        if (stokes_cell->is_locally_owned())
+          {
+            mesh_cell->get_dof_indices(cell_dof_indices);
+            mesh_fe_values.reinit(mesh_cell);
+            stokes_fe_values.reinit(stokes_cell);
+            stokes_fe_values[sim.introspection.extractors.velocities]
+            .get_function_values(sim.solution, material_velocity_values);
+
+            cell_matrix = 0;
+            cell_rhs = 0;
+            for (unsigned int q = 0; q < n_q_points; ++q)
+              for (unsigned int i = 0; i < dofs_per_cell; ++i)
+                {
+                  const Tensor<1,dim> phi_i =
+                    mesh_fe_values[mesh_velocity_extractor].value(i, q);
+                  cell_rhs(i) +=
+                    phi_i * material_velocity_values[q]
+                    * mesh_fe_values.JxW(q);
+
+                  for (unsigned int j = 0; j < dofs_per_cell; ++j)
+                    cell_matrix(i, j) +=
+                      phi_i
+                      * mesh_fe_values[mesh_velocity_extractor].value(j, q)
+                      * mesh_fe_values.JxW(q);
+                }
+
+            mesh_velocity_constraints.distribute_local_to_global(
+              cell_matrix,
+              cell_rhs,
+              cell_dof_indices,
+              mass_matrix,
+              rhs,
+              false);
+          }
+
+      rhs.compress(VectorOperation::add);
+      mass_matrix.compress(VectorOperation::add);
+
+      this->get_pcout()
+          << "   Projecting material velocity onto Lagrangian mesh... "
+          << std::flush;
+      if (rhs.l2_norm() > 0.0)
+        {
+          LinearAlgebra::PreconditionJacobi preconditioner;
+          preconditioner.initialize(mass_matrix);
+          SolverControl solver_control(5 * rhs.size(),
+                                       1e-12 * rhs.l2_norm());
+          SolverCG<LinearAlgebra::Vector> solver(solver_control);
+          solver.solve(mass_matrix, solution, rhs, preconditioner);
+          this->get_pcout() << solver_control.last_step()
+                            << " iterations." << std::endl;
+        }
+      else
+        this->get_pcout() << "zero material velocity." << std::endl;
+
+      mesh_velocity_constraints.distribute(solution);
+      fs_mesh_velocity = solution;
+
+      if (this->simulator_is_past_initialization())
+        {
+          LinearAlgebra::Vector distributed_mesh_displacements(
+            mesh_locally_owned,
+            sim.mpi_communicator);
+          distributed_mesh_displacements = mesh_displacements;
+          double dt = this->get_timestep();
+          if (dt == 0.0 && this->get_timestep_number() == 0)
+            {
+              dt = sim.parameters.initial_elastic_response_time_step;
+              if (this->get_material_model()
+                  .use_instantaneous_elastic_response_at_timestep_zero()
+                  && this->get_material_model().fixed_elastic_time_step() > 0.0)
+                dt = this->get_material_model().fixed_elastic_time_step();
+            }
+          distributed_mesh_displacements.add(dt, solution);
+          mesh_displacements = distributed_mesh_displacements;
+        }
     }
 
 
@@ -1328,7 +1505,7 @@ namespace aspect
       const UpdateFlags update_flags(update_values | update_JxW_values | update_gradients);
       additional_data.mapping_update_flags = update_flags;
       std::shared_ptr<MatrixFree<dim, double>> system_mf_storage
-        = std::make_shared<MatrixFree<dim, double>>();
+                                            = std::make_shared<MatrixFree<dim, double>>();
       system_mf_storage->reinit(*sim.mapping,
                                 mesh_deformation_dof_handler,
                                 mesh_velocity_constraints,
@@ -1463,7 +1640,7 @@ namespace aspect
           additional_data.mapping_update_flags = update_flags;
           additional_data.mg_level = level;
           std::shared_ptr<MatrixFree<dim, double>> mg_mf_storage_level
-            = std::make_shared<MatrixFree<dim, double>>();
+                                                = std::make_shared<MatrixFree<dim, double>>();
 
           mg_mf_storage_level->reinit(mapping,
                                       mesh_deformation_dof_handler,
@@ -1617,7 +1794,7 @@ namespace aspect
       else
         {
           const std::vector<Point<dim>> support_points
-            = mesh_deformation_fe.base_element(0).get_unit_support_points();
+                                     = mesh_deformation_fe.base_element(0).get_unit_support_points();
 
           const Quadrature<dim> quad(support_points);
           const UpdateFlags update_flags = UpdateFlags(update_quadrature_points);
@@ -1673,7 +1850,7 @@ namespace aspect
       distributed_mesh_velocity.reinit(sim.introspection.index_sets.system_partitioning, sim.mpi_communicator);
 
       const std::vector<Point<dim>> support_points
-        = sim.finite_element.base_element(sim.introspection.component_indices.velocities[0]).get_unit_support_points();
+                                 = sim.finite_element.base_element(sim.introspection.component_indices.velocities[0]).get_unit_support_points();
 
       const Quadrature<dim> quad(support_points);
       const UpdateFlags update_flags = UpdateFlags(update_values | update_JxW_values);
@@ -1921,7 +2098,7 @@ namespace aspect
 
     template <int dim>
     const std::map<types::boundary_id, std::vector<std::string>> &
-    MeshDeformationHandler<dim>::get_active_mesh_deformation_names () const
+                                                              MeshDeformationHandler<dim>::get_active_mesh_deformation_names () const
     {
       return mesh_deformation_object_names;
     }

@@ -1,0 +1,26 @@
+# Verify the optional full-Lagrangian mesh-velocity formulation for a
+# uniform translation u=(1,0). At step 1 the projected mesh velocity should
+# equal the material velocity and every x mesh degree of freedom should have
+# moved by 0.5 meter during the 0.5-second time step.
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/analytic_artificial_viscosity_0.prm
+
+set Output directory = output-lagrangian-mesh-velocity
+
+subsection Mesh deformation
+  set Mesh deformation boundary indicators = top: boundary function
+  set Mesh velocity formulation = material velocity
+
+  subsection Boundary function
+    set Function expression = 0; 0
+  end
+end
+
+subsection Postprocess
+  set List of postprocessors = lagrangian mesh velocity
+end
+
+subsection Termination criteria
+  set End step = 1
+end
