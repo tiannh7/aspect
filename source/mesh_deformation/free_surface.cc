@@ -128,23 +128,38 @@ namespace aspect
 
       mass_matrix_constraints.close();
 
-      // set up the matrix
-      LinearAlgebra::SparseMatrix mass_matrix;
-      LinearAlgebra::DynamicSparsityPattern sp (mesh_locally_owned,
-                                                mesh_locally_owned,
-                                                mesh_locally_relevant,
-                                                this->get_mpi_communicator());
-      DoFTools::make_sparsity_pattern (mesh_deformation_dof_handler, sp, mass_matrix_constraints, false,
-                                       Utilities::MPI::this_mpi_process(this->get_mpi_communicator()));
-      sp.compress();
-      mass_matrix.reinit (sp);
+      // The sparsity and vector maps only depend on topology and
+      // partitioning. Reuse them across repeated post-Stokes projections;
+      // only the matrix entries depend on the current ALE geometry.
+      if (boundary_projection_mass_matrix.m() !=
+          mesh_deformation_dof_handler.n_dofs()
+          ||
+          boundary_projection_locally_owned != mesh_locally_owned)
+        {
+          LinearAlgebra::DynamicSparsityPattern sp (mesh_locally_owned,
+                                                    mesh_locally_owned,
+                                                    mesh_locally_relevant,
+                                                    this->get_mpi_communicator());
+          DoFTools::make_sparsity_pattern (
+            mesh_deformation_dof_handler,
+            sp,
+            mass_matrix_constraints,
+            false,
+            Utilities::MPI::this_mpi_process(this->get_mpi_communicator()));
+          sp.compress();
+          boundary_projection_mass_matrix.reinit(sp);
+          boundary_projection_rhs.reinit(mesh_locally_owned,
+                                         this->get_mpi_communicator());
+          boundary_projection_solution.reinit(mesh_locally_owned,
+                                              this->get_mpi_communicator());
+          boundary_projection_locally_owned = mesh_locally_owned;
+        }
+
+      boundary_projection_mass_matrix = 0;
+      boundary_projection_rhs = 0;
+      boundary_projection_solution = 0;
 
       FEValuesExtractors::Vector extract_vel(0);
-
-      // make distributed vectors.
-      LinearAlgebra::Vector rhs, dist_solution;
-      rhs.reinit(mesh_locally_owned, this->get_mpi_communicator());
-      dist_solution.reinit(mesh_locally_owned, this->get_mpi_communicator());
 
       typename DoFHandler<dim>::active_cell_iterator
       cell = this->get_dof_handler().begin_active(), endc= this->get_dof_handler().end();
@@ -210,23 +225,32 @@ namespace aspect
                   }
 
                 mass_matrix_constraints.distribute_local_to_global (cell_matrix, cell_vector,
-                                                                    cell_dof_indices, mass_matrix, rhs, false);
+                                                                    cell_dof_indices,
+                                                                    boundary_projection_mass_matrix,
+                                                                    boundary_projection_rhs,
+                                                                    false);
               }
 
-      rhs.compress (VectorOperation::add);
-      mass_matrix.compress(VectorOperation::add);
+      boundary_projection_rhs.compress (VectorOperation::add);
+      boundary_projection_mass_matrix.compress(VectorOperation::add);
 
       // Jacobi seems to be fine here.  Other preconditioners (ILU, IC) run into troubles
       // because the matrix is mostly empty, since we don't touch internal vertices.
       LinearAlgebra::PreconditionJacobi preconditioner_mass;
-      preconditioner_mass.initialize(mass_matrix);
+      preconditioner_mass.initialize(boundary_projection_mass_matrix);
 
-      SolverControl solver_control(5*rhs.size(), this->get_parameters().linear_stokes_solver_tolerance*rhs.l2_norm());
+      SolverControl solver_control(
+        5*boundary_projection_rhs.size(),
+        this->get_parameters().linear_stokes_solver_tolerance
+        * boundary_projection_rhs.l2_norm());
       SolverCG<LinearAlgebra::Vector> cg(solver_control);
 
       try
         {
-          cg.solve (mass_matrix, dist_solution, rhs, preconditioner_mass);
+          cg.solve (boundary_projection_mass_matrix,
+                    boundary_projection_solution,
+                    boundary_projection_rhs,
+                    preconditioner_mass);
         }
       catch (const std::exception &exc)
         {
@@ -240,8 +264,8 @@ namespace aspect
                                                            this->get_mpi_communicator());
         }
 
-      mass_matrix_constraints.distribute (dist_solution);
-      output = dist_solution;
+      mass_matrix_constraints.distribute (boundary_projection_solution);
+      output = boundary_projection_solution;
     }
 
 

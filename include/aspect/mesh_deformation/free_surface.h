@@ -130,6 +130,17 @@ namespace aspect
          * or the direction of the local vertical.
          */
         typename SurfaceAdvection::Direction advection_direction;
+
+        /**
+         * Linear algebra objects for the boundary mass projection. Their
+         * sparsity and vector maps only depend on the mesh topology and
+         * partitioning, so keep them across repeated post-Stokes projections
+         * and only reassemble their values on the current ALE geometry.
+         */
+        mutable LinearAlgebra::SparseMatrix boundary_projection_mass_matrix;
+        mutable LinearAlgebra::Vector boundary_projection_rhs;
+        mutable LinearAlgebra::Vector boundary_projection_solution;
+        mutable IndexSet boundary_projection_locally_owned;
     };
   }
 }
