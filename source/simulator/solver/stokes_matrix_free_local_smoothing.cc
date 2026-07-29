@@ -1623,11 +1623,22 @@ namespace aspect
     rhs_correction.compress(VectorOperation::add);
 
     // Copy to the correct vector type and add the correction to the system rhs.
-    LinearAlgebra::BlockVector stokes_rhs_correction (this->introspection().index_sets.stokes_partitioning, this->get_mpi_communicator());
-    internal::ChangeVectorTypes::copy(stokes_rhs_correction,rhs_correction);
+    //
+    // Clone the maps of the live system vectors instead of constructing new
+    // Epetra maps from cached IndexSets. This is both cheaper and important
+    // after an ALE geometry update, where the matrix-free Stokes objects are
+    // rebuilt without redistributing the simulator DoFHandler.
+    LinearAlgebra::Vector velocity_rhs_correction;
+    velocity_rhs_correction.reinit(sim.system_rhs.block(0));
+    internal::ChangeVectorTypes::copy(velocity_rhs_correction,
+                                      rhs_correction.block(0));
+    sim.system_rhs.block(0) += velocity_rhs_correction;
 
-    sim.system_rhs.block(0) += stokes_rhs_correction.block(0);
-    sim.system_rhs.block(1) += stokes_rhs_correction.block(1);
+    LinearAlgebra::Vector pressure_rhs_correction;
+    pressure_rhs_correction.reinit(sim.system_rhs.block(1));
+    internal::ChangeVectorTypes::copy(pressure_rhs_correction,
+                                      rhs_correction.block(1));
+    sim.system_rhs.block(1) += pressure_rhs_correction;
   }
 
 
@@ -2345,15 +2356,33 @@ namespace aspect
       AssertThrow(have_periodic_hanging_nodes==false, ExcNotImplemented());
     }
 
-    // This vector will be refilled with the new MatrixFree objects below:
+    // Release all objects that reference the current DoFHandlers before
+    // rebuilding the matrix-free hierarchy after mesh deformation.
+    stokes_matrix.clear();
+    A_block_matrix.clear();
+    BT_block.clear();
+    Schur_complement_block_matrix.clear();
+    mg_matrices_A_block.clear_elements();
+    mg_matrices_Schur_complement.clear_elements();
+    mg_transfer_A_block.clear();
+    mg_transfer_Schur_complement.clear();
     matrix_free_objects.clear();
+
+    const bool initialize_dof_handlers = (dof_handler_v.n_dofs() == 0);
+    Assert(initialize_dof_handlers == (dof_handler_p.n_dofs() == 0),
+           ExcInternalError());
+    Assert(initialize_dof_handlers == (dof_handler_projection.n_dofs() == 0),
+           ExcInternalError());
 
     // Set up velocity DoFHandler
     {
-      dof_handler_v.clear();
-      dof_handler_v.distribute_dofs(fe_v);
+      if (initialize_dof_handlers)
+        {
+          dof_handler_v.clear();
+          dof_handler_v.distribute_dofs(fe_v);
 
-      DoFRenumbering::hierarchical(dof_handler_v);
+          DoFRenumbering::hierarchical(dof_handler_v);
+        }
 
 #if DEAL_II_VERSION_GTE(9,7,0)
       const IndexSet locally_relevant_dofs =
@@ -2421,10 +2450,13 @@ namespace aspect
 
     // Set up pressure DoFHandler
     {
-      dof_handler_p.clear();
-      dof_handler_p.distribute_dofs(fe_p);
+      if (initialize_dof_handlers)
+        {
+          dof_handler_p.clear();
+          dof_handler_p.distribute_dofs(fe_p);
 
-      DoFRenumbering::hierarchical(dof_handler_p);
+          DoFRenumbering::hierarchical(dof_handler_p);
+        }
 
 #if DEAL_II_VERSION_GTE(9,7,0)
       const IndexSet locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler_p);
@@ -2450,16 +2482,20 @@ namespace aspect
 
     // Coefficient transfer objects
     {
-      dof_handler_projection.clear();
-      dof_handler_projection.distribute_dofs(fe_projection);
+      if (initialize_dof_handlers)
+        {
+          dof_handler_projection.clear();
+          dof_handler_projection.distribute_dofs(fe_projection);
 
-      DoFRenumbering::hierarchical(dof_handler_projection);
+          DoFRenumbering::hierarchical(dof_handler_projection);
+        }
     }
 
     // Distribute multigrid DoFs and multigrid constraints
     {
       // A block
-      dof_handler_v.distribute_mg_dofs();
+      if (initialize_dof_handlers)
+        dof_handler_v.distribute_mg_dofs();
 
       mg_constrained_dofs_A_block.clear();
       mg_constrained_dofs_A_block.initialize(dof_handler_v);
@@ -2490,12 +2526,14 @@ namespace aspect
       mg_constrained_dofs_A_block.make_zero_boundary_constraints(dof_handler_v, dirichlet_boundaries);
 
       // Schur complement block
-      dof_handler_p.distribute_mg_dofs();
+      if (initialize_dof_handlers)
+        dof_handler_p.distribute_mg_dofs();
 
       mg_constrained_dofs_Schur_complement.clear();
       mg_constrained_dofs_Schur_complement.initialize(dof_handler_p);
 
-      dof_handler_projection.distribute_mg_dofs();
+      if (initialize_dof_handlers)
+        dof_handler_projection.distribute_mg_dofs();
     }
 
     // Setup the matrix-free operators

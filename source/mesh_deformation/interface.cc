@@ -1782,6 +1782,7 @@ namespace aspect
             }
           owned_mesh_displacements.add(dt, owned_fs_mesh_velocity);
           mesh_displacements = owned_mesh_displacements;
+          mesh_displacements.update_ghost_values();
         }
 
       update_multilevel_deformation();
