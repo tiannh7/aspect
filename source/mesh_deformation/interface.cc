@@ -1886,7 +1886,10 @@ namespace aspect
                     const unsigned int support_point_index
                       = sim.finite_element.component_to_system_index(/*velocity component=*/ sim.introspection.component_indices.velocities[dir],
                                                                                              /*dof index within component=*/ j);
-                    owned_mesh_velocity[cell_dof_indices[support_point_index]] = velocity_values[j][dir];
+                    const types::global_dof_index global_index =
+                      cell_dof_indices[support_point_index];
+                    if (owned_mesh_velocity.locally_owned_elements().is_element(global_index))
+                      owned_mesh_velocity[global_index] = velocity_values[j][dir];
                   }
             }
           ++fscell;
