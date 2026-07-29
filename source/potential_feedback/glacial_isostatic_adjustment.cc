@@ -144,6 +144,7 @@ namespace aspect
       density_ice = settings.gia.density_ice;
       density_water = settings.gia.density_water;
       maximum_degree = settings.gia.maximum_degree;
+      diagnostic_degrees = settings.gia.diagnostic_degrees;
       iterate_with_stokes = settings.iterate_with_stokes;
       freeze_feedback_after_timestep_zero =
         settings.freeze_feedback_after_timestep_zero;
@@ -722,24 +723,27 @@ namespace aspect
               << current_eustatic_sea_level
               << std::defaultfloat << std::endl;
 
-          if (maximum_degree >= 2)
+          for (const unsigned int degree : diagnostic_degrees)
             {
-              const unsigned int l2m0_index = sh_transform->index(2, 0);
+              const unsigned int diagnostic_index =
+                sh_transform->index(degree, 0);
               const double geoid_coefficient =
-                analyzed_fields[5].first[l2m0_index];
+                analyzed_fields[5].first[diagnostic_index];
               const double displacement_coefficient =
-                analyzed_fields[6].first[l2m0_index];
+                analyzed_fields[6].first[diagnostic_index];
               const double relative_sea_level_coefficient =
                 geoid_coefficient - displacement_coefficient;
 
               this->get_pcout()
-                  << "        l2m0 cosine coefficients: "
+                  << "        l" << degree << "m0 cosine coefficients: "
                   << std::scientific << std::setprecision(6)
-                  << "ice load=" << ice_load_coefficient(2, 0).first
-                  << ", ocean load=" << ocean_load_coefficient(2, 0).first
-                  << ", total load=" << total_load_coefficient(2, 0).first
+                  << "ice load=" << ice_load_coefficient(degree, 0).first
+                  << ", ocean load="
+                  << ocean_load_coefficient(degree, 0).first
+                  << ", total load="
+                  << total_load_coefficient(degree, 0).first
                   << ", relative sea level="
-                  << sea_level_coefficient(2, 0).first
+                  << sea_level_coefficient(degree, 0).first
                   << ", potential height=" << geoid_coefficient
                   << ", surface displacement=" << displacement_coefficient
                   << ", raw potential-minus-displacement="

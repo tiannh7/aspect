@@ -230,6 +230,12 @@ namespace aspect
                             Patterns::Integer(1),
                             "Maximum spherical-harmonic degree retained for "
                             "ice, ocean, and total GIA surface loads.");
+          prm.declare_entry("Diagnostic degrees", "2",
+                            Patterns::List(Patterns::Integer(0)),
+                            "Comma-separated spherical-harmonic degrees whose "
+                            "order-zero ice, ocean, total-load, sea-level, "
+                            "potential-height, and displacement coefficients "
+                            "are written during the coupled iteration.");
 
           SurfaceHistory<3>::declare_parameters(
             prm,
@@ -410,6 +416,13 @@ namespace aspect
           gia.density_ice = prm.get_double("Ice density");
           gia.density_water = prm.get_double("Water density");
           gia.maximum_degree = prm.get_integer("Maximum degree");
+          gia.diagnostic_degrees.clear();
+          for (const int degree :
+               dealii::Utilities::string_to_int(
+                 dealii::Utilities::split_string_list(
+                   prm.get("Diagnostic degrees"))))
+            gia.diagnostic_degrees.push_back(
+              static_cast<unsigned int>(degree));
           gia.ice_history =
             SurfaceHistory<3>::parse_parameters(prm, "Ice history");
           gia.ocean_history =
@@ -497,6 +510,12 @@ namespace aspect
           AssertThrow(gia.density_ice > 0.0 && gia.density_water > 0.0,
                       ExcMessage("GIA ice and water densities must be "
                                  "positive."));
+          for (const unsigned int degree : gia.diagnostic_degrees)
+            AssertThrow(
+              degree <= gia.maximum_degree,
+              ExcMessage("Every entry in Potential feedback/Glacial "
+                         "isostatic adjustment/Diagnostic degrees must not "
+                         "exceed Maximum degree."));
         }
     }
   }

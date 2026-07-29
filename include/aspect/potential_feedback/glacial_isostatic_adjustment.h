@@ -213,6 +213,7 @@ namespace aspect
         double potential_convergence_tolerance = 1e-3;
         double potential_relaxation_factor = 1.0;
         unsigned int maximum_degree = 32;
+        std::vector<unsigned int> diagnostic_degrees = {2};
         unsigned int maximum_potential_iterations = 20;
 
         SurfaceHistoryConfiguration ice_history_configuration;

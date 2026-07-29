@@ -82,6 +82,7 @@ namespace aspect
       double density_ice = 917.4;
       double density_water = 1000.0;
       unsigned int maximum_degree = 32;
+      std::vector<unsigned int> diagnostic_degrees = {2};
     };
 
 
