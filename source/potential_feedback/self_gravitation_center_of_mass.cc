@@ -257,10 +257,22 @@ namespace aspect
             || (center_of_mass_absolute_tolerance > 0.0
                 && center_of_mass_absolute_change
                 <= center_of_mass_absolute_tolerance);
-          const bool converged =
+          const bool potential_change_is_converged =
             potential_relative_change <= potential_convergence_tolerance
+            || (potential_absolute_coefficient_tolerance > 0.0
+                && potential_absolute_change
+                <= potential_absolute_coefficient_tolerance);
+          const bool center_of_mass_constraint_is_converged =
+            constraint_relative_residual <= potential_convergence_tolerance
+            || (center_of_mass_absolute_tolerance > 0.0
+                && native_center_of_mass_diagnostic.valid
+                && native_center_of_mass_diagnostic.mass_dipole_post.norm()
+                / native_center_of_mass_diagnostic.total_mass
+                <= center_of_mass_absolute_tolerance);
+          const bool converged =
+            potential_change_is_converged
             && center_of_mass_change_is_converged
-            && constraint_relative_residual <= potential_convergence_tolerance;
+            && center_of_mass_constraint_is_converged;
 
           AssertThrow(converged
                       || potential_iteration_number
@@ -274,6 +286,9 @@ namespace aspect
         }
 
       return potential_relative_change <= potential_convergence_tolerance
+             || (potential_absolute_coefficient_tolerance > 0.0
+                 && potential_absolute_change
+                 <= potential_absolute_coefficient_tolerance)
              || potential_iteration_number >= maximum_potential_iterations;
     }
   }

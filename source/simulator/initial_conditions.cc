@@ -485,6 +485,25 @@ namespace aspect
     // used). As the velocity is all zero anyway, this is currently not a
     // problem.
 
+    // Elastic pressure evolution solves for the pressure perturbation p',
+    // whose committed initial value is zero. The adiabatic pressure is a
+    // thermodynamic reference state and must not be used as either p' or the
+    // first linear-solver initial guess: doing so leaves a residual
+    // proportional to the large lithostatic pressure and contaminates the
+    // mechanical density source rho_ref p'/K before the first Stokes solve.
+    const bool initialize_elastic_pressure_perturbation =
+      parameters.formulation_mass_conservation
+      == Parameters<dim>::Formulation::MassConservation::
+      elastic_pressure_evolution;
+    const auto initial_pressure =
+      [this, initialize_elastic_pressure_perturbation](
+        const Point<dim> &position)
+    {
+      return (initialize_elastic_pressure_perturbation
+              ? 0.0
+              : adiabatic_conditions->pressure(position));
+    };
+
     // we'd like to interpolate the initial pressure onto the pressure
     // variable but that's a bit involved because the pressure may either
     // be an FE_Q (for which we can interpolate) or an FE_DGP (for which
@@ -516,9 +535,9 @@ namespace aspect
         // solution vector, so create such a function object
         // that is simply zero for all velocity components
         VectorFunctionFromScalarFunctionObject<dim> vector_function_object(
-          [&](const Point<dim> &p) -> double
+          [&initial_pressure](const Point<dim> &p) -> double
         {
-          return adiabatic_conditions->pressure(p);
+          return initial_pressure(p);
         },
         pressure_comp,
         introspection.n_components);
@@ -555,7 +574,7 @@ namespace aspect
                                                                         std::vector<double> &values) -> void
         {
           for (unsigned int i=0; i<values.size(); ++i)
-            values[i] = adiabatic_conditions->pressure(q_points[i]);
+            values[i] = initial_pressure(q_points[i]);
           return;
         },
         system_tmp);

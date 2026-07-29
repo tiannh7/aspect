@@ -87,6 +87,13 @@ anomaly, L2 norm, maximum anomaly, and maximum depth-bin lateral-mean residual.
   compressible Stokes feedback uses the matching volume and internal-interface
   weak terms; it is therefore not limited to surface and CMB tractions.
 
+  At timestep zero, the elastic pressure perturbation is initialized to zero.
+  The adiabatic pressure remains the thermodynamic reference pressure, but is
+  not copied into the Stokes pressure block for this formulation. This matches
+  the timestep-zero elastic-pressure-evolution equation, whose old-pressure
+  term is zero, and prevents the lithostatic solver initial guess from being
+  interpreted as a mechanical density anomaly.
+
   These terms are implemented on the fine grid for assembled AMG/direct and
   local-smoothing `block GMG`: the latter includes the elastic pressure mass,
   mechanical radial cell couplings, and internal-density-jump face restoring

@@ -38,6 +38,9 @@ TEST_CASE("Potential feedback GIA is disabled by default",
   REQUIRE_FALSE(settings.has_active_mechanisms());
 
   prm.enter_subsection("Potential feedback");
+  prm.enter_subsection("Self gravity");
+  prm.set("Absolute coefficient tolerance", "2.5e-4");
+  prm.leave_subsection();
   prm.enter_subsection("Potential iteration");
   prm.set("Freeze feedback after timestep zero", "true");
   prm.leave_subsection();
@@ -45,6 +48,8 @@ TEST_CASE("Potential feedback GIA is disabled by default",
 
   settings.parse_parameters(prm);
   REQUIRE(settings.freeze_feedback_after_timestep_zero);
+  REQUIRE(settings.self_gravity_absolute_coefficient_tolerance
+          == Approx(2.5e-4));
 }
 
 
@@ -144,8 +149,7 @@ TEST_CASE("Surface history parses elapsed nonuniform stages",
 TEST_CASE("Surface history parses canonical CitcomSVE regular grids",
           "[potential_feedback][gia]")
 {
-  const std::string contents =
-    "4 2\n"
+  const std::string data_rows =
     "45 45 1\n"
     "135 45 2\n"
     "225 45 3\n"
@@ -154,6 +158,9 @@ TEST_CASE("Surface history parses canonical CitcomSVE regular grids",
     "135 -45 6\n"
     "225 -45 7\n"
     "315 -45 8\n";
+  const std::string contents =
+    "4 2\n"
+    + data_rows;
 
   auto grid =
     aspect::PotentialFeedback::SurfaceHistoryUtilities::
@@ -182,6 +189,22 @@ TEST_CASE("Surface history parses canonical CitcomSVE regular grids",
           == Approx(5.0));
   REQUIRE(lookup.get_data(dealii::Point<2>(dealii::numbers::PI,
                                            dealii::numbers::PI), 0)
+          == Approx(13.0));
+
+  auto headerless_grid =
+    aspect::PotentialFeedback::SurfaceHistoryUtilities::
+    parse_citcomsve_regular_grid(data_rows, 2.0);
+  aspect::Utilities::StructuredDataLookup<2> headerless_lookup(1, 1.0);
+  headerless_lookup.reinit({"surface value"},
+                           std::move(headerless_grid.coordinate_values),
+                           std::move(headerless_grid.data_tables));
+  REQUIRE(headerless_lookup.get_data(
+            dealii::Point<2>(dealii::numbers::PI / 4.0,
+                             dealii::numbers::PI / 4.0), 0)
+          == Approx(2.0));
+  REQUIRE(headerless_lookup.get_data(
+            dealii::Point<2>(dealii::numbers::PI,
+                             dealii::numbers::PI), 0)
           == Approx(13.0));
 }
 

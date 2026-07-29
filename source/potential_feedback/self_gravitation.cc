@@ -1436,9 +1436,21 @@ namespace aspect
                   sin_cmb_external_load,
                   delta_rho_cmb,
                   inner_radius);
-              native_center_of_mass_diagnostic.internal_density_dipole =
-                compute_internal_density_mass_dipole(
-                  include_current_velocity_increment);
+              // At timestep zero the committed elastic pressure perturbation
+              // and displacement history are identically zero. Do not
+              // evaluate a pre-Stokes mechanical mass source from a solver
+              // initial guess or an uncommitted field state: on a coarse
+              // spherical mesh that would create a fictitious degree-one
+              // dipole. The post-Stokes update includes the newly solved
+              // elastic pressure through
+              // include_current_velocity_increment=true.
+              const bool committed_internal_source_is_defined =
+                this->get_timestep_number() > 0
+                || include_current_velocity_increment;
+              if (committed_internal_source_is_defined)
+                native_center_of_mass_diagnostic.internal_density_dipole =
+                  compute_internal_density_mass_dipole(
+                    include_current_velocity_increment);
               native_center_of_mass_diagnostic.mass_dipole_pre =
                 native_center_of_mass_diagnostic.surface_interface_dipole
                 + native_center_of_mass_diagnostic.cmb_interface_dipole
@@ -2140,6 +2152,7 @@ namespace aspect
             std::sqrt(difference_squared) /
             std::max(std::sqrt(new_norm_squared),
                      std::numeric_limits<double>::min());
+          potential_absolute_change = std::sqrt(difference_squared);
 
           if (native_center_of_mass_diagnostic.valid
               && old_center_of_mass_diagnostic.valid)
@@ -2179,6 +2192,10 @@ namespace aspect
                   << "relative SH coefficient change="
                   << std::scientific << std::setprecision(6)
                   << potential_relative_change;
+              if (potential_absolute_coefficient_tolerance > 0.0)
+                this->get_pcout()
+                    << ", absolute SH coefficient change [m]="
+                    << potential_absolute_change;
               if (native_center_of_mass_diagnostic.valid)
                 this->get_pcout()
                     << ", relative COM coefficient change="
@@ -2194,7 +2211,12 @@ namespace aspect
                 || (center_of_mass_absolute_tolerance > 0.0
                     && center_of_mass_absolute_change
                     <= center_of_mass_absolute_tolerance);
-              if ((potential_relative_change > potential_convergence_tolerance
+              const bool potential_change_is_converged =
+                potential_relative_change <= potential_convergence_tolerance
+                || (potential_absolute_coefficient_tolerance > 0.0
+                    && potential_absolute_change
+                    <= potential_absolute_coefficient_tolerance);
+              if ((!potential_change_is_converged
                    || !center_of_mass_change_is_converged)
                   && potential_iteration_number >= maximum_potential_iterations)
                 this->get_pcout()
@@ -2212,8 +2234,13 @@ namespace aspect
       if (degree_one_reference_frame ==
           DegreeOneReferenceFrame::center_of_mass)
         {
-          const bool converged =
+          const bool potential_change_is_converged =
             potential_relative_change <= potential_convergence_tolerance
+            || (potential_absolute_coefficient_tolerance > 0.0
+                && potential_absolute_change
+                <= potential_absolute_coefficient_tolerance);
+          const bool converged =
+            potential_change_is_converged
             && (center_of_mass_relative_change
                 <= potential_convergence_tolerance
                 || (center_of_mass_absolute_tolerance > 0.0
@@ -2232,6 +2259,9 @@ namespace aspect
         }
 
       return potential_relative_change <= potential_convergence_tolerance
+             || (potential_absolute_coefficient_tolerance > 0.0
+                 && potential_absolute_change
+                 <= potential_absolute_coefficient_tolerance)
              || potential_iteration_number >= maximum_potential_iterations;
     }
 
@@ -2850,6 +2880,8 @@ namespace aspect
       initial_displacement_timestep =
         settings.initial_displacement_timestep;
       potential_convergence_tolerance = settings.relative_tolerance;
+      potential_absolute_coefficient_tolerance =
+        settings.self_gravity_absolute_coefficient_tolerance;
       potential_iteration_relaxation_factor =
         settings.potential_iteration_relaxation_factor;
       maximum_potential_iterations = settings.maximum_iterations;
@@ -2881,6 +2913,7 @@ namespace aspect
       time_between_text_output = 0.0;
       time_steps_between_text_output = 0;
       potential_relative_change = std::numeric_limits<double>::infinity();
+      potential_absolute_change = std::numeric_limits<double>::infinity();
       center_of_mass_relative_change =
         std::numeric_limits<double>::infinity();
       center_of_mass_absolute_change =
@@ -3129,6 +3162,7 @@ namespace aspect
             prm.get_double("Initial displacement time step");
           potential_convergence_tolerance =
             prm.get_double("Potential convergence tolerance");
+          potential_absolute_coefficient_tolerance = 0.0;
           maximum_potential_iterations =
             prm.get_integer("Maximum potential iterations");
           enable_surface_potential_traction =
@@ -3170,6 +3204,7 @@ namespace aspect
           time_between_text_output = prm.get_double("Time between text output");
           time_steps_between_text_output = prm.get_integer("Time steps between text output");
           potential_relative_change = std::numeric_limits<double>::infinity();
+          potential_absolute_change = std::numeric_limits<double>::infinity();
           center_of_mass_relative_change =
             std::numeric_limits<double>::infinity();
           center_of_mass_absolute_change =
@@ -3373,6 +3408,16 @@ namespace aspect
         include_internal = true;
       else if (include_internal_density_anomalies == "auto")
         include_internal = true;
+
+      // The elastic-pressure-evolution equation defines the committed
+      // timestep-zero pressure perturbation and displacement history as zero.
+      // Do not turn a pre-Stokes solver guess or uncommitted field state into
+      // a full-domain mass source. The first post-Stokes update enters with
+      // include_current_velocity_increment=true and restores the complete
+      // coupled source.
+      if (this->get_timestep_number() == 0
+          && !include_current_velocity_increment)
+        include_internal = false;
 
       if (radial_transfer_scheme == "target enriched exact")
         {

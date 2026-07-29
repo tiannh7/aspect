@@ -128,6 +128,7 @@ namespace aspect
       bool include_surface_feedback = false;
       bool include_cmb_feedback = false;
       unsigned int self_gravity_max_degree = 32;
+      double self_gravity_absolute_coefficient_tolerance = 0.0;
 
       double self_gravity_density_above_surface = 0.0;
       double self_gravity_density_below_surface = 0.0;

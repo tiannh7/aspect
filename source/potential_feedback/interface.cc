@@ -105,6 +105,14 @@ namespace aspect
                             "self-gravity potential feedback. The calculation "
                             "starts internally at degree 1, matching "
                             "CitcomSVE's self-gravity potential synthesis.");
+          prm.declare_entry("Absolute coefficient tolerance", "0",
+                            Patterns::Double(0),
+                            "Absolute L2 change tolerance in meters for the "
+                            "combined surface and CMB Phi/g spherical-"
+                            "harmonic coefficient vectors. This complements "
+                            "the relative tolerance when the physical "
+                            "potential is zero or very small. A value of zero "
+                            "disables the absolute criterion.");
           prm.declare_entry("Density above surface", "0.0",
                             Patterns::Double(0.0),
                             "density immediately above the surface in kg/m^3.");
@@ -383,6 +391,8 @@ namespace aspect
         prm.enter_subsection("Self gravity");
         {
           self_gravity_max_degree = prm.get_integer("Maximum degree");
+          self_gravity_absolute_coefficient_tolerance =
+            prm.get_double("Absolute coefficient tolerance");
           self_gravity_density_above_surface = prm.get_double("Density above surface");
           self_gravity_density_below_surface = prm.get_double("Density below surface");
           self_gravity_density_above_cmb = prm.get_double("Density above CMB");

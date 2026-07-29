@@ -72,7 +72,12 @@ namespace aspect
         std::vector<Table<2,double>> data_tables;
       };
 
-      /** Parse the canonical `nlon nlat' CitcomSVE surface-grid format. */
+      /**
+       * Parse a CitcomSVE surface grid. Both the release format with an
+       * `nlon nlat' header and the headerless Yuan2025 ICE-6G_D files are
+       * accepted. For headerless files, dimensions are inferred from the
+       * repeated cell-centered latitude rows.
+       */
       CitcomSVERegularGrid
       parse_citcomsve_regular_grid(const std::string &contents,
                                    const double scale_factor);

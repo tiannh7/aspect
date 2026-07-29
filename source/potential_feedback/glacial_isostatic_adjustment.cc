@@ -476,7 +476,7 @@ namespace aspect
                 const std::size_t global_index =
                   static_cast<std::size_t>(longitude_index)
                   + static_cast<std::size_t>(
-                      projection_longitude_samples)
+                    projection_longitude_samples)
                   * latitude_index;
                 if (global_index % n_mpi_processes != mpi_rank)
                   continue;
@@ -521,6 +521,80 @@ namespace aspect
                                      solid_coefficients[1].second,
                                      theta,
                                      phi);
+        }
+
+      /*
+       * A history referenced to its first ice file describes anomalies from
+       * the initially equilibrated solid Earth. This distinction is
+       * immaterial for the exactly balanced uniform benchmark, but essential
+       * for layered PREM/VM5a: its small discrete timestep-zero hydrostatic
+       * adjustment would otherwise be interpreted as real relative sea level
+       * and generate a spurious ocean load.
+       *
+       * Keep GIA's solid anomaly exactly zero during timestep zero while the
+       * self-gravity/COM system equilibrates. At the first later timestep,
+       * capture that committed solid state spectrally and subtract it from
+       * all subsequent geoid and displacement fields. Storing coefficients
+       * makes the reference independent of MPI decomposition and suitable
+       * for checkpoint/restart.
+       */
+      if (ice_load_reference == IceLoadReference::first_history_file)
+        {
+          if (timestep_number == 0)
+            {
+              std::fill(current_geoid.begin(), current_geoid.end(), 0.0);
+              std::fill(current_displacement.begin(),
+                        current_displacement.end(),
+                        0.0);
+            }
+          else
+            {
+              if (reference_geoid_cos_coefficients.empty())
+                {
+                  const auto reference_solid_coefficients =
+                    sh_transform->analyze_multiple(
+                      theta,
+                      phi,
+                      weights,
+                  {current_geoid, current_displacement},
+                  this->get_mpi_communicator());
+                  AssertDimension(reference_solid_coefficients.size(), 2);
+                  reference_geoid_cos_coefficients =
+                    reference_solid_coefficients[0].first;
+                  reference_geoid_sin_coefficients =
+                    reference_solid_coefficients[0].second;
+                  reference_displacement_cos_coefficients =
+                    reference_solid_coefficients[1].first;
+                  reference_displacement_sin_coefficients =
+                    reference_solid_coefficients[1].second;
+                }
+
+              const std::vector<double> reference_geoid =
+                sh_transform->synthesize(
+                  reference_geoid_cos_coefficients,
+                  reference_geoid_sin_coefficients,
+                  theta,
+                  phi);
+              const std::vector<double> reference_displacement =
+                sh_transform->synthesize(
+                  reference_displacement_cos_coefficients,
+                  reference_displacement_sin_coefficients,
+                  theta,
+                  phi);
+              AssertDimension(current_geoid.size(),
+                              reference_geoid.size());
+              AssertDimension(current_displacement.size(),
+                              reference_displacement.size());
+              for (unsigned int point_index = 0;
+                   point_index < current_geoid.size();
+                   ++point_index)
+                {
+                  current_geoid[point_index] -=
+                    reference_geoid[point_index];
+                  current_displacement[point_index] -=
+                    reference_displacement[point_index];
+                }
+            }
         }
 
       const unsigned int n_points = weights.size();

@@ -13,17 +13,13 @@ Number of mesh deformation degrees of freedom: 2,910
    Skipping ve_stress_xy assembly and solve because timestep 0.
    Skipping ve_stress_xz assembly and solve because timestep 0.
    Skipping ve_stress_yz assembly and solve because timestep 0.
-   Solving Stokes system (GMG)... 32+0 iterations.
-      Self-gravity potential update: relative SH coefficient change=5.524377e+00
-      Relative nonlinear residual (Stokes system) after nonlinear iteration 1: 1.360777e+05
-
-   Solving Stokes system (GMG)... 35+0 iterations.
-      Self-gravity potential update: relative SH coefficient change=4.482709e-02
-      Relative nonlinear residual (Stokes system) after nonlinear iteration 2: 1.139118e-02
+   Solving Stokes system (GMG)... 41+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=5.703931e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 1: 1.000000e+00
 
    Solving Stokes system (GMG)... 0+0 iterations.
-      Self-gravity potential update: relative SH coefficient change=5.742644e-16
-      Relative nonlinear residual (Stokes system) after nonlinear iteration 3: 7.758445e-06
+      Self-gravity potential update: relative SH coefficient change=2.890571e-16
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 2: 4.955723e-08
 
 
    Postprocessing:
@@ -31,4 +27,4 @@ Number of mesh deformation degrees of freedom: 2,910
 Termination requested by criterion: end time
 
 
- 
+

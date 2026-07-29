@@ -141,15 +141,82 @@ namespace aspect
       parse_citcomsve_regular_grid(const std::string &contents,
                                    const double scale_factor)
       {
+        std::vector<std::vector<double>> rows;
         std::istringstream input(contents);
+        std::string line;
+        while (std::getline(input, line))
+          {
+            const std::size_t first_non_space =
+              line.find_first_not_of(" \t\r");
+            if (first_non_space == std::string::npos
+                || line[first_non_space] == '#')
+              continue;
+
+            std::istringstream line_stream(line);
+            std::vector<double> row;
+            double entry = 0.0;
+            while (line_stream >> entry)
+              row.push_back(entry);
+            AssertThrow(line_stream.eof(),
+                        ExcMessage("The CitcomSVE regular-grid file contains "
+                                   "a non-numeric entry."));
+            AssertThrow(!row.empty(), ExcInternalError());
+            rows.push_back(std::move(row));
+          }
+
+        AssertThrow(!rows.empty(),
+                    ExcMessage("The CitcomSVE regular-grid file is empty."));
+
         unsigned int n_longitudes = 0;
         unsigned int n_latitudes = 0;
-        AssertThrow(input >> n_longitudes >> n_latitudes,
-                    ExcMessage("The CitcomSVE regular-grid file must begin "
-                               "with the longitude and latitude dimensions."));
+        unsigned int first_data_row = 0;
+        if (rows.front().size() == 2)
+          {
+            const double longitude_count = rows.front()[0];
+            const double latitude_count = rows.front()[1];
+            AssertThrow(longitude_count > 0.0
+                        && latitude_count > 0.0
+                        && longitude_count
+                        == static_cast<double>(
+                          static_cast<unsigned int>(longitude_count))
+                        && latitude_count
+                        == static_cast<double>(
+                          static_cast<unsigned int>(latitude_count)),
+                        ExcMessage("The CitcomSVE regular-grid dimensions "
+                                   "must be positive integers."));
+            n_longitudes = static_cast<unsigned int>(longitude_count);
+            n_latitudes = static_cast<unsigned int>(latitude_count);
+            first_data_row = 1;
+          }
+        else
+          {
+            AssertThrow(rows.front().size() == 3,
+                        ExcMessage("The CitcomSVE regular-grid file must "
+                                   "contain either an `nlon nlat' header or "
+                                   "three-column longitude, latitude, value "
+                                   "rows."));
+            const double first_latitude = rows.front()[1];
+            while (n_longitudes < rows.size()
+                   && rows[n_longitudes].size() == 3
+                   && std::abs(rows[n_longitudes][1] - first_latitude)
+                   <= 1e-12)
+              ++n_longitudes;
+            AssertThrow(n_longitudes > 0
+                        && rows.size() % n_longitudes == 0,
+                        ExcMessage("Could not infer rectangular dimensions "
+                                   "from the headerless CitcomSVE regular "
+                                   "grid."));
+            n_latitudes =
+              static_cast<unsigned int>(rows.size() / n_longitudes);
+          }
+
         AssertThrow(n_longitudes >= 2 && n_latitudes >= 2,
                     ExcMessage("A CitcomSVE regular grid requires at least "
                                "two points in each coordinate direction."));
+        AssertThrow(rows.size() - first_data_row
+                    == n_longitudes * n_latitudes,
+                    ExcMessage("The CitcomSVE regular-grid data row count "
+                               "does not match its dimensions."));
 
         std::vector<double> longitudes(n_longitudes);
         std::vector<double> colatitudes(n_latitudes);
@@ -162,14 +229,16 @@ namespace aspect
                longitude_index < n_longitudes;
                ++longitude_index)
             {
-              double longitude_degrees = 0.0;
-              double latitude_degrees = 0.0;
-              double value = 0.0;
-              AssertThrow(input >> longitude_degrees
-                          >> latitude_degrees
-                          >> value,
-                          ExcMessage("The CitcomSVE regular-grid file ended "
-                                     "before all declared values were read."));
+              const auto &row =
+                rows[first_data_row + longitude_index
+                     + n_longitudes * latitude_index];
+              AssertThrow(row.size() == 3,
+                          ExcMessage("Every CitcomSVE regular-grid data row "
+                                     "must contain longitude, latitude, and "
+                                     "one value."));
+              const double longitude_degrees = row[0];
+              const double latitude_degrees = row[1];
+              const double value = row[2];
 
               const double longitude =
                 longitude_degrees * numbers::PI / 180.0;
@@ -198,11 +267,6 @@ namespace aspect
               values[longitude_index
                      + n_longitudes * latitude_index] = value * scale_factor;
             }
-
-        std::string trailing_entry;
-        AssertThrow(!(input >> trailing_entry),
-                    ExcMessage("The CitcomSVE regular-grid file contains "
-                               "more values than its declared dimensions."));
 
         const double longitude_spacing = longitudes[1] - longitudes[0];
         const double colatitude_spacing = colatitudes[1] - colatitudes[0];

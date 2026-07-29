@@ -247,6 +247,17 @@ namespace aspect
         std::vector<double> ocean_function_cos_coefficients;
         std::vector<double> ocean_function_sin_coefficients;
 
+        /**
+         * Solid-state reference coefficients for histories defined relative
+         * to their first ice file. PREM/VM5a is not exactly hydrostatic in the
+         * discrete Stokes space, so its timestep-zero equilibration must not
+         * be interpreted as a physical GIA sea-level anomaly.
+         */
+        std::vector<double> reference_geoid_cos_coefficients;
+        std::vector<double> reference_geoid_sin_coefficients;
+        std::vector<double> reference_displacement_cos_coefficients;
+        std::vector<double> reference_displacement_sin_coefficients;
+
         double current_barystatic_sea_level = 0.0;
         double current_eustatic_sea_level = 0.0;
         double current_ice_mass_change = 0.0;
@@ -281,6 +292,10 @@ namespace aspect
       & sea_level_sin_coefficients
       & ocean_function_cos_coefficients
       & ocean_function_sin_coefficients
+      & reference_geoid_cos_coefficients
+      & reference_geoid_sin_coefficients
+      & reference_displacement_cos_coefficients
+      & reference_displacement_sin_coefficients
       & current_barystatic_sea_level
       & current_eustatic_sea_level
       & current_ice_mass_change

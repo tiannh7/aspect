@@ -187,6 +187,15 @@ traction. `U` is the committed radial top-surface displacement plus the current
 projected free-surface velocity increment during a post-Stokes update. This is
 the same displacement predictor used by self-gravity and rotational feedback.
 
+For `Ice load reference = first history file`, both `N` and `U` are anomalies
+from the committed solid state after timestep-zero equilibration. GIA applies
+no ocean load during that zero-ice-change equilibration, then stores the
+initial solid geoid and displacement as spherical-harmonic coefficients at the
+start of the first physical history step. This prevents the small discrete
+hydrostatic adjustment of a layered PREM/VM5a reference model from being
+misinterpreted as physical relative sea level. The coefficient representation
+is independent of MPI decomposition and is included in checkpoints.
+
 The center-of-mass convention is the existing
 `Potential feedback/Reference frame/Degree 1 reference frame` selection. GIA
 does not introduce a second degree-one correction.
