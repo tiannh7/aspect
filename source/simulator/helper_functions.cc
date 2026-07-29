@@ -1246,8 +1246,19 @@ namespace aspect
   double
   Simulator<dim>::compute_initial_stokes_residual()
   {
-    LinearAlgebra::BlockVector linearized_stokes_variables (introspection.index_sets.stokes_partitioning, mpi_communicator);
-    LinearAlgebra::BlockVector residual (introspection.index_sets.stokes_partitioning, mpi_communicator);
+    // Clone the maps of the live Stokes right-hand-side blocks. This avoids
+    // rebuilding collective Epetra maps from cached IndexSets after an ALE
+    // geometry update, while preserving the exact distribution used by the
+    // assembled system vectors.
+    LinearAlgebra::BlockVector linearized_stokes_variables(2);
+    LinearAlgebra::BlockVector residual(2);
+    for (unsigned int block = 0; block < 2; ++block)
+      {
+        linearized_stokes_variables.block(block).reinit(system_rhs.block(block));
+        residual.block(block).reinit(system_rhs.block(block));
+      }
+    linearized_stokes_variables.collect_sizes();
+    residual.collect_sizes();
     const unsigned int pressure_block_index =
       parameters.include_melt_transport ?
       introspection.variable("fluid pressure").block_index
