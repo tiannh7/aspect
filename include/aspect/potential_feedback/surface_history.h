@@ -158,6 +158,9 @@ namespace aspect
 
         double elapsed_model_time() const;
 
+        std::unique_ptr<Utilities::MPI::DuplicatedCommunicator>
+        history_communicator;
+
         SurfaceHistoryConfiguration configuration;
         types::boundary_id surface_boundary_id = numbers::invalid_boundary_id;
         std::vector<SurfaceHistoryUtilities::Stage> stages;

@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <iostream>
 #include <sstream>
 
 namespace aspect
@@ -399,6 +400,9 @@ namespace aspect
                   ExcMessage("A surface-history data file name is required."));
 
       surface_boundary_id = boundary_id;
+      history_communicator =
+        std::make_unique<Utilities::MPI::DuplicatedCommunicator>(
+          this->get_mpi_communicator());
       read_schedule();
 
       reference_field = load_field(stages.front().file_number);
@@ -412,6 +416,8 @@ namespace aspect
     SurfaceHistory<dim>::read_schedule()
     {
       stages.clear();
+      Assert(history_communicator, ExcInternalError());
+      const MPI_Comm communicator = **history_communicator;
 
       if (configuration.schedule_file_name.empty())
         {
@@ -420,7 +426,7 @@ namespace aspect
         }
 
       AssertThrow(Utilities::fexists(configuration.schedule_file_name,
-                                     this->get_mpi_communicator()),
+                                     communicator),
                   ExcMessage("Surface-history schedule file <"
                              + configuration.schedule_file_name
                              + "> was not found."));
@@ -428,7 +434,7 @@ namespace aspect
       const std::string schedule_contents =
         Utilities::read_and_distribute_file_content(
           configuration.schedule_file_name,
-          this->get_mpi_communicator());
+          communicator);
       stages = SurfaceHistoryUtilities::parse_schedule(
                  schedule_contents,
                  configuration.schedule_format,
@@ -469,7 +475,8 @@ namespace aspect
           lower_index = upper_index - 1;
         }
 
-      const MPI_Comm communicator = this->get_mpi_communicator();
+      Assert(history_communicator, ExcInternalError());
+      const MPI_Comm communicator = **history_communicator;
       lower_index = Utilities::MPI::broadcast(communicator, lower_index, 0);
       upper_index = Utilities::MPI::broadcast(communicator, upper_index, 0);
 
@@ -494,7 +501,8 @@ namespace aspect
       const unsigned int lower_stage_index,
       const unsigned int upper_stage_index)
     {
-      const MPI_Comm communicator = this->get_mpi_communicator();
+      Assert(history_communicator, ExcInternalError());
+      const MPI_Comm communicator = **history_communicator;
       const unsigned int root_process = 0;
       const unsigned int root_lower_stage =
         Utilities::MPI::broadcast(communicator,
@@ -520,6 +528,19 @@ namespace aspect
 
       if (!cache_is_consistent)
         {
+          const unsigned int inconsistent_rank_count =
+            Utilities::MPI::sum(static_cast<unsigned int>(
+                                  !local_cache_is_consistent),
+                                communicator);
+          if (Utilities::MPI::this_mpi_process(communicator) == root_process)
+            std::cerr
+                << "Surface-history cache for <"
+                << configuration.data_file_name
+                << "> was inconsistent on "
+                << inconsistent_rank_count
+                << " MPI rank(s); reloading the requested bracket."
+                << std::endl;
+
           lower_field = load_field(stages[lower_stage_index].file_number);
           if (upper_stage_index == lower_stage_index)
             upper_field.reset();
@@ -563,18 +584,19 @@ namespace aspect
     std::unique_ptr<Utilities::StructuredDataLookup<dim-1>>
     SurfaceHistory<dim>::load_field(const int file_number) const
     {
+      Assert(history_communicator, ExcInternalError());
+      const MPI_Comm communicator = **history_communicator;
       const std::string filename = create_filename(file_number);
 
       if (configuration.data_format == "aspect structured data")
         {
-          AssertThrow(Utilities::fexists(filename,
-                                         this->get_mpi_communicator()),
+          AssertThrow(Utilities::fexists(filename, communicator),
                       ExcMessage("Surface-history data file <" + filename
                                  + "> was not found."));
           auto lookup =
             std::make_unique<Utilities::StructuredDataLookup<dim-1>>(
               1, configuration.scale_factor);
-          lookup->load_file(filename, this->get_mpi_communicator());
+          lookup->load_file(filename, communicator);
           return lookup;
         }
 
@@ -594,7 +616,7 @@ namespace aspect
           SurfaceHistoryUtilities::CitcomSVERegularGrid grid =
             SurfaceHistoryUtilities::parse_citcomsve_regular_grid(
               Utilities::read_and_distribute_file_content(
-                filename, this->get_mpi_communicator()),
+                filename, communicator),
               configuration.scale_factor);
 
           auto lookup =
