@@ -49,9 +49,14 @@ namespace aspect
     public:
       /**
        * Allocates and sets up the members of the StokesMatrixFreeHandler. This
-       * is called by Simulator<dim>::setup_dofs()
+       * is called by Simulator<dim>::setup_dofs() and after mesh deformation.
+       *
+       * @param mesh_topology_changed Whether the triangulation topology has
+       * changed since the previous call. Pure mesh deformation changes only
+       * the geometry and must preserve the existing DoF ownership and
+       * numbering.
        */
-      virtual void setup_dofs()=0;
+      virtual void setup_dofs(const bool mesh_topology_changed)=0;
 
       /**
        * Perform various tasks to update the linear system to solve

@@ -1611,7 +1611,7 @@ namespace aspect
 
     // Setup matrix-free dofs
     if (stokes_matrix_free)
-      stokes_matrix_free->setup_dofs();
+      stokes_matrix_free->setup_dofs(/*mesh_topology_changed=*/true);
 
     computing_timer.leave_subsection("Setup dof systems");
   }
@@ -2015,7 +2015,7 @@ namespace aspect
 
         // GMG boundary conditions are currently handled as part of setup_dofs()
         if (stokes_matrix_free)
-          stokes_matrix_free->setup_dofs();
+          stokes_matrix_free->setup_dofs(/*mesh_topology_changed=*/false);
 
         // if compute_current_constraints() changed which DoFs are constrained,
         // we need to rebuild the system matrices

@@ -1673,7 +1673,7 @@ namespace aspect
 
 
   template <int dim, int velocity_degree>
-  void StokesMatrixFreeHandlerGlobalCoarseningImplementation<dim, velocity_degree>::setup_dofs()
+  void StokesMatrixFreeHandlerGlobalCoarseningImplementation<dim, velocity_degree>::setup_dofs(const bool)
   {
     // Periodic boundary conditions with hanging nodes on the boundary currently
     // cause the GMG not to converge. We catch this case early to provide the

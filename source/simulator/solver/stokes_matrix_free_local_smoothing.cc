@@ -2330,7 +2330,7 @@ namespace aspect
 
 
   template <int dim, int velocity_degree>
-  void StokesMatrixFreeHandlerLocalSmoothingImplementation<dim, velocity_degree>::setup_dofs()
+  void StokesMatrixFreeHandlerLocalSmoothingImplementation<dim, velocity_degree>::setup_dofs(const bool mesh_topology_changed)
   {
     // Periodic boundary conditions with hanging nodes on the boundary currently
     // cause the GMG not to converge. We catch this case early to provide the
@@ -2368,11 +2368,13 @@ namespace aspect
     mg_transfer_Schur_complement.clear();
     matrix_free_objects.clear();
 
-    const bool initialize_dof_handlers = (dof_handler_v.n_dofs() == 0);
-    Assert(initialize_dof_handlers == (dof_handler_p.n_dofs() == 0),
+    const bool dof_handlers_uninitialized = (dof_handler_v.n_dofs() == 0);
+    Assert(dof_handlers_uninitialized == (dof_handler_p.n_dofs() == 0),
            ExcInternalError());
-    Assert(initialize_dof_handlers == (dof_handler_projection.n_dofs() == 0),
+    Assert(dof_handlers_uninitialized == (dof_handler_projection.n_dofs() == 0),
            ExcInternalError());
+    const bool initialize_dof_handlers =
+      mesh_topology_changed || dof_handlers_uninitialized;
 
     // Set up velocity DoFHandler
     {

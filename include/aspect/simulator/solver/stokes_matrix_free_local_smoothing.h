@@ -110,7 +110,7 @@ namespace aspect
        * Allocates and sets up the members of the StokesMatrixFreeHandler. This
        * is called by Simulator<dim>::setup_dofs()
        */
-      void setup_dofs() override;
+      void setup_dofs(const bool mesh_topology_changed) override;
 
       /**
        * Perform various tasks to update the linear system to solve
