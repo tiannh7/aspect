@@ -1808,11 +1808,21 @@ namespace aspect
                                  this->introspection().variable("fluid pressure").block_index
                                  : this->introspection().block_indices.pressure;
 
-    LinearAlgebra::BlockVector distributed_stokes_solution (this->introspection().index_sets.stokes_partitioning,
-                                                            this->get_mpi_communicator());
-    // extract Stokes parts of rhs vector
-    LinearAlgebra::BlockVector distributed_stokes_rhs(this->introspection().index_sets.stokes_partitioning,
-                                                      this->get_mpi_communicator());
+    // Clone the live system vector maps. Reconstructing Epetra maps from
+    // cached IndexSets is unnecessary and can violate the collective map
+    // creation order after an ALE-only geometry update.
+    LinearAlgebra::BlockVector distributed_stokes_solution(2);
+    LinearAlgebra::BlockVector distributed_stokes_rhs(2);
+    LinearAlgebra::BlockVector linearized_stokes_initial_guess(2);
+    for (unsigned int block = 0; block < 2; ++block)
+      {
+        distributed_stokes_solution.block(block).reinit(solution_vector.block(block));
+        distributed_stokes_rhs.block(block).reinit(system_rhs.block(block));
+        linearized_stokes_initial_guess.block(block).reinit(solution_vector.block(block));
+      }
+    distributed_stokes_solution.collect_sizes();
+    distributed_stokes_rhs.collect_sizes();
+    linearized_stokes_initial_guess.collect_sizes();
 
     distributed_stokes_rhs.block(block_vel) = system_rhs.block(block_vel);
     distributed_stokes_rhs.block(block_p) = system_rhs.block(block_p);
@@ -1821,12 +1831,6 @@ namespace aspect
     Assert(block_p == 1, ExcNotImplemented());
     Assert(!this->get_parameters().include_melt_transport
            || this->introspection().variable("compaction pressure").block_index == 1, ExcNotImplemented());
-
-    // create a completely distributed vector that will be used for
-    // the scaled and denormalized solution and later used as a
-    // starting guess for the linear solver
-    LinearAlgebra::BlockVector linearized_stokes_initial_guess (this->introspection().index_sets.stokes_partitioning,
-                                                                this->get_mpi_communicator());
 
     // copy the velocity and pressure from current_linearization_point into
     // the vector linearized_stokes_initial_guess. We need to do the copy because
