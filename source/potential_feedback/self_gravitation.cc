@@ -1078,6 +1078,8 @@ namespace aspect
         update_values);
       const FEValuesExtractors::Vector mesh_velocity_extractor(0);
 
+      std::vector<Tensor<1,dim>> mesh_displacement_values(
+        mesh_face_values.n_quadrature_points);
       const LinearAlgebra::Vector *projected_mesh_velocity = nullptr;
       if (include_current_velocity_increment)
         projected_mesh_velocity =
@@ -1177,10 +1179,14 @@ namespace aspect
                       continue;
 
                     fe_face_values.reinit(cell, f);
+                    mesh_face_values.reinit(current_mesh_cell, f);
+                    mesh_face_values[mesh_velocity_extractor]
+                    .get_function_values(
+                      mesh_deformation_handler.get_mesh_displacements(),
+                      mesh_displacement_values);
 
                     if (include_current_velocity_increment)
                       {
-                        mesh_face_values.reinit(current_mesh_cell, f);
                         mesh_face_values[mesh_velocity_extractor]
                         .get_function_values(*projected_mesh_velocity,
                                              projected_mesh_velocity_values);
@@ -1200,6 +1206,8 @@ namespace aspect
                         // scoord: 2D = {r, phi}, 3D = {r, phi, theta}
                         const double ph = scoord[1]; // longitude / azimuthal angle
                         const Tensor<1,dim> radial_unit = position / scoord[0];
+                        const double committed_radial_displacement =
+                          mesh_displacement_values[q] * radial_unit;
                         const double predicted_radial_displacement =
                           (include_current_velocity_increment
                            ? displacement_timestep
@@ -1209,8 +1217,7 @@ namespace aspect
                         if (is_top)
                           {
                             const double h_rock =
-                              this->get_geometry_model()
-                              .height_above_reference_surface(position)
+                              committed_radial_displacement
                               + predicted_radial_displacement;
 
                             // Compute the external load's equivalent height.
@@ -1248,8 +1255,8 @@ namespace aspect
                           }
                         else // is_bottom
                           {
-                            const double r = scoord[0];
-                            const double committed_cmb_topography = r - inner_radius;
+                            const double committed_cmb_topography =
+                              committed_radial_displacement;
                             const double cmb_topography =
                               committed_cmb_topography + predicted_radial_displacement;
 

@@ -83,6 +83,9 @@ namespace aspect
       double density_water = 1000.0;
       unsigned int maximum_degree = 32;
       std::vector<unsigned int> diagnostic_degrees = {2};
+      double absolute_coefficient_tolerance = 1e-4;
+      unsigned int projection_longitude_samples = 0;
+      unsigned int projection_latitude_samples = 0;
     };
 
 

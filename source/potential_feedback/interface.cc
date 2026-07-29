@@ -236,6 +236,30 @@ namespace aspect
                             "order-zero ice, ocean, total-load, sea-level, "
                             "potential-height, and displacement coefficients "
                             "are written during the coupled iteration.");
+          prm.declare_entry("Absolute coefficient tolerance", "1e-4",
+                            Patterns::Double(0.0),
+                            "Absolute L2-norm tolerance in kg/m^2 for changes "
+                            "in the retained total surface-load spherical-"
+                            "harmonic coefficients. This complements the "
+                            "relative potential-iteration tolerance and "
+                            "provides a well-defined stopping criterion when "
+                            "the converged load is zero or nearly zero. A "
+                            "value of zero disables the absolute criterion.");
+          prm.declare_entry("Projection longitude samples", "0",
+                            Patterns::Integer(0),
+                            "Number of equally spaced longitude samples used "
+                            "to project prescribed histories and the sea-level "
+                            "equation onto spherical harmonics. Together with "
+                            "Projection latitude samples, a nonzero value "
+                            "decouples load sampling from the mechanical "
+                            "surface mesh. Zero uses the surface finite-"
+                            "element quadrature points.");
+          prm.declare_entry("Projection latitude samples", "0",
+                            Patterns::Integer(0),
+                            "Number of equal-angle, cell-centered latitude "
+                            "samples used with Projection longitude samples. "
+                            "For a 1-degree CitcomSVE history, use 180 "
+                            "latitude and 360 longitude samples.");
 
           SurfaceHistory<3>::declare_parameters(
             prm,
@@ -416,6 +440,12 @@ namespace aspect
           gia.density_ice = prm.get_double("Ice density");
           gia.density_water = prm.get_double("Water density");
           gia.maximum_degree = prm.get_integer("Maximum degree");
+          gia.absolute_coefficient_tolerance =
+            prm.get_double("Absolute coefficient tolerance");
+          gia.projection_longitude_samples =
+            prm.get_integer("Projection longitude samples");
+          gia.projection_latitude_samples =
+            prm.get_integer("Projection latitude samples");
           gia.diagnostic_degrees.clear();
           for (const int degree :
                dealii::Utilities::string_to_int(

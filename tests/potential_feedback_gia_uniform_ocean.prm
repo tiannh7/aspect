@@ -12,6 +12,12 @@ set Nonlinear solver tolerance = 2e-8
 set Output directory = output-potential-feedback-gia-uniform-ocean
 set Use years instead of seconds = true
 
+subsection Solver parameters
+  subsection Stokes solver parameters
+    set Stokes solver type = block AMG
+  end
+end
+
 subsection Geometry model
   subsection Spherical shell
     set Custom mesh subdivision    = number of slices
@@ -34,6 +40,11 @@ subsection Material model
     set Elastic shear moduli        = 1.4305e11
     set Enable compressible Maxwell = false
     set Initial elastic time step   = 44.303513
+    # This is the constant-density Zhong V1 Earth. The viscoelastic model's
+    # nonzero default thermal expansivity would otherwise make the material
+    # density differ from the dynamic-pressure reference density at T=0 and
+    # drive a spurious zero-load Stokes solution.
+    set Thermal expansivities       = 0
     set Viscosities                 = 1e21
   end
 end
@@ -53,7 +64,6 @@ subsection Initial composition model
 end
 
 subsection Formulation
-  set Enable additional Stokes RHS = true
   set Mass conservation = incompressible
 
   subsection Density sources

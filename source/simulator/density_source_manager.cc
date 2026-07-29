@@ -511,8 +511,13 @@ namespace aspect
   {
     const auto law = this->get_parameters().density_source_law;
 
-    if (law == Parameters<dim>::Formulation::DensitySourceLaw::legacy
-        || law == Parameters<dim>::Formulation::DensitySourceLaw::material_density)
+    if (law == Parameters<dim>::Formulation::DensitySourceLaw::legacy)
+      return (this->get_parameters().stokes_pressure_formulation_is_dynamic
+              ? physical_density(outputs, q)
+              - this->get_parameters().stokes_pressure_reference_density
+              : physical_density(outputs, q));
+
+    if (law == Parameters<dim>::Formulation::DensitySourceLaw::material_density)
       return physical_density(outputs, q);
 
     if (law == Parameters<dim>::Formulation::DensitySourceLaw::zero_volume_perturbation)

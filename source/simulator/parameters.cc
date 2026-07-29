@@ -1023,8 +1023,7 @@ namespace aspect
                            "or dynamic pressure. In total-pressure mode, the full material density "
                            "contributes to the body force rho*g. In dynamic-pressure mode, a constant "
                            "reference density is subtracted so that the Stokes body force is "
-                           "(rho - rho_ref)*g. Dynamic pressure mode requires "
-                           "<Formulation/Enable additional Stokes RHS = true>.");
+                           "(rho - rho_ref)*g.");
         prm.declare_entry ("Reference density", "0",
                            Patterns::Double (0.),
                            "Reference density used only when Pressure formulation is dynamic pressure. "
@@ -2338,12 +2337,6 @@ namespace aspect
         const std::string pf = prm.get("Pressure formulation");
         stokes_pressure_formulation_is_dynamic = (pf == "dynamic pressure");
         stokes_pressure_reference_density = prm.get_double("Reference density");
-
-        if (stokes_pressure_formulation_is_dynamic && !enable_additional_stokes_rhs)
-          AssertThrow(false, ExcMessage("Dynamic pressure formulation requires "
-                                        "<Formulation/Enable additional Stokes RHS = true>, because "
-                                        "the reference-density body force is applied through the "
-                                        "additional Stokes RHS."));
 
         if (density_source_law != Formulation::DensitySourceLaw::legacy
             && stokes_pressure_formulation_is_dynamic)

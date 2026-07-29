@@ -145,6 +145,12 @@ namespace aspect
       density_water = settings.gia.density_water;
       maximum_degree = settings.gia.maximum_degree;
       diagnostic_degrees = settings.gia.diagnostic_degrees;
+      absolute_coefficient_tolerance =
+        settings.gia.absolute_coefficient_tolerance;
+      projection_longitude_samples =
+        settings.gia.projection_longitude_samples;
+      projection_latitude_samples =
+        settings.gia.projection_latitude_samples;
       iterate_with_stokes = settings.iterate_with_stokes;
       freeze_feedback_after_timestep_zero =
         settings.freeze_feedback_after_timestep_zero;
@@ -159,6 +165,17 @@ namespace aspect
                              "adjustment/Maximum degree must not exceed "
                              "Potential feedback/Self gravity/Maximum "
                              "degree."));
+      AssertThrow(!enabled
+                  || ((projection_longitude_samples == 0
+                       && projection_latitude_samples == 0)
+                      || (projection_longitude_samples >= 2
+                          && projection_latitude_samples >= 2)),
+                  ExcMessage("GIA history projection requires both sample "
+                             "counts to be zero, or both to be at least two."));
+      AssertThrow(!enabled || dim == 3
+                  || projection_longitude_samples == 0,
+                  ExcMessage("GIA history projection is implemented only in "
+                             "three dimensions."));
       AssertThrow(!enabled
                   || (potential_relaxation_factor > 0.0
                       && potential_relaxation_factor <= 1.0),
@@ -297,6 +314,8 @@ namespace aspect
           potential_iteration_number = 0;
           potential_relative_change =
             std::numeric_limits<double>::infinity();
+          potential_absolute_change =
+            std::numeric_limits<double>::infinity();
         }
       if (include_current_velocity_increment)
         ++potential_iteration_number;
@@ -413,6 +432,96 @@ namespace aspect
             }
         }
       Assert(mesh_cell == mesh_dof_handler.end(), ExcInternalError());
+
+      if (projection_longitude_samples > 0)
+        {
+          const auto solid_coefficients = sh_transform->analyze_multiple(
+                                            theta,
+                                            phi,
+                                            weights,
+          {
+            current_geoid,
+            current_displacement
+          },
+          this->get_mpi_communicator());
+          AssertDimension(solid_coefficients.size(), 2);
+
+          theta.clear();
+          phi.clear();
+          weights.clear();
+          current_ice_thickness.clear();
+          initial_ice_thickness.clear();
+          current_geoid.clear();
+          current_displacement.clear();
+          prescribed_ocean_values.clear();
+
+          const unsigned int mpi_rank =
+            Utilities::MPI::this_mpi_process(
+              this->get_mpi_communicator());
+          const unsigned int n_mpi_processes =
+            Utilities::MPI::n_mpi_processes(
+              this->get_mpi_communicator());
+          const double longitude_spacing =
+            2.0 * numbers::PI / projection_longitude_samples;
+          const double latitude_spacing =
+            numbers::PI / projection_latitude_samples;
+
+          for (unsigned int latitude_index = 0;
+               latitude_index < projection_latitude_samples;
+               ++latitude_index)
+            for (unsigned int longitude_index = 0;
+                 longitude_index < projection_longitude_samples;
+                 ++longitude_index)
+              {
+                const std::size_t global_index =
+                  static_cast<std::size_t>(longitude_index)
+                  + static_cast<std::size_t>(
+                      projection_longitude_samples)
+                  * latitude_index;
+                if (global_index % n_mpi_processes != mpi_rank)
+                  continue;
+
+                const double colatitude =
+                  (latitude_index + 0.5) * latitude_spacing;
+                const double longitude =
+                  (longitude_index + 0.5) * longitude_spacing;
+                const double cell_weight =
+                  longitude_spacing
+                  * (std::cos(latitude_index * latitude_spacing)
+                     - std::cos((latitude_index + 1)
+                                * latitude_spacing));
+                std::array<double,dim> spherical_position;
+                spherical_position[0] = outer_radius;
+                spherical_position[1] = longitude;
+                if constexpr (dim == 3)
+                  spherical_position[2] = colatitude;
+                const Point<dim> position =
+                  Utilities::Coordinates::
+                  spherical_to_cartesian_coordinates<dim>(
+                    spherical_position);
+
+                theta.push_back(colatitude);
+                phi.push_back(longitude);
+                weights.push_back(cell_weight);
+                current_ice_thickness.push_back(
+                  ice_history.value(position));
+                initial_ice_thickness.push_back(
+                  ice_history.initial_value(position));
+                prescribed_ocean_values.push_back(
+                  ocean_history.value(position));
+              }
+
+          current_geoid =
+            sh_transform->synthesize(solid_coefficients[0].first,
+                                     solid_coefficients[0].second,
+                                     theta,
+                                     phi);
+          current_displacement =
+            sh_transform->synthesize(solid_coefficients[1].first,
+                                     solid_coefficients[1].second,
+                                     theta,
+                                     phi);
+        }
 
       const unsigned int n_points = weights.size();
       std::vector<double> ice_load(n_points, 0.0);
@@ -692,6 +801,11 @@ namespace aspect
                                     old_total_sin,
                                     total_load_cos_coefficients,
                                     total_load_sin_coefficients);
+      potential_absolute_change = coefficient_absolute_change(
+                                    old_total_cos,
+                                    old_total_sin,
+                                    total_load_cos_coefficients,
+                                    total_load_sin_coefficients);
       current_relative_water_mass_residual =
         std::abs(current_water_mass_residual)
         / std::max(applied_mass_scale,
@@ -704,6 +818,8 @@ namespace aspect
               << "relative SH coefficient change="
               << std::scientific << std::setprecision(6)
               << potential_relative_change
+              << ", absolute SH coefficient change="
+              << potential_absolute_change
               << ", prescribed ice mass change="
               << current_ice_mass_change
               << ", applied ice mass change="
@@ -814,6 +930,32 @@ namespace aspect
       return std::sqrt(difference_norm_square)
              / std::max(std::sqrt(new_norm_square),
                         std::numeric_limits<double>::min());
+    }
+
+
+
+    template <int dim>
+    double
+    GlacialIsostaticAdjustment<dim>::coefficient_absolute_change(
+      const std::vector<double> &old_cos,
+      const std::vector<double> &old_sin,
+      const std::vector<double> &new_cos,
+      const std::vector<double> &new_sin) const
+    {
+      if (old_cos.empty())
+        return std::numeric_limits<double>::infinity();
+
+      AssertDimension(old_cos.size(), new_cos.size());
+      AssertDimension(old_sin.size(), new_sin.size());
+      double difference_norm_square = 0.0;
+      for (unsigned int index = 0; index < new_cos.size(); ++index)
+        difference_norm_square +=
+          (new_cos[index] - old_cos[index])
+          * (new_cos[index] - old_cos[index])
+          + (new_sin[index] - old_sin[index])
+          * (new_sin[index] - old_sin[index]);
+
+      return std::sqrt(difference_norm_square);
     }
 
 
@@ -1061,15 +1203,18 @@ namespace aspect
         return true;
 
       const bool converged =
-        potential_relative_change <= potential_convergence_tolerance;
+        potential_relative_change <= potential_convergence_tolerance
+        || (absolute_coefficient_tolerance > 0.0
+            && potential_absolute_change
+            <= absolute_coefficient_tolerance);
       AssertThrow(converged
                   || potential_iteration_number
                   < maximum_potential_iterations,
                   ExcMessage(
                     "The coupled GIA/sea-level-equation solve reached the "
                     "maximum number of potential iterations without "
-                    "satisfying the relative surface-load coefficient "
-                    "tolerance."));
+                    "satisfying either the relative or absolute surface-load "
+                    "coefficient-change tolerance."));
       return converged;
     }
 

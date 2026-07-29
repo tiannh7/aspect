@@ -219,10 +219,6 @@ namespace aspect
     {
       EquationOfStateOutputs<dim> eos_outputs (this->introspection().get_number_of_fields_of_type(CompositionalFieldDescription::chemical_composition)+1);
 
-      const std::shared_ptr<MaterialModel::AdditionalMaterialOutputsStokesRHS<dim>>
-      additional_stokes_rhs =
-        out.template get_additional_output_object<MaterialModel::AdditionalMaterialOutputsStokesRHS<dim>>();
-
       std::vector<double> average_elastic_shear_moduli (in.n_evaluation_points());
       std::vector<double> elastic_shear_moduli(elastic_rheology.get_elastic_shear_moduli());
       std::vector<double> average_elastic_bulk_moduli(in.n_evaluation_points(),
@@ -398,20 +394,6 @@ namespace aspect
 
           for (unsigned int c=0; c<in.composition[i].size(); ++c)
             out.reaction_terms[i][c] = 0.0;
-
-          if (additional_stokes_rhs != nullptr &&
-              this->get_parameters().stokes_pressure_formulation_is_dynamic &&
-              this->get_parameters().stokes_pressure_reference_density > 0.0)
-            {
-              if (out.densities[i] < this->get_parameters().stokes_pressure_reference_density * 0.5)
-                {
-                  AssertThrow(false, ExcMessage("Double subtraction detected: Stokes RHS includes reference density subtraction, "
-                                                "but the material model density is already perturbation density."));
-                }
-              additional_stokes_rhs->rhs_u[i] =
-                -this->get_parameters().stokes_pressure_reference_density
-                * this->get_gravity_model().gravity_vector(in.position[i]);
-            }
 
           // Average the viscous viscosity and the shear modulus over the compositions
           if (use_ascii_profile)
@@ -1055,9 +1037,9 @@ namespace aspect
                     << "and <Formulation/Stokes pressure/Reference density> instead. "
                     << "The material-model parameter is now ignored." << std::endl;
             }
-          // Note: reference_density_for_stokes_perturbation is kept as a member to avoid
-          // removing it from the header in one step, but the body-force logic in evaluate()
-          // now reads from this->get_parameters().stokes_pressure_reference_density.
+          // Keep the deprecated member until its parameter aliases are
+          // removed. Dynamic-pressure subtraction is assembled centrally by
+          // DensitySourceManager::stokes_source_density().
           reference_density_for_stokes_perturbation = 0.0;
         }
         prm.leave_subsection();

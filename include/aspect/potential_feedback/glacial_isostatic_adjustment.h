@@ -201,6 +201,12 @@ namespace aspect
           const std::vector<double> &new_cos,
           const std::vector<double> &new_sin) const;
 
+        double coefficient_absolute_change(
+          const std::vector<double> &old_cos,
+          const std::vector<double> &old_sin,
+          const std::vector<double> &new_cos,
+          const std::vector<double> &new_sin) const;
+
         bool enabled = false;
         bool iterate_with_stokes = true;
         bool freeze_feedback_after_timestep_zero = false;
@@ -211,9 +217,12 @@ namespace aspect
         double density_water = 1000.0;
         double initial_displacement_timestep = 0.0;
         double potential_convergence_tolerance = 1e-3;
+        double absolute_coefficient_tolerance = 1e-4;
         double potential_relaxation_factor = 1.0;
         unsigned int maximum_degree = 32;
         std::vector<unsigned int> diagnostic_degrees = {2};
+        unsigned int projection_longitude_samples = 0;
+        unsigned int projection_latitude_samples = 0;
         unsigned int maximum_potential_iterations = 20;
 
         SurfaceHistoryConfiguration ice_history_configuration;
@@ -247,6 +256,8 @@ namespace aspect
         double current_relative_water_mass_residual = 0.0;
         double potential_relative_change =
           std::numeric_limits<double>::infinity();
+        double potential_absolute_change =
+          std::numeric_limits<double>::infinity();
         unsigned int current_potential_iteration_step =
           numbers::invalid_unsigned_int;
         unsigned int potential_iteration_number = 0;
@@ -278,6 +289,7 @@ namespace aspect
       & current_water_mass_residual
       & current_relative_water_mass_residual
       & potential_relative_change
+      & potential_absolute_change
       & current_potential_iteration_step
       & potential_iteration_number;
     }
