@@ -353,6 +353,14 @@ namespace aspect
         unsigned int radial_displacement_field_index;
 
         /**
+         * Optional Cartesian components of material-displacement history.
+         * An empty vector disables this diagnostic history. Otherwise it
+         * contains exactly @p dim compositional field indices in x, y, z
+         * order.
+         */
+        std::vector<unsigned int> displacement_field_indices;
+
+        /**
          * Constant reference density whose gravitational body force is
          * removed through the optional additional Stokes right-hand side.
          */

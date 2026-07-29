@@ -27,6 +27,7 @@
 #include <deal.II/fe/mapping_q1.h>
 
 #include <algorithm>
+#include <array>
 #include <numeric>
 
 namespace aspect
@@ -219,17 +220,17 @@ namespace aspect
       EquationOfStateOutputs<dim> eos_outputs (this->introspection().get_number_of_fields_of_type(CompositionalFieldDescription::chemical_composition)+1);
 
       const std::shared_ptr<MaterialModel::AdditionalMaterialOutputsStokesRHS<dim>>
-                                                                                 additional_stokes_rhs =
-                                                                                   out.template get_additional_output_object<MaterialModel::AdditionalMaterialOutputsStokesRHS<dim>>();
+      additional_stokes_rhs =
+        out.template get_additional_output_object<MaterialModel::AdditionalMaterialOutputsStokesRHS<dim>>();
 
       std::vector<double> average_elastic_shear_moduli (in.n_evaluation_points());
       std::vector<double> elastic_shear_moduli(elastic_rheology.get_elastic_shear_moduli());
       std::vector<double> average_elastic_bulk_moduli(in.n_evaluation_points(),
                                                       numbers::signaling_nan<double>());
       const std::shared_ptr<const ViscoelasticAsciiProfileReferencePositions<dim>>
-                                                                                reference_positions =
-                                                                                  in.template get_additional_input_object<
-                                                                                  ViscoelasticAsciiProfileReferencePositions<dim>>();
+      reference_positions =
+        in.template get_additional_input_object<
+        ViscoelasticAsciiProfileReferencePositions<dim>>();
 
       Point<1> reference_cell_center_profile_position;
       const bool sample_ascii_profile_at_reference_cell_center =
@@ -493,7 +494,7 @@ namespace aspect
       if (enable_compressible_maxwell)
         {
           const std::shared_ptr<MaterialModel::ElasticOutputs<dim>> elastic_outputs =
-                                                                   out.template get_additional_output_object<MaterialModel::ElasticOutputs<dim>>();
+            out.template get_additional_output_object<MaterialModel::ElasticOutputs<dim>>();
           if (elastic_outputs != nullptr)
             elastic_outputs->elastic_bulk_moduli = average_elastic_bulk_moduli;
         }
@@ -513,10 +514,12 @@ namespace aspect
       const bool use_radial_displacement_history =
         this->get_parameters().density_source_law
         == Parameters<dim>::Formulation::DensitySourceLaw::mechanical_mass_conservation;
-      if (use_radial_displacement_history)
+      const bool use_vector_displacement_history =
+        displacement_field_indices.size() == dim;
+      if (use_radial_displacement_history || use_vector_displacement_history)
         {
           const std::shared_ptr<ReactionRateOutputs<dim>> reaction_rate_out =
-                                                         out.template get_additional_output_object<ReactionRateOutputs<dim>>();
+            out.template get_additional_output_object<ReactionRateOutputs<dim>>();
 
           if (reaction_rate_out != nullptr
               && in.current_cell.state() == IteratorState::valid
@@ -527,12 +530,20 @@ namespace aspect
                   || in.requests_property(MaterialProperties::additional_outputs)))
             for (unsigned int i = 0; i < in.n_evaluation_points(); ++i)
               {
-                const double radius = in.position[i].norm();
-                AssertThrow(radius > 0.0,
-                            ExcMessage("The radial material-displacement history is undefined at radius zero."));
-                const Tensor<1,dim> radial_unit = in.position[i] / radius;
-                reaction_rate_out->reaction_rates[i][radial_displacement_field_index] =
-                  in.velocity[i] * radial_unit;
+                if (use_radial_displacement_history)
+                  {
+                    const double radius = in.position[i].norm();
+                    AssertThrow(radius > 0.0,
+                                ExcMessage("The radial material-displacement history is undefined at radius zero."));
+                    const Tensor<1,dim> radial_unit = in.position[i] / radius;
+                    reaction_rate_out->reaction_rates[i][radial_displacement_field_index] =
+                      in.velocity[i] * radial_unit;
+                  }
+
+                if (use_vector_displacement_history)
+                  for (unsigned int d = 0; d < dim; ++d)
+                    reaction_rate_out->reaction_rates[i][displacement_field_indices[d]] =
+                      in.velocity[i][d];
               }
         }
     }
@@ -952,6 +963,68 @@ namespace aspect
               AssertThrow(this->get_parameters().composition_descriptions[radial_displacement_field_index].type
                           == CompositionalFieldDescription::generic,
                           ExcMessage("The radial material-displacement history must use the `generic' compositional field type."));
+            }
+
+          const std::array<std::string,3> displacement_field_names =
+          {
+            "ve_displacement_x",
+            "ve_displacement_y",
+            "ve_displacement_z"
+          };
+          unsigned int n_displacement_fields = 0;
+          for (unsigned int d = 0; d < dim; ++d)
+            if (this->introspection().compositional_name_exists(
+                  displacement_field_names[d]))
+              ++n_displacement_fields;
+
+          AssertThrow(n_displacement_fields == 0
+                      || n_displacement_fields == dim,
+                      ExcMessage("Vector material-displacement history requires "
+                                 "all Cartesian component fields "
+                                 "`ve_displacement_x', `ve_displacement_y'"
+                                 + std::string(dim == 3
+                                               ? ", and `ve_displacement_z'."
+                                               : ".")));
+
+          displacement_field_indices.clear();
+          if (n_displacement_fields == dim)
+            {
+              AssertThrow(this->get_parameters().use_operator_splitting,
+                          ExcMessage("Vector material-displacement history "
+                                     "requires operator splitting."));
+
+              for (unsigned int d = 0; d < dim; ++d)
+                {
+                  const unsigned int field_index =
+                    this->introspection().compositional_index_for_name(
+                      displacement_field_names[d]);
+                  const auto field_method =
+                    this->get_parameters().compositional_field_methods[
+                      field_index];
+
+                  AssertThrow(
+                    field_method
+                    == Parameters<dim>::AdvectionFieldMethod::fem_field
+                    || field_method
+                    == Parameters<dim>::AdvectionFieldMethod::static_field,
+                    ExcMessage("Every vector material-displacement component "
+                               "must use either the `field' or `static' "
+                               "compositional field method."));
+                  AssertThrow(
+                    this->get_parameters()
+                    .use_discontinuous_composition_discretization[field_index],
+                    ExcMessage("Vector material-displacement history requires "
+                               "discontinuous compositional elements."));
+                  AssertThrow(
+                    this->get_parameters().composition_descriptions[
+                      field_index].type
+                    == CompositionalFieldDescription::generic,
+                    ExcMessage("Every vector material-displacement component "
+                               "must use the `generic' compositional field "
+                               "type."));
+
+                  displacement_field_indices.push_back(field_index);
+                }
             }
           const double new_ref = prm.get_double("Reference density for Stokes perturbation");
           const double old_ref = prm.get_double("Reference density for perturbation Stokes");

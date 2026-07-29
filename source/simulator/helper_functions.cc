@@ -59,6 +59,8 @@
 
 #include <deal.II/sundials/arkode.h>
 
+#include <algorithm>
+#include <array>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -1700,6 +1702,20 @@ namespace aspect
       use_radial_displacement_history
       ? introspection.compositional_index_for_name("ve_radial_displacement")
       : numbers::invalid_unsigned_int;
+    const std::array<std::string,3> displacement_field_names =
+    {
+      "ve_displacement_x",
+      "ve_displacement_y",
+      "ve_displacement_z"
+    };
+    std::vector<unsigned int> displacement_history_indices;
+    for (unsigned int d = 0; d < dim; ++d)
+      if (introspection.compositional_name_exists(displacement_field_names[d]))
+        displacement_history_indices.push_back(
+          introspection.compositional_index_for_name(
+            displacement_field_names[d]));
+    const bool use_vector_displacement_history =
+      displacement_history_indices.size() == dim;
     const unsigned int component_idx_T = introspection.component_indices.temperature;
 
     double dt_elastic = parameters.initial_elastic_response_time_step;
@@ -1766,6 +1782,11 @@ namespace aspect
                   cell_stress_update[q][radial_displacement_history_index] =
                     dt_elastic * (in.velocity[q] * radial_unit);
                 }
+
+              if (use_vector_displacement_history)
+                for (unsigned int d = 0; d < dim; ++d)
+                  cell_stress_update[q][displacement_history_indices[d]] =
+                    dt_elastic * in.velocity[q][d];
             }
 
           cell->get_dof_indices (local_dof_indices);
@@ -1788,7 +1809,11 @@ namespace aspect
                           const unsigned int composition = field_index - 1;
                           if ((composition >= stress_start_index
                                && composition < stress_start_index + n_independent_components)
-                              || composition == radial_displacement_history_index)
+                              || composition == radial_displacement_history_index
+                              || std::find(displacement_history_indices.begin(),
+                                           displacement_history_indices.end(),
+                                           composition)
+                              != displacement_history_indices.end())
                             {
                               distributed_vector(local_dof_indices[dof_idx]) = cell_stress_update[point_idx][composition];
                             }
@@ -1804,7 +1829,11 @@ namespace aspect
     for (unsigned int i=0; i<introspection.n_compositional_fields; ++i)
       {
         if ((i >= stress_start_index && i < stress_start_index + n_independent_components)
-            || i == radial_displacement_history_index)
+            || i == radial_displacement_history_index
+            || std::find(displacement_history_indices.begin(),
+                         displacement_history_indices.end(),
+                         i)
+            != displacement_history_indices.end())
           {
             const unsigned int advection_block = introspection.block_indices.compositional_fields[i];
             solution.block(advection_block) = distributed_vector.block(advection_block);
