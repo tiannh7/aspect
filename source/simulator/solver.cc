@@ -468,25 +468,11 @@ namespace aspect
     distributed_solution = 0.;
     distributed_solution.block(block_idx) = current_linearization_point.block (block_idx);
 
-    if (timestep_number == 1 && !advection_field.is_temperature())
-      std::cerr << "Mesh deformation diagnostic on rank "
-                << Utilities::MPI::this_mpi_process(mpi_communicator)
-                << ": advection prepare temporary for "
-                << introspection.name_for_compositional_index(advection_field.compositional_variable)
-                << std::endl;
-
     // Temporary vector to hold the residual. Reuse a persistent block vector
     // to avoid constructing MPI vectors in the post-mesh-deformation advection
     // path.
     LinearAlgebra::Vector &temp = advection_distributed_residual.block(block_idx);
     temp = 0.;
-
-    if (timestep_number == 1 && !advection_field.is_temperature())
-      std::cerr << "Mesh deformation diagnostic on rank "
-                << Utilities::MPI::this_mpi_process(mpi_communicator)
-                << ": advection prepared residual for "
-                << introspection.name_for_compositional_index(advection_field.compositional_variable)
-                << std::endl;
 
     ComponentMask advection_component_mask(dof_handler.get_fe().n_components(), false);
     advection_component_mask.set(advection_field.component_index(introspection), true);
@@ -508,21 +494,7 @@ namespace aspect
                                              line.inhomogeneity);
     advection_constraints.close();
 
-    if (timestep_number == 1 && !advection_field.is_temperature())
-      std::cerr << "Mesh deformation diagnostic on rank "
-                << Utilities::MPI::this_mpi_process(mpi_communicator)
-                << ": advection set constraints for "
-                << introspection.name_for_compositional_index(advection_field.compositional_variable)
-                << std::endl;
-
     advection_constraints.set_zero(distributed_solution);
-
-    if (timestep_number == 1 && !advection_field.is_temperature())
-      std::cerr << "Mesh deformation diagnostic on rank "
-                << Utilities::MPI::this_mpi_process(mpi_communicator)
-                << ": advection compute residual for "
-                << introspection.name_for_compositional_index(advection_field.compositional_variable)
-                << std::endl;
 
     // Compute the residual before we solve and return this at the end.
     // This is used in the nonlinear solver.
@@ -580,13 +552,6 @@ namespace aspect
                                   advection_field.is_temperature(),
                                   advection_field.compositional_variable,
                                   solver_control);
-
-    if (timestep_number == 1 && !advection_field.is_temperature())
-      std::cerr << "Mesh deformation diagnostic on rank "
-                << Utilities::MPI::this_mpi_process(mpi_communicator)
-                << ": advection distribute constraints for "
-                << introspection.name_for_compositional_index(advection_field.compositional_variable)
-                << std::endl;
 
     advection_constraints.distribute (distributed_solution);
     solution.block(block_idx) = distributed_solution.block(block_idx);
