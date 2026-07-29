@@ -1,0 +1,6 @@
+# Elapsed model time in years and file number. The data filename used by the
+# regression test is intentionally constant: the test exercises replacement
+# of the cached bracketing fields, not the numerical values of the fields.
+0.000000 0
+44.303513 1
+88.607026 2

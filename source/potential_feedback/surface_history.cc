@@ -469,6 +469,10 @@ namespace aspect
           lower_index = upper_index - 1;
         }
 
+      const MPI_Comm communicator = this->get_mpi_communicator();
+      lower_index = Utilities::MPI::broadcast(communicator, lower_index, 0);
+      upper_index = Utilities::MPI::broadcast(communicator, upper_index, 0);
+
       load_bracketing_fields(lower_index, upper_index);
 
       if (!configuration.interpolate || lower_index == upper_index)
@@ -490,13 +494,64 @@ namespace aspect
       const unsigned int lower_stage_index,
       const unsigned int upper_stage_index)
     {
-      if (lower_stage_index != current_lower_stage)
-        lower_field = load_field(stages[lower_stage_index].file_number);
+      const MPI_Comm communicator = this->get_mpi_communicator();
+      const unsigned int root_process = 0;
+      const unsigned int root_lower_stage =
+        Utilities::MPI::broadcast(communicator,
+                                  current_lower_stage,
+                                  root_process);
+      const unsigned int root_upper_stage =
+        Utilities::MPI::broadcast(communicator,
+                                  current_upper_stage,
+                                  root_process);
 
-      if (upper_stage_index == lower_stage_index)
-        upper_field.reset();
-      else if (upper_stage_index != current_upper_stage)
-        upper_field = load_field(stages[upper_stage_index].file_number);
+      const bool local_cache_is_consistent =
+        (current_lower_stage == root_lower_stage
+         && current_upper_stage == root_upper_stage
+         && static_cast<bool>(lower_field)
+         == (current_lower_stage != numbers::invalid_unsigned_int)
+         && static_cast<bool>(upper_field)
+         == (current_upper_stage != numbers::invalid_unsigned_int
+             && current_upper_stage != current_lower_stage));
+      const bool cache_is_consistent =
+        Utilities::MPI::min(static_cast<unsigned int>(
+                              local_cache_is_consistent),
+                            communicator) == 1;
+
+      if (!cache_is_consistent)
+        {
+          lower_field = load_field(stages[lower_stage_index].file_number);
+          if (upper_stage_index == lower_stage_index)
+            upper_field.reset();
+          else
+            upper_field = load_field(stages[upper_stage_index].file_number);
+        }
+      else
+        {
+          unsigned int lower_field_stage = current_lower_stage;
+          unsigned int upper_field_stage = current_upper_stage;
+
+          if (lower_stage_index != lower_field_stage)
+            {
+              if (lower_stage_index == upper_field_stage && upper_field)
+                {
+                  lower_field.swap(upper_field);
+                  std::swap(lower_field_stage, upper_field_stage);
+                }
+              else
+                {
+                  lower_field =
+                    load_field(stages[lower_stage_index].file_number);
+                  lower_field_stage = lower_stage_index;
+                }
+            }
+
+          if (upper_stage_index == lower_stage_index)
+            upper_field.reset();
+          else if (upper_stage_index != upper_field_stage)
+            upper_field =
+              load_field(stages[upper_stage_index].file_number);
+        }
 
       current_lower_stage = lower_stage_index;
       current_upper_stage = upper_stage_index;
@@ -509,12 +564,13 @@ namespace aspect
     SurfaceHistory<dim>::load_field(const int file_number) const
     {
       const std::string filename = create_filename(file_number);
-      AssertThrow(Utilities::fexists(filename, this->get_mpi_communicator()),
-                  ExcMessage("Surface-history data file <" + filename
-                             + "> was not found."));
 
       if (configuration.data_format == "aspect structured data")
         {
+          AssertThrow(Utilities::fexists(filename,
+                                         this->get_mpi_communicator()),
+                      ExcMessage("Surface-history data file <" + filename
+                                 + "> was not found."));
           auto lookup =
             std::make_unique<Utilities::StructuredDataLookup<dim-1>>(
               1, configuration.scale_factor);
@@ -530,24 +586,22 @@ namespace aspect
 
       if constexpr (dim == 3)
         {
-          const unsigned int root_process = 0;
-          SurfaceHistoryUtilities::CitcomSVERegularGrid grid;
-          if (Utilities::MPI::this_mpi_process(
-                this->get_mpi_communicator()) == root_process)
-            grid = SurfaceHistoryUtilities::parse_citcomsve_regular_grid(
-                     Utilities::read_and_distribute_file_content(
-                       filename, MPI_COMM_SELF),
-                     configuration.scale_factor);
-          else
-            grid.data_tables.resize(1);
+          // Surface histories replace their bracketing fields during a run.
+          // Keeping these dynamic tables in MPI shared-memory windows makes
+          // destruction and reconstruction part of the collective call
+          // sequence. Distribute the file contents from rank zero, but build
+          // ordinary process-local lookup tables to keep replacement local.
+          SurfaceHistoryUtilities::CitcomSVERegularGrid grid =
+            SurfaceHistoryUtilities::parse_citcomsve_regular_grid(
+              Utilities::read_and_distribute_file_content(
+                filename, this->get_mpi_communicator()),
+              configuration.scale_factor);
 
           auto lookup =
             std::make_unique<Utilities::StructuredDataLookup<dim-1>>(1, 1.0);
           lookup->reinit({"surface value"},
                          std::move(grid.coordinate_values),
-                         std::move(grid.data_tables),
-                         this->get_mpi_communicator(),
-                         root_process);
+                         std::move(grid.data_tables));
           return lookup;
         }
 

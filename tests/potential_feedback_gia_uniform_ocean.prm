@@ -106,14 +106,17 @@ subsection Potential feedback
       # benchmark. Much smaller loads can fall below the nonlinear Stokes
       # update tolerance before the coupled SLE iteration has converged.
       set Scale factor        = 0.05
-      set Schedule file name  =
+      # The files do not contain a %d placeholder, so every stage has the same
+      # physical field. Advancing to stage 1 at the first time step exercises
+      # replacement of the history cache without changing this test's physics.
+      set Schedule file name  = synthetic_stage_transition.schedule
     end
 
     subsection Prescribed ocean function history
       set Data directory     = $ASPECT_SOURCE_DIR/data/potential-feedback/gia/
       set Data file name     = synthetic_uniform_ocean.txt
       set Data format        = citcomsve regular grid
-      set Schedule file name =
+      set Schedule file name = synthetic_stage_transition.schedule
     end
   end
 
