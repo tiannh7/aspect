@@ -71,6 +71,92 @@ direction is known exactly. Production use must obtain this direction from a
 material reference position rather than silently using a deformed current
 position.
 
+For a laterally varying reference density, the linearized Eulerian density
+perturbation is
+
+\[
+\rho'=-\nabla\mathbin{\cdot}(\rho_0\boldsymbol d)
+     =-\rho_0\nabla\mathbin{\cdot}\boldsymbol d
+      -\boldsymbol d\mathbin{\cdot}\nabla\rho_0.
+\]
+
+With pressure positive in compression,
+\(-\rho_0\nabla\mathbin{\cdot}\boldsymbol d=\rho_0p/K\). In spherical
+components the material-advection term is
+
+\[
+-\boldsymbol d\mathbin{\cdot}\nabla\rho_0
+\begin{aligned}
+={}&-d_r\partial_r\rho_0
+ -\frac{d_\theta}{r}\partial_\theta\rho_0\\
+ &-\frac{d_\phi}{r\sin\theta}\partial_\phi\rho_0.
+\end{aligned}
+\]
+
+Consequently, tangential displacement is physically required as soon as the
+reference density or another material property varies laterally. Across a
+sharp material interface, the corresponding sheet term depends on the normal
+displacement \(\boldsymbol d\mathbin{\cdot}\boldsymbol n_\Sigma\), not
+necessarily on the spherical radial component.
+
+The finite-deformation form is most naturally written through the material
+map \(\boldsymbol x=\boldsymbol\chi(\boldsymbol X,t)\):
+
+\[
+\rho(\boldsymbol x,t)
+=\frac{\rho_0(\boldsymbol X)}
+       {\det(\partial\boldsymbol x/\partial\boldsymbol X)}.
+\]
+
+This is the long-term reason to retain the full Cartesian displacement (or an
+equivalent inverse material map), even though the radial PREM benchmark only
+uses its radial projection.
+
+## Independent surface diagnostic
+
+When all three Cartesian fields are present, the surface Love-number
+postprocessor independently projects their radial and poloidal components.
+It writes `h_vector` and `l_vector` beside the existing
+velocity-time-integrated `h_accumulated` and `l_accumulated` values. During
+this diagnostic stage both paths intentionally use the same current-surface
+basis and area weight, so their difference isolates displacement-history
+transport and time integration rather than reference-surface mapping.
+
+The time layers are deliberately not hidden. ASPECT commits compositional
+fields before the current Stokes solve, whereas the legacy postprocessor
+accumulator immediately adds the current post-Stokes velocity multiplied by
+the timestep. They agree at the separately initialized instantaneous-elastic
+timestep zero. At later timesteps their difference includes this current-step
+offset as well as any genuine transport or integration error. Timestep
+refinement is therefore required before changing the production displacement
+source.
+
+For the current solve ordering, the two updates are schematically
+
+\[
+\boldsymbol d_{\mathrm{vector}}^n
+=\mathcal T_n(\boldsymbol d_{\mathrm{vector}}^{n-1})
+ \Delta t_n\boldsymbol u^{n-1},
+\qquad
+\boldsymbol d_{\mathrm{accumulated}}^n
+=\boldsymbol d_{\mathrm{accumulated}}^{n-1}
+ \Delta t_n\boldsymbol u^n,
+\]
+
+where \(\mathcal T_n\) is compositional transport. The first ordinary vector
+reaction after instantaneous-elastic initialization is skipped so that the
+artificial elastic velocity is not committed twice. Consequently, with a
+constant timestep and negligible projection/transport error, the committed
+vector coefficient at step \(n\) matches the legacy accumulator at step
+\(n-1\), not at step \(n\). Local 4x and 8x PREM tests confirm this relation.
+
+With a changing timestep, the delayed vector update multiplies the previous
+velocity by the current timestep. It can therefore no longer be compared to a
+simple one-step shift of the legacy accumulator. This is a time-integration
+design issue, not evidence that the Cartesian projection is inaccurate. A
+production takeover must first define one committed displacement time layer
+and use the interval length belonging to that velocity increment.
+
 ## Acceptance tests
 
 1. A prescribed Cartesian velocity must update every displacement component

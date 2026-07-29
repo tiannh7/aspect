@@ -1,0 +1,135 @@
+# Enable if: QUICK_TEST
+
+set Dimension                    = 3
+set End time                     = 1
+set Maximum time step            = 1
+set Nonlinear solver scheme      = single Advection, iterated Stokes
+set Output directory             = output-surface_love_numbers_vector_displacement
+set Pressure normalization       = no
+set Use operator splitting       = true
+set Use years instead of seconds = false
+
+subsection Solver parameters
+  subsection Operator splitting parameters
+    set Reaction solver type = fixed step
+  end
+  subsection Stokes solver parameters
+    set Stokes solver type      = block AMG
+    set Linear solver tolerance = 1e-10
+  end
+end
+
+subsection Geometry model
+  set Model name = spherical shell
+  subsection Spherical shell
+    set Inner radius = 1
+    set Outer radius = 2
+  end
+end
+
+subsection Mesh refinement
+  set Initial adaptive refinement = 0
+  set Initial global refinement   = 0
+end
+
+subsection Discretization
+  set Use discontinuous composition discretization = true
+end
+
+subsection Formulation
+  set Enable elasticity = true
+  set Mass conservation = incompressible
+  subsection Elasticity
+    set Use old stress fields = false
+  end
+end
+
+subsection Mesh deformation
+  set Mesh deformation boundary indicators = inner: free surface, outer: free surface
+  subsection Free surface
+    set Free surface stabilization theta        = 1
+    set Stabilization density contrasts         = inner: 1000, outer: 4000
+    set Initial stabilization density contrasts = inner: 1000, outer: 4000
+    set Surface velocity projection             = normal
+  end
+end
+
+subsection Compositional fields
+  set Number of fields = 9
+  set Compositional field methods = field, field, field, field, field, field, field, field, field
+  set Names of fields = ve_stress_xx, ve_stress_yy, ve_stress_zz, ve_stress_xy, ve_stress_xz, ve_stress_yz, ve_displacement_x, ve_displacement_y, ve_displacement_z
+  set Types of fields = stress, stress, stress, stress, stress, stress, generic, generic, generic
+end
+
+subsection Initial composition model
+  set Model name = function
+  subsection Function
+    set Function expression = 0; 0; 0; 0; 0; 0; 0; 0; 0
+  end
+end
+
+subsection Initial temperature model
+  set Model name = function
+  subsection Function
+    set Function expression = 0
+  end
+end
+
+subsection Material model
+  set Model name = viscoelastic
+  subsection Viscoelastic
+    set Densities                         = 4000
+    set Viscosities                       = 1000
+    set Elastic shear moduli              = 300
+    set Elastic bulk modulus formulation = bulk modulus
+    set Elastic bulk moduli               = 2000
+    set Initial response mode             = instantaneous elastic
+    set Use fixed elastic time step       = true
+    set Initial elastic time step         = 1
+  end
+end
+
+subsection Gravity model
+  set Model name = radial constant
+  subsection Radial constant
+    set Magnitude = 1
+  end
+end
+
+subsection Potential feedback
+  set List of feedback mechanisms = self gravity
+  subsection Self gravity
+    set Density above surface               = 0
+    set Density below surface               = 4000
+    set Density above CMB                   = 4000
+    set Density below CMB                   = 5000
+    set Include internal density anomalies  = false
+    set Maximum degree                      = 2
+  end
+end
+
+subsection Boundary traction model
+  set Prescribed traction boundary indicators = outer: spherical harmonic load
+  subsection Spherical harmonic load
+    set Harmonic degree         = 2
+    set Harmonic order          = 0
+    set Load height             = 1
+    set Load density            = 1
+    set Positive load direction = inward radial
+  end
+end
+
+subsection Postprocess
+  set List of postprocessors = surface love numbers
+  subsection Surface love numbers
+    set Initial elastic displacement time = 1
+    set Maximum degree                    = 2
+    set Minimum degree                    = 2
+    set Output coefficients               = false
+  end
+end
+
+subsection Termination criteria
+  set End step            = 1
+  set Termination criteria = end step
+end

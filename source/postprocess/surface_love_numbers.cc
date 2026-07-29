@@ -221,8 +221,38 @@ namespace aspect
           std::vector<double> local_increment_sin(n_coefficients, 0.0);
           std::vector<double> local_radial_increment_cos(n_coefficients, 0.0);
           std::vector<double> local_radial_increment_sin(n_coefficients, 0.0);
+          std::vector<double> local_vector_displacement_cos(n_coefficients, 0.0);
+          std::vector<double> local_vector_displacement_sin(n_coefficients, 0.0);
+          std::vector<double> local_vector_radial_displacement_cos(n_coefficients, 0.0);
+          std::vector<double> local_vector_radial_displacement_sin(n_coefficients, 0.0);
 
-          if (timestep > 0.0)
+          const std::array<std::string,3> vector_displacement_field_names =
+          {
+            "ve_displacement_x",
+            "ve_displacement_y",
+            "ve_displacement_z"
+          };
+          std::array<unsigned int,3> vector_displacement_field_indices;
+          unsigned int n_vector_displacement_fields = 0;
+          for (unsigned int d = 0; d < dim; ++d)
+            if (this->introspection().compositional_name_exists(
+                  vector_displacement_field_names[d]))
+              {
+                vector_displacement_field_indices[d] =
+                  this->introspection().compositional_index_for_name(
+                    vector_displacement_field_names[d]);
+                ++n_vector_displacement_fields;
+              }
+          AssertThrow(n_vector_displacement_fields == 0
+                      || n_vector_displacement_fields == dim,
+                      ExcMessage("The surface vector-displacement diagnostic "
+                                 "requires all Cartesian component fields "
+                                 "`ve_displacement_x', `ve_displacement_y', "
+                                 "and `ve_displacement_z'."));
+          const bool has_vector_displacement =
+            n_vector_displacement_fields == dim;
+
+          if (timestep > 0.0 || has_vector_displacement)
             {
               const GeometryModel::SphericalShell<dim> &geometry_model =
                 Plugins::get_plugin_as_type<const GeometryModel::SphericalShell<dim>> (this->get_geometry_model());
@@ -240,6 +270,9 @@ namespace aspect
                                                 update_JxW_values);
 
               std::vector<Tensor<1,dim>> velocity_values(fe_face_values.n_quadrature_points);
+              std::array<std::vector<double>,dim> vector_displacement_values;
+              for (auto &component_values : vector_displacement_values)
+                component_values.resize(fe_face_values.n_quadrature_points);
 
               for (const auto &cell : this->get_dof_handler().active_cell_iterators())
                 if (cell->is_locally_owned())
@@ -249,21 +282,61 @@ namespace aspect
                         cell->face(face_no)->boundary_id() == top_boundary_id)
                       {
                         fe_face_values.reinit(cell, face_no);
-                        fe_face_values[this->introspection().extractors.velocities].get_function_values(this->get_solution(),
-                                                                                                        velocity_values);
+                        if (timestep > 0.0)
+                          fe_face_values[this->introspection().extractors.velocities]
+                          .get_function_values(this->get_solution(),
+                                               velocity_values);
+                        if (has_vector_displacement)
+                          for (unsigned int d = 0; d < dim; ++d)
+                            fe_face_values[
+                              this->introspection().extractors.compositional_fields[
+                                vector_displacement_field_indices[d]]]
+                            .get_function_values(this->get_solution(),
+                                                 vector_displacement_values[d]);
 
                         for (unsigned int q=0; q<fe_face_values.n_quadrature_points; ++q)
                           {
                             const Point<dim> position = fe_face_values.quadrature_point(q);
                             const Tensor<1,dim> radial_unit_vector = position / position.norm();
-                            const double radial_velocity = velocity_values[q] * radial_unit_vector;
-                            const double radial_displacement = timestep * radial_velocity;
-                            const Tensor<1,dim> tangential_displacement =
-                              timestep * (velocity_values[q] - radial_velocity * radial_unit_vector);
+                            double radial_displacement = 0.0;
+                            Tensor<1,dim> tangential_displacement;
+                            if (timestep > 0.0)
+                              {
+                                const double radial_velocity =
+                                  velocity_values[q] * radial_unit_vector;
+                                radial_displacement =
+                                  timestep * radial_velocity;
+                                tangential_displacement =
+                                  timestep
+                                  * (velocity_values[q]
+                                     - radial_velocity * radial_unit_vector);
+                              }
+
+                            Tensor<1,dim> vector_displacement;
+                            double vector_radial_displacement = 0.0;
+                            Tensor<1,dim> vector_tangential_displacement;
+                            if (has_vector_displacement)
+                              {
+                                for (unsigned int d = 0; d < dim; ++d)
+                                  vector_displacement[d] =
+                                    vector_displacement_values[d][q];
+                                vector_radial_displacement =
+                                  vector_displacement * radial_unit_vector;
+                                vector_tangential_displacement =
+                                  vector_displacement
+                                  - vector_radial_displacement
+                                  * radial_unit_vector;
+                              }
 
                             Tensor<1,3> tangential_displacement_3d;
-                            for (unsigned int d=0; d<dim; ++d)
-                              tangential_displacement_3d[d] = tangential_displacement[d];
+                            Tensor<1,3> vector_tangential_displacement_3d;
+                            for (unsigned int d = 0; d < dim; ++d)
+                              {
+                                tangential_displacement_3d[d] =
+                                  tangential_displacement[d];
+                                vector_tangential_displacement_3d[d] =
+                                  vector_tangential_displacement[d];
+                              }
 
                             const std::array<double,3> spherical_coordinates =
                               Utilities::Coordinates::cartesian_to_spherical_coordinates(position);
@@ -283,14 +356,40 @@ namespace aspect
                                   const double normalization =
                                     (degree > 0 ? static_cast<double>(degree * (degree + 1)) : 1.0);
 
-                                  local_increment_cos[coefficient_index] +=
-                                    (tangential_displacement_3d * gradients.first) * area_weight / normalization;
-                                  local_increment_sin[coefficient_index] +=
-                                    (tangential_displacement_3d * gradients.second) * area_weight / normalization;
-                                  local_radial_increment_cos[coefficient_index] +=
-                                    radial_displacement * harmonics.first * area_weight;
-                                  local_radial_increment_sin[coefficient_index] +=
-                                    radial_displacement * harmonics.second * area_weight;
+                                  if (timestep > 0.0)
+                                    {
+                                      local_increment_cos[coefficient_index] +=
+                                        (tangential_displacement_3d
+                                         * gradients.first)
+                                        * area_weight / normalization;
+                                      local_increment_sin[coefficient_index] +=
+                                        (tangential_displacement_3d
+                                         * gradients.second)
+                                        * area_weight / normalization;
+                                      local_radial_increment_cos[coefficient_index] +=
+                                        radial_displacement * harmonics.first
+                                        * area_weight;
+                                      local_radial_increment_sin[coefficient_index] +=
+                                        radial_displacement * harmonics.second
+                                        * area_weight;
+                                    }
+                                  if (has_vector_displacement)
+                                    {
+                                      local_vector_displacement_cos[coefficient_index] +=
+                                        (vector_tangential_displacement_3d
+                                         * gradients.first)
+                                        * area_weight / normalization;
+                                      local_vector_displacement_sin[coefficient_index] +=
+                                        (vector_tangential_displacement_3d
+                                         * gradients.second)
+                                        * area_weight / normalization;
+                                      local_vector_radial_displacement_cos[coefficient_index] +=
+                                        vector_radial_displacement
+                                        * harmonics.first * area_weight;
+                                      local_vector_radial_displacement_sin[coefficient_index] +=
+                                        vector_radial_displacement
+                                        * harmonics.second * area_weight;
+                                    }
                                 }
                           }
                       }
@@ -300,6 +399,10 @@ namespace aspect
           std::vector<double> global_increment_sin(n_coefficients, 0.0);
           std::vector<double> global_radial_increment_cos(n_coefficients, 0.0);
           std::vector<double> global_radial_increment_sin(n_coefficients, 0.0);
+          std::vector<double> global_vector_displacement_cos(n_coefficients, 0.0);
+          std::vector<double> global_vector_displacement_sin(n_coefficients, 0.0);
+          std::vector<double> global_vector_radial_displacement_cos(n_coefficients, 0.0);
+          std::vector<double> global_vector_radial_displacement_sin(n_coefficients, 0.0);
           Utilities::MPI::sum(local_increment_cos,
                               this->get_mpi_communicator(),
                               global_increment_cos);
@@ -312,6 +415,21 @@ namespace aspect
           Utilities::MPI::sum(local_radial_increment_sin,
                               this->get_mpi_communicator(),
                               global_radial_increment_sin);
+          if (has_vector_displacement)
+            {
+              Utilities::MPI::sum(local_vector_displacement_cos,
+                                  this->get_mpi_communicator(),
+                                  global_vector_displacement_cos);
+              Utilities::MPI::sum(local_vector_displacement_sin,
+                                  this->get_mpi_communicator(),
+                                  global_vector_displacement_sin);
+              Utilities::MPI::sum(local_vector_radial_displacement_cos,
+                                  this->get_mpi_communicator(),
+                                  global_vector_radial_displacement_cos);
+              Utilities::MPI::sum(local_vector_radial_displacement_sin,
+                                  this->get_mpi_communicator(),
+                                  global_vector_radial_displacement_sin);
+            }
 
           for (unsigned int i=0; i<n_coefficients; ++i)
             {
@@ -837,6 +955,131 @@ namespace aspect
                                                    << std::setprecision(16) << radial_displacement_coecos[coefficient_index] << ' '
                                                    << std::setprecision(16) << radial_displacement_coesin[coefficient_index] << '\n';
                       }
+
+                  if (has_vector_displacement)
+                    {
+                      const Point<dim> surface_point =
+                        this->get_geometry_model().representative_point(1.0);
+                      const double vector_diagnostic_surface_radius =
+                        surface_point.norm();
+                      const double vector_diagnostic_surface_gravity =
+                        this->get_gravity_model().gravity_vector(surface_point).norm();
+
+                      std::ofstream vector_displacement_output(
+                        output_directory
+                        + "surface_vector_displacement_SH_coefficients"
+                        + timestep_suffix);
+                      vector_displacement_output
+                          << "# degree order "
+                          << "vector_radial_cos vector_radial_sin "
+                          << "accumulated_radial_cos accumulated_radial_sin "
+                          << "radial_difference_cos radial_difference_sin "
+                          << "vector_poloidal_cos vector_poloidal_sin "
+                          << "accumulated_poloidal_cos accumulated_poloidal_sin "
+                          << "poloidal_difference_cos poloidal_difference_sin "
+                          << "h_vector_cos h_vector_sin "
+                          << "h_accumulated_cos h_accumulated_sin "
+                          << "l_vector_cos l_vector_sin "
+                          << "l_accumulated_cos l_accumulated_sin\n";
+                      vector_displacement_output
+                          << "# vector field: committed Cartesian "
+                          << "ve_displacement_x/y/z material history\n";
+                      vector_displacement_output
+                          << "# accumulated field: postprocessor-local sum of "
+                          << "surface velocity times timestep, including the "
+                          << "current post-Stokes velocity increment\n";
+                      vector_displacement_output
+                          << "# time-layer note: compositional vector fields "
+                          << "are committed before the current Stokes solve; "
+                          << "the two paths therefore coincide at the "
+                          << "instantaneous-elastic initialization but can "
+                          << "differ by a current-step increment later\n";
+                      vector_displacement_output
+                          << "# projection basis and area weight: current "
+                          << "surface geometry, intentionally identical for "
+                          << "the vector and accumulated paths\n";
+                      vector_displacement_output
+                          << "# difference: vector minus accumulated\n";
+                      vector_displacement_output
+                          << "# Love-number normalization matches "
+                          << "surface_love_number_coefficients\n";
+                      vector_displacement_output
+                          << "# time: " << std::setprecision(16)
+                          << this->get_time() << "\n";
+                      vector_displacement_output
+                          << "# timestep: " << this->get_timestep_number()
+                          << "\n";
+
+                      coefficient_index = 0;
+                      for (unsigned int degree = min_degree;
+                           degree <= max_degree;
+                           ++degree)
+                        {
+                          const double displacement_to_love_scale =
+                            (2.0 * degree + 1.0)
+                            * vector_diagnostic_surface_gravity
+                            / (4.0 * numbers::PI * constants::big_g
+                               * load_density
+                               * vector_diagnostic_surface_radius);
+                          const double love_scale =
+                            displacement_to_love_scale / load_height;
+
+                          for (unsigned int order = 0;
+                               order <= degree;
+                               ++order, ++coefficient_index)
+                            {
+                              const double vector_radial_cos =
+                                global_vector_radial_displacement_cos[
+                                  coefficient_index];
+                              const double vector_radial_sin =
+                                global_vector_radial_displacement_sin[
+                                  coefficient_index];
+                              const double accumulated_radial_cos =
+                                radial_displacement_coecos[coefficient_index];
+                              const double accumulated_radial_sin =
+                                radial_displacement_coesin[coefficient_index];
+                              const double vector_poloidal_cos =
+                                global_vector_displacement_cos[
+                                  coefficient_index];
+                              const double vector_poloidal_sin =
+                                global_vector_displacement_sin[
+                                  coefficient_index];
+                              const double accumulated_poloidal_cos =
+                                displacement_coecos[coefficient_index];
+                              const double accumulated_poloidal_sin =
+                                displacement_coesin[coefficient_index];
+
+                              vector_displacement_output
+                                  << degree << ' ' << order << ' '
+                                  << std::setprecision(16)
+                                  << vector_radial_cos << ' '
+                                  << vector_radial_sin << ' '
+                                  << accumulated_radial_cos << ' '
+                                  << accumulated_radial_sin << ' '
+                                  << vector_radial_cos
+                                  - accumulated_radial_cos << ' '
+                                  << vector_radial_sin
+                                  - accumulated_radial_sin << ' '
+                                  << vector_poloidal_cos << ' '
+                                  << vector_poloidal_sin << ' '
+                                  << accumulated_poloidal_cos << ' '
+                                  << accumulated_poloidal_sin << ' '
+                                  << vector_poloidal_cos
+                                  - accumulated_poloidal_cos << ' '
+                                  << vector_poloidal_sin
+                                  - accumulated_poloidal_sin << ' '
+                                  << vector_radial_cos *love_scale << ' '
+                                  << vector_radial_sin *love_scale << ' '
+                                  << accumulated_radial_cos *love_scale << ' '
+                                  << accumulated_radial_sin *love_scale << ' '
+                                  << vector_poloidal_cos *love_scale << ' '
+                                  << vector_poloidal_sin *love_scale << ' '
+                                  << accumulated_poloidal_cos *love_scale << ' '
+                                  << accumulated_poloidal_sin *love_scale
+                                  << '\n';
+                            }
+                        }
+                    }
 
                   if (output_coefficients)
                     {
@@ -1697,6 +1940,36 @@ namespace aspect
           output.precision(4);
           output << std::scientific
                  << "tracked " << n_coefficients << " coefficients";
+          if (has_vector_displacement
+              && load_degree >= min_degree
+              && load_degree <= max_degree
+              && load_order <= load_degree)
+            {
+              const unsigned int target_index =
+                spherical_harmonic_coefficient_index(min_degree,
+                                                     load_degree,
+                                                     load_order);
+              const Point<dim> surface_point =
+                this->get_geometry_model().representative_point(1.0);
+              const double surface_radius = surface_point.norm();
+              const double surface_gravity =
+                this->get_gravity_model().gravity_vector(surface_point).norm();
+              const double love_scale =
+                (2.0 * load_degree + 1.0) * surface_gravity
+                / (4.0 * numbers::PI * constants::big_g
+                   * load_density * surface_radius * load_height);
+
+              output << ", target (" << load_degree << ',' << load_order
+                     << ") h_vector "
+                     << global_vector_radial_displacement_cos[target_index]
+                     *love_scale
+                     << ", h_accumulated "
+                     << radial_displacement_coecos[target_index] *love_scale
+                     << ", l_vector "
+                     << global_vector_displacement_cos[target_index] *love_scale
+                     << ", l_accumulated "
+                     << displacement_coecos[target_index] *love_scale;
+            }
 
           return std::make_pair("Surface love numbers:",
                                 output.str());
