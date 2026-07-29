@@ -1747,31 +1747,29 @@ namespace aspect
 
       this->get_pcout() << solver_control_mf.last_step() << " iterations." << std::endl;
 
-      mesh_velocity_constraints.distribute(solution);
-      solution.update_ghost_values();
+      // The matrix-free solve computes the homogeneous correction x for the
+      // inhomogeneous constrained state u0. Reconstruct u = u0 + x before
+      // importing the locally owned entries into ASPECT's vector type.
+      solution += u0;
 
-      // copy solution:
-      LinearAlgebra::Vector solution_tmp;
-      solution_tmp.reinit(mesh_locally_owned, sim.mpi_communicator);
-      internal::ChangeVectorTypes::copy(solution_tmp, solution);
+      internal::ChangeVectorTypes::copy(owned_fs_mesh_velocity, solution);
 
       // Update the mesh velocity vector
-      fs_mesh_velocity = solution_tmp;
+      fs_mesh_velocity = owned_fs_mesh_velocity;
 
       // Update the mesh displacement vector
       if (this->simulator_is_past_initialization())
         {
           // during the simulation, we add dt*solution
-          LinearAlgebra::Vector distributed_mesh_displacements(mesh_locally_owned, sim.mpi_communicator);
-          distributed_mesh_displacements = 0.;
+          owned_mesh_displacements = 0.;
           for (unsigned int k = 0; k < mesh_locally_owned.n_elements(); ++k)
             {
               const types::global_dof_index global_index =
                 mesh_locally_owned.nth_index_in_set(k);
-              distributed_mesh_displacements[global_index] =
+              owned_mesh_displacements[global_index] =
                 mesh_displacements[global_index];
             }
-          distributed_mesh_displacements.compress(VectorOperation::insert);
+          owned_mesh_displacements.compress(VectorOperation::insert);
           double dt = this->get_timestep();
           if (dt == 0.0 && this->get_timestep_number() == 0)
             {
@@ -1782,8 +1780,8 @@ namespace aspect
                   && this->get_material_model().fixed_elastic_time_step() > 0.0)
                 dt = this->get_material_model().fixed_elastic_time_step();
             }
-          distributed_mesh_displacements.add(dt, solution_tmp);
-          mesh_displacements = distributed_mesh_displacements;
+          owned_mesh_displacements.add(dt, owned_fs_mesh_velocity);
+          mesh_displacements = owned_mesh_displacements;
         }
 
       update_multilevel_deformation();
@@ -2027,6 +2025,8 @@ namespace aspect
       old_mesh_displacements.reinit(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
       initial_topography.reinit(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
       fs_mesh_velocity.reinit(mesh_locally_owned, mesh_locally_relevant, sim.mpi_communicator);
+      owned_mesh_displacements.reinit(mesh_locally_owned, sim.mpi_communicator);
+      owned_fs_mesh_velocity.reinit(mesh_locally_owned, sim.mpi_communicator);
 
       // if we are just starting, we need to set the initial topography.
       if (this->simulator_is_past_initialization() == false ||

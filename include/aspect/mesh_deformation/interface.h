@@ -571,6 +571,9 @@ namespace aspect
          */
         LinearAlgebra::Vector mesh_displacements;
 
+        /** Locally owned mesh displacement used for time-step updates. */
+        LinearAlgebra::Vector owned_mesh_displacements;
+
         /**
          * mesh_displacements from the last time step.
          */
@@ -601,6 +604,12 @@ namespace aspect
          * used for making the ALE correction in the advection equations.
          */
         LinearAlgebra::Vector fs_mesh_velocity;
+
+        /**
+         * Locally owned mesh velocity used to import matrix-free GMG
+         * solutions before storing and applying the mesh velocity.
+         */
+        LinearAlgebra::Vector owned_fs_mesh_velocity;
 
         /**
          * IndexSet for the locally owned DoFs for the mesh system
