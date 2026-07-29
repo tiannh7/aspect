@@ -108,3 +108,16 @@ end
 subsection Postprocess
   set List of postprocessors = viscoelastic displacement vector
 end
+
+subsection Time stepping
+  set List of model names = function
+  subsection Function
+    set Function expression = if(time<0.5,1,0.5)
+    set Variable names      = time
+  end
+end
+
+subsection Termination criteria
+  set End step             = 2
+  set Termination criteria = end step
+end

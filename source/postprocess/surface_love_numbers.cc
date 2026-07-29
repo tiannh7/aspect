@@ -991,6 +991,8 @@ namespace aspect
                       vector_displacement_output
                           << "# time-layer note: compositional vector fields "
                           << "are committed before the current Stokes solve; "
+                          << "their delayed velocity update uses the previous "
+                          << "accepted timestep; "
                           << "the two paths therefore coincide at the "
                           << "instantaneous-elastic initialization but can "
                           << "differ by a current-step increment later\n";

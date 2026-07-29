@@ -528,23 +528,41 @@ namespace aspect
                    && this->get_timestep_number() == 1)
               && (in.requests_property(MaterialProperties::reaction_rates)
                   || in.requests_property(MaterialProperties::additional_outputs)))
-            for (unsigned int i = 0; i < in.n_evaluation_points(); ++i)
-              {
-                if (use_radial_displacement_history)
-                  {
-                    const double radius = in.position[i].norm();
-                    AssertThrow(radius > 0.0,
-                                ExcMessage("The radial material-displacement history is undefined at radius zero."));
-                    const Tensor<1,dim> radial_unit = in.position[i] / radius;
-                    reaction_rate_out->reaction_rates[i][radial_displacement_field_index] =
-                      in.velocity[i] * radial_unit;
-                  }
+            {
+              AssertThrow(this->get_timestep() > 0.0
+                          && this->get_old_timestep() > 0.0,
+                          ExcMessage("Updating material-displacement history "
+                                     "requires positive current and previous "
+                                     "time steps."));
 
-                if (use_vector_displacement_history)
-                  for (unsigned int d = 0; d < dim; ++d)
-                    reaction_rate_out->reaction_rates[i][displacement_field_indices[d]] =
-                      in.velocity[i][d];
-              }
+              // The solution velocity available during the reaction solve is
+              // the converged velocity from the previous accepted timestep.
+              // The operator-splitting integrator multiplies every reaction
+              // rate by the current timestep. Rescale the rate so this old
+              // velocity is instead integrated over the timestep to which it
+              // belongs. This distinction matters when the timestep changes.
+              const double displacement_history_rate_scale =
+                this->get_old_timestep() / this->get_timestep();
+
+              for (unsigned int i = 0; i < in.n_evaluation_points(); ++i)
+                {
+                  if (use_radial_displacement_history)
+                    {
+                      const double radius = in.position[i].norm();
+                      AssertThrow(radius > 0.0,
+                                  ExcMessage("The radial material-displacement history is undefined at radius zero."));
+                      const Tensor<1,dim> radial_unit = in.position[i] / radius;
+                      reaction_rate_out->reaction_rates[i][radial_displacement_field_index] =
+                        displacement_history_rate_scale
+                        * (in.velocity[i] * radial_unit);
+                    }
+
+                  if (use_vector_displacement_history)
+                    for (unsigned int d = 0; d < dim; ++d)
+                      reaction_rate_out->reaction_rates[i][displacement_field_indices[d]] =
+                        displacement_history_rate_scale * in.velocity[i][d];
+                }
+            }
         }
     }
 

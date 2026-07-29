@@ -136,26 +136,32 @@ For the current solve ordering, the two updates are schematically
 \[
 \boldsymbol d_{\mathrm{vector}}^n
 =\mathcal T_n(\boldsymbol d_{\mathrm{vector}}^{n-1})
- \Delta t_n\boldsymbol u^{n-1},
+{}+ \Delta t_{n-1}\boldsymbol u^{n-1},
 \qquad
 \boldsymbol d_{\mathrm{accumulated}}^n
 =\boldsymbol d_{\mathrm{accumulated}}^{n-1}
- \Delta t_n\boldsymbol u^n,
+{}+ \Delta t_n\boldsymbol u^n,
 \]
 
 where \(\mathcal T_n\) is compositional transport. The first ordinary vector
 reaction after instantaneous-elastic initialization is skipped so that the
-artificial elastic velocity is not committed twice. Consequently, with a
-constant timestep and negligible projection/transport error, the committed
-vector coefficient at step \(n\) matches the legacy accumulator at step
-\(n-1\), not at step \(n\). Local 4x and 8x PREM tests confirm this relation.
+artificial elastic velocity is not committed twice. Consequently, with
+negligible projection/transport error, the committed vector coefficient at
+step \(n\) matches the legacy accumulator at step \(n-1\), not at step \(n\).
+Local 4x and 8x PREM tests confirm this relation.
 
-With a changing timestep, the delayed vector update multiplies the previous
-velocity by the current timestep. It can therefore no longer be compared to a
-simple one-step shift of the legacy accumulator. This is a time-integration
-design issue, not evidence that the Cartesian projection is inaccurate. A
-production takeover must first define one committed displacement time layer
-and use the interval length belonging to that velocity increment.
+The operator-splitting reaction solve advances over \(\Delta t_n\), although
+the velocity available to it is \(\boldsymbol u^{n-1}\). The material model
+therefore returns the effective reaction rate
+
+\[
+\frac{\Delta t_{n-1}}{\Delta t_n}\boldsymbol u^{n-1},
+\]
+
+using ASPECT's stored previous accepted timestep. This ensures that the
+delayed displacement increment uses the interval length belonging to its
+velocity even when the timestep changes. A variable-timestep regression test
+checks both the scalar radial and Cartesian vector histories.
 
 ## Acceptance tests
 
@@ -171,3 +177,5 @@ and use the interval length belonging to that velocity increment.
    coefficient computed from \(\boldsymbol d_t\) with the existing cumulative
    surface-velocity coefficient before the vector history is allowed to drive
    production Love numbers.
+6. When the timestep changes, the delayed update of both radial and Cartesian
+   displacement histories must use the previous accepted timestep.
