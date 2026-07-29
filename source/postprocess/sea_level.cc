@@ -298,8 +298,11 @@ namespace aspect
       const BoundaryTraction::PotentialFeedbackTraction<dim> *gia =
         gia_provider();
 
-      const Postprocess::Geoid<dim> &geoid =
-        this->get_postprocess_manager().template get_matching_active_plugin<Postprocess::Geoid<dim>>();
+      const Postprocess::Geoid<dim> *geoid = nullptr;
+      if (gia == nullptr)
+        geoid =
+          &this->get_postprocess_manager().template
+          get_matching_active_plugin<Postprocess::Geoid<dim>>();
 
       // Get the sea level offset (constant for every location).
       sea_level_offset = compute_sea_level_offset();
@@ -334,7 +337,10 @@ namespace aspect
                   {
                     const Point<dim> vertex = face_vals.quadrature_point(corner);
                     const double nonuniform_sea_level_change = compute_nonuniform_sea_level_change(vertex);
-                    const double geoid_displacement = geoid.evaluate(vertex); // TODO: check sign of geoid_displacement
+                    const double geoid_displacement =
+                      (gia != nullptr
+                       ? gia->surface_potential_height(vertex)
+                       : geoid->evaluate(vertex)); // TODO: check sign of geoid_displacement
                     const double topography = this->get_geometry_model().height_above_reference_surface(vertex);
 
                     Point<dim-1> long_colat;
@@ -514,7 +520,9 @@ namespace aspect
     std::list<std::string>
     SeaLevel<dim>::required_other_postprocessors() const
     {
-      return {"geoid"};
+      return (gia_provider() != nullptr
+              ? std::list<std::string>()
+              : std::list<std::string>({"geoid"}));
     }
 
 

@@ -222,3 +222,52 @@ TEST_CASE("Canonical CitcomSVE GIA sea level equation conserves water mass",
                            0.25)
           == Approx(0.375));
 }
+
+
+
+TEST_CASE("GIA ice-load references distinguish thickness and signed anomalies",
+          "[potential_feedback][gia]")
+{
+  using aspect::PotentialFeedback::GIA::ice_load_mass_density;
+  using aspect::PotentialFeedback::IceLoadReference;
+
+  REQUIRE(ice_load_mass_density(-2.0, 3.0, 900.0,
+                                IceLoadReference::zero_thickness)
+          == Approx(0.0));
+  REQUIRE(ice_load_mass_density(5.0, 3.0, 900.0,
+                                IceLoadReference::first_history_file)
+          == Approx(1800.0));
+  REQUIRE(ice_load_mass_density(-2.0, 3.0, 900.0,
+                                IceLoadReference::signed_anomaly)
+          == Approx(-1800.0));
+}
+
+
+
+TEST_CASE("Uniform-ocean single-harmonic SLE has a closed solution",
+          "[potential_feedback][gia]")
+{
+  using aspect::PotentialFeedback::GIA::
+  uniform_ocean_sea_level_coefficient;
+
+  const double density_water = 1000.0;
+  const double response = 0.25 / density_water;
+  const double ice_load_coefficient = -4000.0;
+
+  const double sea_level_coefficient =
+    uniform_ocean_sea_level_coefficient(response,
+                                        ice_load_coefficient,
+                                        density_water);
+
+  REQUIRE(sea_level_coefficient == Approx(-4.0 / 3.0));
+  REQUIRE(sea_level_coefficient
+          == Approx(response
+                    * (ice_load_coefficient
+                       + density_water * sea_level_coefficient)));
+
+  REQUIRE_THROWS_WITH(
+    uniform_ocean_sea_level_coefficient(1.0 / density_water,
+                                        ice_load_coefficient,
+                                        density_water),
+    Contains("singular"));
+}

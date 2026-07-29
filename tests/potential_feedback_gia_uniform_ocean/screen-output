@@ -1,0 +1,252 @@
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+Number of active cells: 384 (on 1 levels)
+Number of degrees of freedom: 32,818 (10,422+490+3,474+3,072+3,072+3,072+3,072+3,072+3,072)
+
+Number of mesh deformation degrees of freedom: 10,422
+   Solving mesh displacement system... 0 iterations.
+*** Timestep 0:  t=0 years, dt=0 years
+   Solving mesh displacement system... 0 iterations.
+   Skipping temperature solve because RHS is zero.
+   Skipping ve_stress_xx assembly and solve because timestep 0.
+   Skipping ve_stress_yy assembly and solve because timestep 0.
+   Skipping ve_stress_zz assembly and solve because timestep 0.
+   Skipping ve_stress_xy assembly and solve because timestep 0.
+   Skipping ve_stress_xz assembly and solve because timestep 0.
+   Skipping ve_stress_yz assembly and solve because timestep 0.
+   Solving Stokes system (GMG)... 806+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=3.231159e-01
+      GIA/SLE surface-load update: relative SH coefficient change=2.520775e-02, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=-1.351016e+02, relative water mass residual=3.030962e-17, applied absolute mass scale=4.457383e+18, ocean area=5.099043e+14, barystatic sea level=-9.895354e+02, eustatic sea level=7.191032e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=3.686139e+03, total load=3.638859e+04, relative sea level=3.686139e+00, potential height=2.990443e+00, surface displacement=-1.610415e+00, raw potential-minus-displacement=4.600857e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 1: 1.546360e+02
+
+   Solving Stokes system (GMG)... 473+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=1.065722e-01
+      GIA/SLE surface-load update: relative SH coefficient change=1.684305e-02, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=2.322344e+02, relative water mass residual=5.122623e-17, applied absolute mass scale=4.533505e+18, ocean area=5.099043e+14, barystatic sea level=-1.484303e+03, eustatic sea level=7.430733e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=4.308893e+03, total load=3.701134e+04, relative sea level=4.308893e+00, potential height=2.795822e+00, surface displacement=-2.135825e+00, raw potential-minus-displacement=4.931647e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 2: 4.384110e-05
+
+   Solving Stokes system (GMG)... 51+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=2.814730e-02
+      GIA/SLE surface-load update: relative SH coefficient change=1.030297e-02, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=-2.042188e+02, relative water mass residual=4.458301e-17, applied absolute mass scale=4.580641e+18, ocean area=5.099043e+14, barystatic sea level=-1.731687e+03, eustatic sea level=7.550583e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=4.694099e+03, total load=3.739655e+04, relative sea level=4.694099e+00, potential height=2.761799e+00, surface displacement=-2.317505e+00, raw potential-minus-displacement=5.079304e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 3: 1.406628e-05
+
+   Solving Stokes system (GMG)... 48+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=7.115542e-03
+      GIA/SLE surface-load update: relative SH coefficient change=6.046777e-03, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=2.433281e+02, relative water mass residual=5.279983e-17, applied absolute mass scale=4.608502e+18, ocean area=5.099043e+14, barystatic sea level=-1.855379e+03, eustatic sea level=7.610508e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=4.921644e+03, total load=3.762409e+04, relative sea level=4.921644e+00, potential height=2.768341e+00, surface displacement=-2.380848e+00, raw potential-minus-displacement=5.149189e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 4: 4.981981e-06
+
+   Solving Stokes system (GMG)... 38+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=4.647614e-03
+      GIA/SLE surface-load update: relative SH coefficient change=3.466764e-03, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=-3.112188e+02, relative water mass residual=6.729720e-17, applied absolute mass scale=4.624542e+18, ocean area=5.099043e+14, barystatic sea level=-1.917225e+03, eustatic sea level=7.640471e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=5.052588e+03, total load=3.775504e+04, relative sea level=5.052588e+00, potential height=2.781136e+00, surface displacement=-2.402396e+00, raw potential-minus-displacement=5.183532e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 5: 1.801831e-06
+
+   Solving Stokes system (GMG)... 29+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=3.510116e-03
+      GIA/SLE surface-load update: relative SH coefficient change=1.964490e-03, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=-2.122344e+02, relative water mass residual=4.580281e-17, applied absolute mass scale=4.633654e+18, ocean area=5.099043e+14, barystatic sea level=-1.948148e+03, eustatic sea level=7.655452e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=5.126949e+03, total load=3.782940e+04, relative sea level=5.126949e+00, potential height=2.791074e+00, surface displacement=-2.410236e+00, raw potential-minus-displacement=5.201309e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 6: 6.652797e-07
+
+   Solving Stokes system (GMG)... 23+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=2.320378e-03
+      GIA/SLE surface-load update: relative SH coefficient change=1.105444e-03, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=8.415625e+01, relative water mass residual=1.814186e-17, applied absolute mass scale=4.638789e+18, ocean area=5.099043e+14, barystatic sea level=-1.963609e+03, eustatic sea level=7.662943e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=5.168845e+03, total load=3.787129e+04, relative sea level=5.168845e+00, potential height=2.797571e+00, surface displacement=-2.413170e+00, raw potential-minus-displacement=5.210740e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 7: 2.951902e-07
+
+   Solving Stokes system (GMG)... 10+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=1.510523e-03
+      GIA/SLE surface-load update: relative SH coefficient change=6.171180e-04, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=3.481250e+01, relative water mass residual=7.500013e-18, applied absolute mass scale=4.641658e+18, ocean area=5.099043e+14, barystatic sea level=-1.971340e+03, eustatic sea level=7.666688e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=5.192250e+03, total load=3.789470e+04, relative sea level=5.192250e+00, potential height=2.801733e+00, surface displacement=-2.413922e+00, raw potential-minus-displacement=5.215655e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 8: 1.745208e-07
+
+   Solving Stokes system (GMG)... 13+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=8.705571e-04
+      GIA/SLE surface-load update: relative SH coefficient change=3.439871e-04, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=-3.462656e+02, relative water mass residual=7.457384e-17, applied absolute mass scale=4.643259e+18, ocean area=5.099043e+14, barystatic sea level=-1.975205e+03, eustatic sea level=7.668561e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=5.205302e+03, total load=3.790775e+04, relative sea level=5.205302e+00, potential height=2.804122e+00, surface displacement=-2.414232e+00, raw potential-minus-displacement=5.218354e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 9: 1.490879e-07
+
+   Solving Stokes system (GMG)... 13+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=4.838455e-04
+      GIA/SLE surface-load update: relative SH coefficient change=1.919891e-04, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=3.479062e+02, relative water mass residual=7.491276e-17, applied absolute mass scale=4.644152e+18, ocean area=5.099043e+14, barystatic sea level=-1.977138e+03, eustatic sea level=7.669497e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=5.212589e+03, total load=3.791504e+04, relative sea level=5.212589e+00, potential height=2.805445e+00, surface displacement=-2.414430e+00, raw potential-minus-displacement=5.219875e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 10: 1.421784e-07
+
+   Solving Stokes system (GMG)... 0+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=2.907302e-04
+      GIA/SLE surface-load update: relative SH coefficient change=1.064383e-04, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=-1.286719e+02, relative water mass residual=2.770326e-17, applied absolute mass scale=4.644648e+18, ocean area=5.099043e+14, barystatic sea level=-1.978104e+03, eustatic sea level=7.669966e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=5.216629e+03, total load=3.791908e+04, relative sea level=5.216629e+00, potential height=2.806239e+00, surface displacement=-2.414430e+00, raw potential-minus-displacement=5.220670e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 11: 1.380435e-07
+
+   Solving Stokes system (GMG)... 3+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=1.609305e-04
+      GIA/SLE surface-load update: relative SH coefficient change=5.903434e-05, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=3.309844e+02, relative water mass residual=7.125724e-17, applied absolute mass scale=4.644923e+18, ocean area=5.099043e+14, barystatic sea level=-1.978587e+03, eustatic sea level=7.670200e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=5.218870e+03, total load=3.792132e+04, relative sea level=5.218870e+00, potential height=2.806679e+00, surface displacement=-2.414433e+00, raw potential-minus-displacement=5.221112e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 12: 1.388033e-07
+
+   Solving Stokes system (GMG)... 4+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=8.873820e-05
+      GIA/SLE surface-load update: relative SH coefficient change=3.279697e-05, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=1.776562e+01, relative water mass residual=3.824615e-18, applied absolute mass scale=4.645076e+18, ocean area=5.099043e+14, barystatic sea level=-1.978829e+03, eustatic sea level=7.670317e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=5.220116e+03, total load=3.792257e+04, relative sea level=5.220116e+00, potential height=2.806920e+00, surface displacement=-2.414441e+00, raw potential-minus-displacement=5.221361e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 13: 1.390777e-07
+
+   Solving Stokes system (GMG)... 6+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=4.758824e-05
+      GIA/SLE surface-load update: relative SH coefficient change=1.830047e-05, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=-1.598594e+02, relative water mass residual=3.441417e-17, applied absolute mass scale=4.645161e+18, ocean area=5.099043e+14, barystatic sea level=-1.978950e+03, eustatic sea level=7.670375e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=5.220811e+03, total load=3.792326e+04, relative sea level=5.220811e+00, potential height=2.807049e+00, surface displacement=-2.414457e+00, raw potential-minus-displacement=5.221506e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 14: 1.388619e-07
+
+   Solving Stokes system (GMG)... 0+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=2.771505e-05
+      GIA/SLE surface-load update: relative SH coefficient change=1.014694e-05, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=-4.237969e+02, relative water mass residual=9.123313e-17, applied absolute mass scale=4.645208e+18, ocean area=5.099043e+14, barystatic sea level=-1.979010e+03, eustatic sea level=7.670404e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=5.221196e+03, total load=3.792365e+04, relative sea level=5.221196e+00, potential height=2.807125e+00, surface displacement=-2.414457e+00, raw potential-minus-displacement=5.221581e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 15: 1.384758e-07
+
+   Solving Stokes system (GMG)... 0+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=1.536784e-05
+      GIA/SLE surface-load update: relative SH coefficient change=5.626170e-06, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=-3.539062e+01, relative water mass residual=7.618695e-18, applied absolute mass scale=4.645234e+18, ocean area=5.099043e+14, barystatic sea level=-1.979040e+03, eustatic sea level=7.670419e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=5.221410e+03, total load=3.792386e+04, relative sea level=5.221410e+00, potential height=2.807167e+00, surface displacement=-2.414457e+00, raw potential-minus-displacement=5.221623e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 16: 1.385483e-07
+
+   Solving Stokes system (GMG)... 0+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=8.521459e-06
+      GIA/SLE surface-load update: relative SH coefficient change=3.119570e-06, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=-2.091875e+02, relative water mass residual=4.503257e-17, applied absolute mass scale=4.645249e+18, ocean area=5.099043e+14, barystatic sea level=-1.979055e+03, eustatic sea level=7.670426e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=5.221528e+03, total load=3.792398e+04, relative sea level=5.221528e+00, potential height=2.807190e+00, surface displacement=-2.414457e+00, raw potential-minus-displacement=5.221647e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 17: 1.385892e-07
+
+   Solving Stokes system (GMG)... 3+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=4.696722e-06
+      GIA/SLE surface-load update: relative SH coefficient change=1.733987e-06, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=-4.242188e+02, relative water mass residual=9.132299e-17, applied absolute mass scale=4.645257e+18, ocean area=5.099043e+14, barystatic sea level=-1.979063e+03, eustatic sea level=7.670430e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=5.221594e+03, total load=3.792404e+04, relative sea level=5.221594e+00, potential height=2.807203e+00, surface displacement=-2.414457e+00, raw potential-minus-displacement=5.221660e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 18: 1.386120e-07
+
+   Solving Stokes system (GMG)... 4+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=2.473575e-06
+      GIA/SLE surface-load update: relative SH coefficient change=9.886740e-07, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=4.362031e+02, relative water mass residual=9.390281e-17, applied absolute mass scale=4.645262e+18, ocean area=5.099043e+14, barystatic sea level=-1.979067e+03, eustatic sea level=7.670432e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=5.221632e+03, total load=3.792408e+04, relative sea level=5.221632e+00, potential height=2.807208e+00, surface displacement=-2.414461e+00, raw potential-minus-displacement=5.221669e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 19: 1.386167e-07
+
+   Solving Stokes system (GMG)... 0+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=1.497065e-06
+      GIA/SLE surface-load update: relative SH coefficient change=5.481793e-07, prescribed ice mass change=-3.911188e+03, applied ice mass change=-8.397842e+11, ocean water mass change=8.397842e+11, water mass residual=3.832500e+02, relative water mass residual=8.250338e-17, applied absolute mass scale=4.645264e+18, ocean area=5.099043e+14, barystatic sea level=-1.979069e+03, eustatic sea level=7.670433e-15
+        l2m0 cosine coefficients: ice load=3.270245e+04, ocean load=5.221652e+03, total load=3.792410e+04, relative sea level=5.221652e+00, potential height=2.807213e+00, surface displacement=-2.414461e+00, raw potential-minus-displacement=5.221673e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 20: 1.385810e-07
+
+
+   Postprocessing:
+     Non-uniform sea level change min/max: -1.644 m, 3.699 m
+
+*** Timestep 1:  t=44.3035 years, dt=44.3035 years
+   Solving mesh displacement system... 1 iterations.
+   Solving composition reactions... in 443 substep(s).
+   Skipping temperature solve because RHS is zero.
+   Solving ve_stress_xx system ... 1 iterations.
+   Solving ve_stress_yy system ... 1 iterations.
+   Solving ve_stress_zz system ... 1 iterations.
+   Solving ve_stress_xy system ... 1 iterations.
+   Solving ve_stress_xz system ... 1 iterations.
+   Solving ve_stress_yz system ... 1 iterations.
+   Solving Stokes system (GMG)... 1000+5 iterations.
+      Self-gravity potential update: relative SH coefficient change=9.484793e-01
+      GIA/SLE surface-load update: relative SH coefficient change=1.064675e-01, prescribed ice mass change=1.650250e+03, applied ice mass change=-1.846587e+12, ocean water mass change=1.846587e+12, water mass residual=-2.203750e+02, relative water mass residual=4.637646e-17, applied absolute mass scale=4.751872e+18, ocean area=5.095876e+14, barystatic sea level=-1.764597e+03, eustatic sea level=-5.111941e-16
+        l2m0 cosine coefficients: ice load=3.268721e+04, ocean load=4.891068e+03, total load=3.757828e+04, relative sea level=4.891068e+00, potential height=2.628551e+00, surface displacement=-2.604323e+00, raw potential-minus-displacement=5.232874e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 1: 6.603890e-01
+
+   Solving Stokes system (GMG)... 484+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=2.201960e-02
+      GIA/SLE surface-load update: relative SH coefficient change=6.077219e-02, prescribed ice mass change=1.650250e+03, applied ice mass change=-1.846443e+12, ocean water mass change=1.846443e+12, water mass residual=9.418750e+01, relative water mass residual=1.913553e-17, applied absolute mass scale=4.922126e+18, ocean area=5.095876e+14, barystatic sea level=-2.028437e+03, eustatic sea level=-1.874799e-15
+        l2m0 cosine coefficients: ice load=3.268467e+04, ocean load=5.095454e+03, total load=3.778012e+04, relative sea level=5.095454e+00, potential height=2.629993e+00, surface displacement=-2.668111e+00, raw potential-minus-displacement=5.298104e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 2: 1.143699e-04
+
+   Solving Stokes system (GMG)... 286+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=1.394612e-02
+      GIA/SLE surface-load update: relative SH coefficient change=3.286409e-02, prescribed ice mass change=1.650250e+03, applied ice mass change=-1.846372e+12, ocean water mass change=1.846372e+12, water mass residual=2.288750e+02, relative water mass residual=4.542154e-17, applied absolute mass scale=5.038908e+18, ocean area=5.095876e+14, barystatic sea level=-2.160356e+03, eustatic sea level=-2.556601e-15
+        l2m0 cosine coefficients: ice load=3.268340e+04, ocean load=5.213816e+03, total load=3.789721e+04, relative sea level=5.213816e+00, potential height=2.638988e+00, surface displacement=-2.691452e+00, raw potential-minus-displacement=5.330440e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 3: 1.057661e-05
+
+   Solving Stokes system (GMG)... 204+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=7.975705e-03
+      GIA/SLE surface-load update: relative SH coefficient change=1.772564e-02, prescribed ice mass change=1.650250e+03, applied ice mass change=-1.846336e+12, ocean water mass change=1.846336e+12, water mass residual=1.423125e+02, relative water mass residual=2.785562e-17, applied absolute mass scale=5.108933e+18, ocean area=5.095876e+14, barystatic sea level=-2.226316e+03, eustatic sea level=-2.897502e-15
+        l2m0 cosine coefficients: ice load=3.268276e+04, ocean load=5.281295e+03, total load=3.796406e+04, relative sea level=5.281295e+00, potential height=2.646970e+00, surface displacement=-2.700067e+00, raw potential-minus-displacement=5.347037e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 4: 4.239386e-06
+
+   Solving Stokes system (GMG)... 173+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=4.370353e-03
+      GIA/SLE surface-load update: relative SH coefficient change=9.571090e-03, prescribed ice mass change=1.650250e+03, applied ice mass change=-1.846318e+12, ocean water mass change=1.846318e+12, water mass residual=5.593750e+01, relative water mass residual=1.086619e-17, applied absolute mass scale=5.147848e+18, ocean area=5.095876e+14, barystatic sea level=-2.259296e+03, eustatic sea level=-3.067953e-15
+        l2m0 cosine coefficients: ice load=3.268244e+04, ocean load=5.319392e+03, total load=3.800184e+04, relative sea level=5.319392e+00, potential height=2.652500e+00, surface displacement=-2.703253e+00, raw potential-minus-displacement=5.355753e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 5: 2.206778e-06
+
+   Solving Stokes system (GMG)... 136+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=2.379648e-03
+      GIA/SLE surface-load update: relative SH coefficient change=5.172954e-03, prescribed ice mass change=1.650250e+03, applied ice mass change=-1.846309e+12, ocean water mass change=1.846309e+12, water mass residual=-3.181875e+02, relative water mass residual=6.155744e-17, applied absolute mass scale=5.168953e+18, ocean area=5.095876e+14, barystatic sea level=-2.275786e+03, eustatic sea level=-3.153178e-15
+        l2m0 cosine coefficients: ice load=3.268229e+04, ocean load=5.340766e+03, total load=3.802305e+04, relative sea level=5.340766e+00, potential height=2.655979e+00, surface displacement=-2.704424e+00, raw potential-minus-displacement=5.360403e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 6: 1.186664e-06
+
+   Solving Stokes system (GMG)... 94+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=1.293396e-03
+      GIA/SLE surface-load update: relative SH coefficient change=2.797541e-03, prescribed ice mass change=1.650250e+03, applied ice mass change=-1.846304e+12, ocean water mass change=1.846304e+12, water mass residual=2.979375e+02, relative water mass residual=5.751249e-17, applied absolute mass scale=5.180396e+18, ocean area=5.095876e+14, barystatic sea level=-2.284031e+03, eustatic sea level=-3.195791e-15
+        l2m0 cosine coefficients: ice load=3.268221e+04, ocean load=5.352708e+03, total load=3.803491e+04, relative sea level=5.352708e+00, potential height=2.658063e+00, surface displacement=-2.704850e+00, raw potential-minus-displacement=5.362913e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 7: 6.413469e-07
+
+   Solving Stokes system (GMG)... 74+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=7.023352e-04
+      GIA/SLE surface-load update: relative SH coefficient change=1.513451e-03, prescribed ice mass change=1.650250e+03, applied ice mass change=-1.846302e+12, ocean water mass change=1.846302e+12, water mass residual=1.392500e+02, relative water mass residual=2.684803e-17, applied absolute mass scale=5.186601e+18, ocean area=5.095876e+14, barystatic sea level=-2.288154e+03, eustatic sea level=-3.217097e-15
+        l2m0 cosine coefficients: ice load=3.268217e+04, ocean load=5.359363e+03, total load=3.804153e+04, relative sea level=5.359363e+00, potential height=2.659276e+00, surface displacement=-2.705004e+00, raw potential-minus-displacement=5.364280e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 8: 3.467501e-07
+
+   Solving Stokes system (GMG)... 57+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=3.815463e-04
+      GIA/SLE surface-load update: relative SH coefficient change=8.188324e-04, prescribed ice mass change=1.650250e+03, applied ice mass change=-1.846301e+12, ocean water mass change=1.846301e+12, water mass residual=-1.537500e+02, relative water mass residual=2.962449e-17, applied absolute mass scale=5.189963e+18, ocean area=5.095876e+14, barystatic sea level=-2.290215e+03, eustatic sea level=-3.227750e-15
+        l2m0 cosine coefficients: ice load=3.268215e+04, ocean load=5.363064e+03, total load=3.804521e+04, relative sea level=5.363064e+00, potential height=2.659970e+00, surface displacement=-2.705058e+00, raw potential-minus-displacement=5.365027e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 9: 1.879973e-07
+
+   Solving Stokes system (GMG)... 43+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=2.066351e-04
+      GIA/SLE surface-load update: relative SH coefficient change=4.431538e-04, prescribed ice mass change=1.650250e+03, applied ice mass change=-1.846300e+12, ocean water mass change=1.846300e+12, water mass residual=-2.195000e+02, relative water mass residual=4.227832e-17, applied absolute mass scale=5.191787e+18, ocean area=5.095876e+14, barystatic sea level=-2.291245e+03, eustatic sea level=-3.233077e-15
+        l2m0 cosine coefficients: ice load=3.268214e+04, ocean load=5.365120e+03, total load=3.804726e+04, relative sea level=5.365120e+00, potential height=2.660363e+00, surface displacement=-2.705076e+00, raw potential-minus-displacement=5.365439e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 10: 1.021918e-07
+
+   Solving Stokes system (GMG)... 33+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=1.124522e-04
+      GIA/SLE surface-load update: relative SH coefficient change=2.397618e-04, prescribed ice mass change=1.650250e+03, applied ice mass change=-1.846300e+12, ocean water mass change=1.846300e+12, water mass residual=1.703750e+02, relative water mass residual=3.281001e-17, applied absolute mass scale=5.192775e+18, ocean area=5.095876e+14, barystatic sea level=-2.291761e+03, eustatic sea level=-3.235740e-15
+        l2m0 cosine coefficients: ice load=3.268213e+04, ocean load=5.366261e+03, total load=3.804839e+04, relative sea level=5.366261e+00, potential height=2.660584e+00, surface displacement=-2.705081e+00, raw potential-minus-displacement=5.365665e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 11: 5.661207e-08
+
+   Solving Stokes system (GMG)... 23+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=6.048432e-05
+      GIA/SLE surface-load update: relative SH coefficient change=1.298482e-04, prescribed ice mass change=1.650250e+03, applied ice mass change=-1.846300e+12, ocean water mass change=1.846300e+12, water mass residual=9.462500e+01, relative water mass residual=1.822056e-17, applied absolute mass scale=5.193310e+18, ocean area=5.095876e+14, barystatic sea level=-2.292018e+03, eustatic sea level=-3.237072e-15
+        l2m0 cosine coefficients: ice load=3.268213e+04, ocean load=5.366894e+03, total load=3.804902e+04, relative sea level=5.366894e+00, potential height=2.660707e+00, surface displacement=-2.705083e+00, raw potential-minus-displacement=5.365790e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 12: 3.279641e-08
+
+   Solving Stokes system (GMG)... 21+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=3.305467e-05
+      GIA/SLE surface-load update: relative SH coefficient change=7.026413e-05, prescribed ice mass change=1.650250e+03, applied ice mass change=-1.846300e+12, ocean water mass change=1.846300e+12, water mass residual=2.369375e+02, relative water mass residual=4.562105e-17, applied absolute mass scale=5.193601e+18, ocean area=5.095876e+14, barystatic sea level=-2.292147e+03, eustatic sea level=-3.237737e-15
+        l2m0 cosine coefficients: ice load=3.268213e+04, ocean load=5.367245e+03, total load=3.804937e+04, relative sea level=5.367245e+00, potential height=2.660776e+00, surface displacement=-2.705083e+00, raw potential-minus-displacement=5.365860e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 13: 2.120195e-08
+
+   Solving Stokes system (GMG)... 15+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=1.791233e-05
+      GIA/SLE surface-load update: relative SH coefficient change=3.802299e-05, prescribed ice mass change=1.650250e+03, applied ice mass change=-1.846300e+12, ocean water mass change=1.846300e+12, water mass residual=-1.066875e+02, relative water mass residual=2.054148e-17, applied absolute mass scale=5.193758e+18, ocean area=5.095876e+14, barystatic sea level=-2.292212e+03, eustatic sea level=-3.238070e-15
+        l2m0 cosine coefficients: ice load=3.268213e+04, ocean load=5.367440e+03, total load=3.804957e+04, relative sea level=5.367440e+00, potential height=2.660815e+00, surface displacement=-2.705083e+00, raw potential-minus-displacement=5.365898e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 14: 1.592843e-08
+
+
+   Postprocessing:
+     Non-uniform sea level change min/max: -7.245 m, 3.678 m
+
+Termination requested by criterion: end step
+Termination requested by criterion: end time
+
+
++----------------------------------------------------------+------------+------------+
++----------------------------------------------+-----------+------------+------------+
++----------------------------------------------+-----------+------------+------------+
+
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------

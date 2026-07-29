@@ -50,6 +50,31 @@ namespace aspect
         const double ocean_function,
         const double relative_geoid,
         const double barystatic_sea_level);
+
+      /**
+       * Convert an ice-history value to surface mass density relative to the
+       * selected reference. Physical thickness modes clamp negative history
+       * values to zero; signed-anomaly mode preserves both signs for
+       * single-harmonic verification problems.
+       */
+      double ice_load_mass_density(
+        const double current_ice_thickness,
+        const double initial_ice_thickness,
+        const double density_ice,
+        const IceLoadReference reference);
+
+      /**
+       * Return the degree-l sea-level coefficient for a global ocean and a
+       * single nonzero-degree spherical-harmonic ice-load coefficient.
+       *
+       * The relative sea-level response is the coefficient of N-U generated
+       * per unit surface-mass coefficient. Consequently it has units of
+       * meters divided by kg/m^2.
+       */
+      double uniform_ocean_sea_level_coefficient(
+        const double relative_sea_level_response,
+        const double ice_load_coefficient,
+        const double density_water);
     }
 
 
@@ -99,11 +124,43 @@ namespace aspect
         /** Return the current (spectrally represented) ocean function. */
         double ocean_function(const Point<dim> &position) const;
 
+        /** Return a total surface-load spherical-harmonic coefficient pair. */
+        std::pair<double,double>
+        total_load_coefficient(const unsigned int degree,
+                               const unsigned int order) const;
+
+        /** Return an ice-load spherical-harmonic coefficient pair. */
+        std::pair<double,double>
+        ice_load_coefficient(const unsigned int degree,
+                             const unsigned int order) const;
+
+        /** Return an ocean-load spherical-harmonic coefficient pair. */
+        std::pair<double,double>
+        ocean_load_coefficient(const unsigned int degree,
+                               const unsigned int order) const;
+
+        /** Return a relative-sea-level spherical-harmonic coefficient pair. */
+        std::pair<double,double>
+        sea_level_coefficient(const unsigned int degree,
+                              const unsigned int order) const;
+
         /** Return the spatially uniform barystatic constant in meters. */
         double barystatic_sea_level() const;
 
         /** Return the eustatic ice-volume contribution in meters. */
         double eustatic_sea_level() const;
+
+        /** Return the prescribed ice-mass change integrated over the surface. */
+        double ice_mass_change() const;
+
+        /** Return the applied ocean-water mass change integrated over the surface. */
+        double ocean_water_mass_change() const;
+
+        /** Return the applied ice-plus-ocean mass residual. */
+        double water_mass_residual() const;
+
+        /** Return the applied ice-plus-ocean mass residual relative to load mass. */
+        double relative_water_mass_residual() const;
 
         /** Return whether the GIA load fixed-point iteration has converged. */
         bool potential_is_converged() const;
@@ -126,6 +183,12 @@ namespace aspect
         double synthesize(const std::vector<double> &cos_coefficients,
                           const std::vector<double> &sin_coefficients,
                           const Point<dim> &position) const;
+
+        std::pair<double,double>
+        coefficient(const std::vector<double> &cos_coefficients,
+                    const std::vector<double> &sin_coefficients,
+                    const unsigned int degree,
+                    const unsigned int order) const;
 
         void relax_coefficients(std::vector<double> &stored_cos,
                                 std::vector<double> &stored_sin,
@@ -178,6 +241,9 @@ namespace aspect
         double current_eustatic_sea_level = 0.0;
         double current_ice_mass_change = 0.0;
         double current_ocean_area = 0.0;
+        double current_ocean_water_mass_change = 0.0;
+        double current_water_mass_residual = 0.0;
+        double current_relative_water_mass_residual = 0.0;
         double potential_relative_change =
           std::numeric_limits<double>::infinity();
         unsigned int current_potential_iteration_step =
@@ -207,6 +273,9 @@ namespace aspect
       & current_eustatic_sea_level
       & current_ice_mass_change
       & current_ocean_area
+      & current_ocean_water_mass_change
+      & current_water_mass_residual
+      & current_relative_water_mass_residual
       & potential_relative_change
       & current_potential_iteration_step
       & potential_iteration_number;

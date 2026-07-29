@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <iomanip>
 #include <limits>
 
 namespace aspect
@@ -66,6 +67,52 @@ namespace aspect
       {
         return ocean_function
                * (relative_geoid + barystatic_sea_level);
+      }
+
+
+
+      double
+      ice_load_mass_density(
+        const double current_ice_thickness,
+        const double initial_ice_thickness,
+        const double density_ice,
+        const IceLoadReference reference)
+      {
+        AssertThrow(density_ice > 0.0,
+                    ExcMessage("The GIA ice density must be positive."));
+
+        if (reference == IceLoadReference::signed_anomaly)
+          return density_ice * current_ice_thickness;
+
+        const double current_thickness =
+          std::max(0.0, current_ice_thickness);
+        const double reference_thickness =
+          (reference == IceLoadReference::first_history_file
+           ? std::max(0.0, initial_ice_thickness)
+           : 0.0);
+        return density_ice * (current_thickness - reference_thickness);
+      }
+
+
+
+      double
+      uniform_ocean_sea_level_coefficient(
+        const double relative_sea_level_response,
+        const double ice_load_coefficient,
+        const double density_water)
+      {
+        AssertThrow(density_water > 0.0,
+                    ExcMessage("The GIA water density must be positive."));
+
+        const double denominator =
+          1.0 - density_water * relative_sea_level_response;
+        AssertThrow(std::abs(denominator)
+                    > 100.0 * std::numeric_limits<double>::epsilon(),
+                    ExcMessage("The uniform-ocean sea-level response is "
+                               "singular because 1-rho_w*A_l is zero."));
+
+        return relative_sea_level_response
+               * ice_load_coefficient / denominator;
       }
     }
 
@@ -282,6 +329,8 @@ namespace aspect
         update_values);
       const FEValuesExtractors::Vector mesh_velocity_extractor(0);
 
+      std::vector<Tensor<1,dim>> mesh_displacement_values(
+        mesh_face_values.n_quadrature_points);
       const LinearAlgebra::Vector *projected_mesh_velocity = nullptr;
       if (include_current_velocity_increment)
         projected_mesh_velocity =
@@ -315,12 +364,17 @@ namespace aspect
 
               face_values.reinit(cell, face_index);
               if (include_current_velocity_increment)
-                {
-                  mesh_face_values.reinit(current_mesh_cell, face_index);
-                  mesh_face_values[mesh_velocity_extractor]
-                  .get_function_values(*projected_mesh_velocity,
-                                       projected_mesh_velocity_values);
-                }
+                Assert(projected_mesh_velocity != nullptr,
+                       ExcInternalError());
+
+              mesh_face_values.reinit(current_mesh_cell, face_index);
+              mesh_face_values[mesh_velocity_extractor].get_function_values(
+                mesh_deformation_handler.get_mesh_displacements(),
+                mesh_displacement_values);
+              if (include_current_velocity_increment)
+                mesh_face_values[mesh_velocity_extractor]
+                .get_function_values(*projected_mesh_velocity,
+                                     projected_mesh_velocity_values);
 
               for (unsigned int q = 0;
                    q < face_values.n_quadrature_points;
@@ -344,14 +398,13 @@ namespace aspect
                   weights.push_back(face_values.JxW(q)
                                     / (outer_radius * outer_radius));
                   current_ice_thickness.push_back(
-                    std::max(0.0, ice_history.value(position)));
+                    ice_history.value(position));
                   initial_ice_thickness.push_back(
-                    std::max(0.0, ice_history.initial_value(position)));
+                    ice_history.initial_value(position));
                   current_geoid.push_back(
                     surface_potential_height_function(position));
                   current_displacement.push_back(
-                    this->get_geometry_model()
-                    .height_above_reference_surface(position)
+                    mesh_displacement_values[q] * radial_unit
                     + predicted_displacement);
                   prescribed_ocean_values.push_back(
                     ocean_history.value(position));
@@ -368,6 +421,7 @@ namespace aspect
       std::vector<double> ocean_function_values(n_points, 0.0);
 
       double local_ocean_area = 0.0;
+      double local_surface_area = 0.0;
       double local_ice_mass_change = 0.0;
       double local_relative_sea_level_volume = 0.0;
       for (unsigned int point_index = 0;
@@ -381,19 +435,18 @@ namespace aspect
             std::max(0.0,
                      std::min(1.0,
                               prescribed_ocean_values[point_index]));
-          const double reference_ice_thickness =
-            (ice_load_reference == IceLoadReference::first_history_file
-             ? initial_ice_thickness[point_index]
-             : 0.0);
           const double ice_mass_density =
-            density_ice
-            * (current_ice_thickness[point_index]
-               - reference_ice_thickness);
+            GIA::ice_load_mass_density(
+              current_ice_thickness[point_index],
+              initial_ice_thickness[point_index],
+              density_ice,
+              ice_load_reference);
           const double surface_area_weight =
             weights[point_index] * outer_radius * outer_radius;
 
           ice_load[point_index] = ice_mass_density;
           ocean_function_values[point_index] = ocean_function;
+          local_surface_area += surface_area_weight;
           local_ocean_area += ocean_function * surface_area_weight;
           local_ice_mass_change +=
             ice_mass_density * surface_area_weight;
@@ -407,6 +460,30 @@ namespace aspect
       current_ice_mass_change =
         Utilities::MPI::sum(local_ice_mass_change,
                             this->get_mpi_communicator());
+      if (ice_load_reference == IceLoadReference::signed_anomaly)
+        {
+          const double surface_area =
+            Utilities::MPI::sum(local_surface_area,
+                                this->get_mpi_communicator());
+          AssertThrow(surface_area > 0.0, ExcInternalError());
+          const double discrete_mean_surface_mass =
+            current_ice_mass_change / surface_area;
+
+          local_ice_mass_change = 0.0;
+          for (unsigned int point_index = 0;
+               point_index < n_points;
+               ++point_index)
+            {
+              ice_load[point_index] -= discrete_mean_surface_mass;
+              const double surface_area_weight =
+                weights[point_index] * outer_radius * outer_radius;
+              local_ice_mass_change +=
+                ice_load[point_index] * surface_area_weight;
+            }
+          current_ice_mass_change =
+            Utilities::MPI::sum(local_ice_mass_change,
+                                this->get_mpi_communicator());
+        }
       const double relative_sea_level_volume =
         Utilities::MPI::sum(local_relative_sea_level_volume,
                             this->get_mpi_communicator());
@@ -447,10 +524,12 @@ namespace aspect
         ice_load,
         ocean_load,
         sea_level,
-        ocean_function_values
+        ocean_function_values,
+        current_geoid,
+        current_displacement
       },
       this->get_mpi_communicator());
-      AssertDimension(analyzed_fields.size(), 5);
+      AssertDimension(analyzed_fields.size(), 7);
 
       const std::vector<double> old_total_cos =
         total_load_cos_coefficients;
@@ -478,17 +557,196 @@ namespace aspect
                          analyzed_fields[4].first,
                          analyzed_fields[4].second);
 
-      potential_relative_change = coefficient_relative_change(
-                                    old_total_cos,
-                                    old_total_sin,
-                                    total_load_cos_coefficients,
-                                    total_load_sin_coefficients);
       current_barystatic_sea_level +=
         potential_relaxation_factor
         * (sea_level_offset - current_barystatic_sea_level);
       current_eustatic_sea_level +=
         potential_relaxation_factor
         * (new_eustatic_sea_level - current_eustatic_sea_level);
+
+      const std::vector<double> applied_ice_load =
+        sh_transform->synthesize(ice_load_cos_coefficients,
+                                 ice_load_sin_coefficients,
+                                 theta,
+                                 phi);
+      std::vector<double> applied_ocean_load =
+        sh_transform->synthesize(ocean_load_cos_coefficients,
+                                 ocean_load_sin_coefficients,
+                                 theta,
+                                 phi);
+      const std::vector<double> applied_ocean_function =
+        sh_transform->synthesize(ocean_function_cos_coefficients,
+                                 ocean_function_sin_coefficients,
+                                 theta,
+                                 phi);
+
+      double local_applied_ice_mass_change;
+      double local_ocean_water_mass_change;
+      double local_applied_mass_scale;
+      const auto integrate_applied_loads =
+        [&]()
+      {
+        local_applied_ice_mass_change = 0.0;
+        local_ocean_water_mass_change = 0.0;
+        local_applied_mass_scale = 0.0;
+        for (unsigned int point_index = 0;
+             point_index < n_points;
+             ++point_index)
+          {
+            const double surface_area_weight =
+              weights[point_index] * outer_radius * outer_radius;
+            local_applied_ice_mass_change +=
+              applied_ice_load[point_index] * surface_area_weight;
+            local_ocean_water_mass_change +=
+              applied_ocean_load[point_index] * surface_area_weight;
+            local_applied_mass_scale +=
+              (std::abs(applied_ice_load[point_index])
+               + std::abs(applied_ocean_load[point_index]))
+              * surface_area_weight;
+          }
+      };
+      integrate_applied_loads();
+
+      double applied_ice_mass_change =
+        Utilities::MPI::sum(local_applied_ice_mass_change,
+                            this->get_mpi_communicator());
+      current_ocean_water_mass_change =
+        Utilities::MPI::sum(local_ocean_water_mass_change,
+                            this->get_mpi_communicator());
+      current_water_mass_residual =
+        applied_ice_mass_change + current_ocean_water_mass_change;
+      double applied_mass_scale =
+        Utilities::MPI::sum(local_applied_mass_scale,
+                            this->get_mpi_communicator());
+
+      double local_effective_ocean_area = 0.0;
+      for (unsigned int point_index = 0;
+           point_index < n_points;
+           ++point_index)
+        local_effective_ocean_area +=
+          applied_ocean_function[point_index]
+          * weights[point_index] * outer_radius * outer_radius;
+      const double effective_ocean_area =
+        Utilities::MPI::sum(local_effective_ocean_area,
+                            this->get_mpi_communicator());
+      AssertThrow(effective_ocean_area > 0.0,
+                  ExcMessage("The spectrally represented GIA ocean function "
+                             "contains no ocean area."));
+
+      if (std::abs(current_water_mass_residual)
+          > std::numeric_limits<double>::epsilon()
+          * std::max(applied_mass_scale, 1.0))
+        {
+          const double mass_closure_sea_level =
+            -current_water_mass_residual
+            / (density_water * effective_ocean_area);
+          AssertDimension(total_load_cos_coefficients.size(),
+                          ocean_function_cos_coefficients.size());
+          for (unsigned int coefficient_index = 0;
+               coefficient_index < total_load_cos_coefficients.size();
+               ++coefficient_index)
+            {
+              const double cosine_sea_level_correction =
+                mass_closure_sea_level
+                * ocean_function_cos_coefficients[coefficient_index];
+              const double sine_sea_level_correction =
+                mass_closure_sea_level
+                * ocean_function_sin_coefficients[coefficient_index];
+              sea_level_cos_coefficients[coefficient_index] +=
+                cosine_sea_level_correction;
+              sea_level_sin_coefficients[coefficient_index] +=
+                sine_sea_level_correction;
+              ocean_load_cos_coefficients[coefficient_index] +=
+                density_water * cosine_sea_level_correction;
+              ocean_load_sin_coefficients[coefficient_index] +=
+                density_water * sine_sea_level_correction;
+              total_load_cos_coefficients[coefficient_index] +=
+                density_water * cosine_sea_level_correction;
+              total_load_sin_coefficients[coefficient_index] +=
+                density_water * sine_sea_level_correction;
+            }
+          current_barystatic_sea_level += mass_closure_sea_level;
+
+          applied_ocean_load =
+            sh_transform->synthesize(ocean_load_cos_coefficients,
+                                     ocean_load_sin_coefficients,
+                                     theta,
+                                     phi);
+          integrate_applied_loads();
+          applied_ice_mass_change =
+            Utilities::MPI::sum(local_applied_ice_mass_change,
+                                this->get_mpi_communicator());
+          current_ocean_water_mass_change =
+            Utilities::MPI::sum(local_ocean_water_mass_change,
+                                this->get_mpi_communicator());
+          current_water_mass_residual =
+            applied_ice_mass_change + current_ocean_water_mass_change;
+          applied_mass_scale =
+            Utilities::MPI::sum(local_applied_mass_scale,
+                                this->get_mpi_communicator());
+        }
+
+      potential_relative_change = coefficient_relative_change(
+                                    old_total_cos,
+                                    old_total_sin,
+                                    total_load_cos_coefficients,
+                                    total_load_sin_coefficients);
+      current_relative_water_mass_residual =
+        std::abs(current_water_mass_residual)
+        / std::max(applied_mass_scale,
+                   std::numeric_limits<double>::min());
+
+      if (include_current_velocity_increment)
+        {
+          this->get_pcout()
+              << "      GIA/SLE surface-load update: "
+              << "relative SH coefficient change="
+              << std::scientific << std::setprecision(6)
+              << potential_relative_change
+              << ", prescribed ice mass change="
+              << current_ice_mass_change
+              << ", applied ice mass change="
+              << applied_ice_mass_change
+              << ", ocean water mass change="
+              << current_ocean_water_mass_change
+              << ", water mass residual="
+              << current_water_mass_residual
+              << ", relative water mass residual="
+              << current_relative_water_mass_residual
+              << ", applied absolute mass scale="
+              << applied_mass_scale
+              << ", ocean area=" << current_ocean_area
+              << ", barystatic sea level="
+              << current_barystatic_sea_level
+              << ", eustatic sea level="
+              << current_eustatic_sea_level
+              << std::defaultfloat << std::endl;
+
+          if (maximum_degree >= 2)
+            {
+              const unsigned int l2m0_index = sh_transform->index(2, 0);
+              const double geoid_coefficient =
+                analyzed_fields[5].first[l2m0_index];
+              const double displacement_coefficient =
+                analyzed_fields[6].first[l2m0_index];
+              const double relative_sea_level_coefficient =
+                geoid_coefficient - displacement_coefficient;
+
+              this->get_pcout()
+                  << "        l2m0 cosine coefficients: "
+                  << std::scientific << std::setprecision(6)
+                  << "ice load=" << ice_load_coefficient(2, 0).first
+                  << ", ocean load=" << ocean_load_coefficient(2, 0).first
+                  << ", total load=" << total_load_coefficient(2, 0).first
+                  << ", relative sea level="
+                  << sea_level_coefficient(2, 0).first
+                  << ", potential height=" << geoid_coefficient
+                  << ", surface displacement=" << displacement_coefficient
+                  << ", raw potential-minus-displacement="
+                  << relative_sea_level_coefficient
+                  << std::defaultfloat << std::endl;
+            }
+        }
     }
 
 
@@ -657,6 +915,85 @@ namespace aspect
 
 
     template <int dim>
+    std::pair<double,double>
+    GlacialIsostaticAdjustment<dim>::coefficient(
+      const std::vector<double> &cos_coefficients,
+      const std::vector<double> &sin_coefficients,
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      AssertThrow(degree <= maximum_degree && order <= degree,
+                  ExcMessage("The requested GIA spherical-harmonic "
+                             "coefficient is outside the configured range."));
+
+      if (cos_coefficients.empty())
+        return {0.0, 0.0};
+
+      const unsigned int index = sh_transform->index(degree, order);
+      AssertIndexRange(index, cos_coefficients.size());
+      AssertIndexRange(index, sin_coefficients.size());
+      return {cos_coefficients[index], sin_coefficients[index]};
+    }
+
+
+
+    template <int dim>
+    std::pair<double,double>
+    GlacialIsostaticAdjustment<dim>::total_load_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      return coefficient(total_load_cos_coefficients,
+                         total_load_sin_coefficients,
+                         degree,
+                         order);
+    }
+
+
+
+    template <int dim>
+    std::pair<double,double>
+    GlacialIsostaticAdjustment<dim>::ice_load_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      return coefficient(ice_load_cos_coefficients,
+                         ice_load_sin_coefficients,
+                         degree,
+                         order);
+    }
+
+
+
+    template <int dim>
+    std::pair<double,double>
+    GlacialIsostaticAdjustment<dim>::ocean_load_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      return coefficient(ocean_load_cos_coefficients,
+                         ocean_load_sin_coefficients,
+                         degree,
+                         order);
+    }
+
+
+
+    template <int dim>
+    std::pair<double,double>
+    GlacialIsostaticAdjustment<dim>::sea_level_coefficient(
+      const unsigned int degree,
+      const unsigned int order) const
+    {
+      return coefficient(sea_level_cos_coefficients,
+                         sea_level_sin_coefficients,
+                         degree,
+                         order);
+    }
+
+
+
+    template <int dim>
     double
     GlacialIsostaticAdjustment<dim>::barystatic_sea_level() const
     {
@@ -675,14 +1012,61 @@ namespace aspect
 
 
     template <int dim>
+    double
+    GlacialIsostaticAdjustment<dim>::ice_mass_change() const
+    {
+      return current_ice_mass_change;
+    }
+
+
+
+    template <int dim>
+    double
+    GlacialIsostaticAdjustment<dim>::ocean_water_mass_change() const
+    {
+      return current_ocean_water_mass_change;
+    }
+
+
+
+    template <int dim>
+    double
+    GlacialIsostaticAdjustment<dim>::water_mass_residual() const
+    {
+      return current_water_mass_residual;
+    }
+
+
+
+    template <int dim>
+    double
+    GlacialIsostaticAdjustment<dim>::relative_water_mass_residual() const
+    {
+      return current_relative_water_mass_residual;
+    }
+
+
+
+    template <int dim>
     bool
     GlacialIsostaticAdjustment<dim>::potential_is_converged() const
     {
-      return !enabled
-             || (freeze_feedback_after_timestep_zero
-                 && this->get_timestep_number() > 0)
-             || potential_relative_change <= potential_convergence_tolerance
-             || potential_iteration_number >= maximum_potential_iterations;
+      if (!enabled
+          || (freeze_feedback_after_timestep_zero
+              && this->get_timestep_number() > 0))
+        return true;
+
+      const bool converged =
+        potential_relative_change <= potential_convergence_tolerance;
+      AssertThrow(converged
+                  || potential_iteration_number
+                  < maximum_potential_iterations,
+                  ExcMessage(
+                    "The coupled GIA/sea-level-equation solve reached the "
+                    "maximum number of potential iterations without "
+                    "satisfying the relative surface-load coefficient "
+                    "tolerance."));
+      return converged;
     }
 
 

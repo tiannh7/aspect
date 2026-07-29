@@ -159,7 +159,25 @@ The solver continues while any active mechanism is unconverged. GIA
 convergence is the relative L2 change of its spherical-harmonic surface-mass
 coefficient vectors. The common potential-iteration tolerance, maximum
 iteration count, and relaxation factor are used so that one parameter block
-controls the coupled fixed-point iteration.
+controls the coupled fixed-point iteration. Reaching the maximum iteration
+count without meeting the GIA tolerance is an error, not successful
+convergence.
+
+For a global ocean, a single spherical harmonic of nonzero degree provides a
+semi-analytic coupled test. The barystatic constant is degree zero and does not
+enter this harmonic. If \(A_l\) is the relative sea-level response \(N-U\) per
+unit surface-mass coefficient, then
+
+```{math}
+L_{lm} = A_l\left(\Delta\sigma_{i,lm}+\rho_w L_{lm}\right)
+       = \frac{A_l}{1-\rho_w A_l}\Delta\sigma_{i,lm}.
+```
+
+This relation is the first oracle for checking the ASPECT fixed-point coupling
+independently of shoreline coupling, moving coastlines, and realistic ice
+histories. A nonuniform ocean function couples spherical harmonics and
+therefore requires a matrix or pseudospectral numerical reference rather than
+this scalar closed form.
 
 ## Geoid and displacement
 
@@ -188,7 +206,19 @@ state until the next coupled update.
 The existing `sea level` postprocessor will become a diagnostic view of the
 active GIA provider. It will report or output at least relative sea level,
 ocean function, ice load, ocean load, total GIA load, and the
-barystatic constant.
+barystatic constant. Each post-Stokes GIA/SLE update also reports prescribed
+and applied ice mass, ocean-water mass, their absolute and relative closure
+residuals, and the surface-load coefficient change. The relative water-mass
+residual is normalized by
+\(\int(|\Delta\sigma_i|+|\Delta\sigma_o|)\,dS\), rather than by either net
+mass, so it remains meaningful for zero-mean spherical-harmonic loads.
+When GIA is active, the `sea level` postprocessor reads both relative sea
+level and geoid height directly from the unified potential-feedback provider;
+the legacy `geoid` postprocessor is not a prerequisite.
+The coupled update diagnostic additionally reports the degree-2, order-0
+cosine coefficients of ice load, ocean load, total load, and relative sea
+level. These four values make the global-ocean scalar oracle directly
+testable without projecting a mesh-dependent visualization file.
 
 Implementation acceptance requires, in this order:
 

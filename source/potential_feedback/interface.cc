@@ -57,6 +57,8 @@ namespace aspect
           return IceLoadReference::first_history_file;
         if (name == "zero thickness")
           return IceLoadReference::zero_thickness;
+        if (name == "signed anomaly")
+          return IceLoadReference::signed_anomaly;
 
         AssertThrow(false, ExcInternalError());
         return IceLoadReference::first_history_file;
@@ -210,10 +212,14 @@ namespace aspect
         prm.enter_subsection("Glacial isostatic adjustment");
         {
           prm.declare_entry("Ice load reference", "first history file",
-                            Patterns::Selection("first history file|zero thickness"),
+                            Patterns::Selection("first history file|zero thickness|signed anomaly"),
                             "Reference ice load. `first history file' applies "
                             "changes relative to the first stage; `zero "
-                            "thickness' applies the absolute ice history.");
+                            "thickness' applies the nonnegative absolute ice "
+                            "history. `signed anomaly' applies the history "
+                            "without clipping negative values and removes its "
+                            "discrete surface mean. It is intended for "
+                            "nonzero-degree spherical-harmonic verification.");
           prm.declare_entry("Ice density", "917.4",
                             Patterns::Double(0.0),
                             "Ice density in kg/m^3.");
@@ -247,10 +253,10 @@ namespace aspect
           prm.declare_entry("Maximum iterations", "20",
                             Patterns::Integer(1),
                             "Maximum number of self-consistent potential "
-                            "updates per timestep. The iteration stops when "
-                            "all active feedback-potential coefficient vectors "
-                            "reach the relative tolerance or this limit is "
-                            "reached.");
+                            "updates per timestep. All active feedback-"
+                            "potential coefficient vectors must reach the "
+                            "relative tolerance before this limit; otherwise "
+                            "the solve terminates with an error.");
           prm.declare_entry("Freeze feedback after timestep zero", "false",
                             Patterns::Bool(),
                             "If true, retain the converged timestep-zero "

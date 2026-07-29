@@ -1,0 +1,142 @@
+# Coupled GIA/SLE smoke test with a global ocean and a degree-2, order-0 ice
+# change. The corresponding scalar fixed point has the semi-analytic form
+# documented in glacial-isostatic-adjustment-design.md.
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/potential_feedback_default_none.prm
+
+set End time          = 44.303513
+set Maximum time step = 44.303513
+set Max nonlinear iterations = 20
+set Nonlinear solver tolerance = 2e-8
+set Output directory = output-potential-feedback-gia-uniform-ocean
+set Use years instead of seconds = true
+
+subsection Geometry model
+  subsection Spherical shell
+    set Custom mesh subdivision    = number of slices
+    set Initial lateral refinement = 2
+    set Inner radius               = 3503500
+    set Number of slices           = 4
+    set Outer radius               = 6370000
+  end
+end
+
+subsection Gravity model
+  subsection Radial constant
+    set Magnitude = 9.8
+  end
+end
+
+subsection Material model
+  subsection Viscoelastic
+    set Densities                   = 4604.4
+    set Elastic shear moduli        = 1.4305e11
+    set Enable compressible Maxwell = false
+    set Initial elastic time step   = 44.303513
+    set Viscosities                 = 1e21
+  end
+end
+
+subsection Compositional fields
+  set Names of fields = ve_stress_xx, ve_stress_yy, ve_stress_zz, \
+                        ve_stress_xy, ve_stress_xz, ve_stress_yz
+  set Number of fields = 6
+  set Types of fields = stress, stress, stress, stress, stress, stress
+  set Compositional field methods = field, field, field, field, field, field
+end
+
+subsection Initial composition model
+  subsection Function
+    set Function expression = 0; 0; 0; 0; 0; 0
+  end
+end
+
+subsection Formulation
+  set Enable additional Stokes RHS = true
+  set Mass conservation = incompressible
+
+  subsection Density sources
+    set Density source law      = legacy
+    set Reference density model = none
+  end
+
+  subsection Stokes pressure
+    set Pressure formulation = dynamic pressure
+    set Reference density    = 4604.4
+  end
+end
+
+subsection Boundary traction model
+  set Prescribed traction boundary indicators = outer: potential feedback, \
+                                                  inner: potential feedback
+end
+
+subsection Mesh deformation
+  subsection Free surface
+    set Initial stabilization density contrasts = outer: 4604.4, inner: 5401
+    set Stabilization density contrasts         = outer: 4604.4, inner: 5401
+  end
+end
+
+subsection Potential feedback
+  set List of feedback mechanisms = self gravity, glacial isostatic adjustment
+
+  subsection Glacial isostatic adjustment
+    set Ice density        = 1000
+    set Ice load reference = signed anomaly
+    set Maximum degree     = 4
+    set Water density      = 1000
+
+    subsection Ice history
+      set Data directory      = $ASPECT_SOURCE_DIR/data/potential-feedback/gia/
+      set Data file name      = synthetic_uniform_ocean_ice.1.txt
+      set Data format         = citcomsve regular grid
+      # Keep the synthetic load in the same amplitude range as the Zhong V1
+      # benchmark. Much smaller loads can fall below the nonlinear Stokes
+      # update tolerance before the coupled SLE iteration has converged.
+      set Scale factor        = 0.05
+      set Schedule file name  =
+    end
+
+    subsection Prescribed ocean function history
+      set Data directory     = $ASPECT_SOURCE_DIR/data/potential-feedback/gia/
+      set Data file name     = synthetic_uniform_ocean.txt
+      set Data format        = citcomsve regular grid
+      set Schedule file name =
+    end
+  end
+
+  subsection Potential iteration
+    set Initial displacement time step = 44.303513
+    set Iterate with Stokes            = true
+    set Maximum iterations             = 20
+    set Relative tolerance             = 1e-4
+    set Relaxation factor              = 0.5
+  end
+
+  subsection Self gravity
+    set Density above CMB                         = 4604.4
+    set Density above surface                     = 0
+    set Density below CMB                         = 10005.4
+    set Density below surface                     = 4604.4
+    set Full domain potential radial subdivisions = 4
+    set Include internal density anomalies        = false
+    set Maximum degree                            = 4
+  end
+end
+
+subsection Termination criteria
+  set End step             = 1
+  set Termination criteria = end step
+end
+
+subsection Postprocess
+  set List of postprocessors = basic statistics, sea level
+
+  subsection Sea level
+    set Ice density   = 1000
+    set Output to file = false
+    set Water density = 1000
+  end
+end

@@ -64,7 +64,8 @@ namespace aspect
     enum class IceLoadReference
     {
       first_history_file,
-      zero_thickness
+      zero_thickness,
+      signed_anomaly
     };
 
 
