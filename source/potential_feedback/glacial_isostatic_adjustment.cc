@@ -1061,12 +1061,22 @@ namespace aspect
       if (cos_coefficients.empty())
         return 0.0;
 
-      const std::array<double,dim> spherical_coordinates =
-        Utilities::Coordinates::cartesian_to_spherical_coordinates(position);
-      return sh_transform->synthesize(cos_coefficients,
-                                      sin_coefficients,
-      {spherical_coordinates[2]},
-      {spherical_coordinates[1]})[0];
+      if constexpr (dim == 3)
+        {
+          const std::array<double,dim> spherical_coordinates =
+            Utilities::Coordinates::cartesian_to_spherical_coordinates(position);
+          return sh_transform->synthesize(cos_coefficients,
+                                          sin_coefficients,
+                                          {spherical_coordinates[2]},
+                                          {spherical_coordinates[1]})[0];
+        }
+      else
+        {
+          AssertThrow(false,
+                      ExcMessage("Glacial isostatic adjustment is implemented "
+                                 "only for 3D spherical-shell models."));
+          return 0.0;
+        }
     }
 
 
