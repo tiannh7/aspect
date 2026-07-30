@@ -447,13 +447,17 @@ namespace aspect
 
       const unsigned int mpi_tag = 777;
 
+      // Utilities::create_directory() is collective on the supplied
+      // communicator and must therefore be called by every MPI rank before
+      // the rank-zero-only file assembly below.
+      Utilities::create_directory (this->get_output_directory() + "sea_level/",
+                                   this->get_mpi_communicator(),
+                                   /* silent=*/true);
+
       // On processor 0, collect all of the data the individual processors sent
       // and concatenate them into one file.
       if (Utilities::MPI::this_mpi_process(this->get_mpi_communicator()) == 0)
         {
-          Utilities::create_directory (this->get_output_directory() + "sea_level/",
-                                       this->get_mpi_communicator(),
-                                       /* silent=*/true);
           std::string filename = this->get_output_directory() +
                                  "sea_level/nonuniform_sea_level_change." +
                                  Utilities::int_to_string(this->get_timestep_number(), 5);

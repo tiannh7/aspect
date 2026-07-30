@@ -1,0 +1,14 @@
+# Verify that parallel sea-level text output completes without leaving MPI
+# collectives out of order for subsequent simulator operations.
+# MPI: 2
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/sea_level_postprocessor.prm
+
+set Output directory = output-sea_level_postprocessor_mpi
+
+subsection Postprocess
+  subsection Geoid
+    set Include surface topography contribution = false
+  end
+end
