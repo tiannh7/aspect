@@ -155,7 +155,11 @@ namespace aspect
       freeze_feedback_after_timestep_zero =
         settings.freeze_feedback_after_timestep_zero;
       initial_displacement_timestep = settings.initial_displacement_timestep;
-      potential_convergence_tolerance = settings.relative_tolerance;
+      potential_convergence_tolerance =
+        settings.glacial_isostatic_adjustment_relative_tolerance;
+      convergence_required =
+        settings.convergence_criterion_is_active(
+          "glacial isostatic adjustment");
       potential_relaxation_factor =
         settings.potential_iteration_relaxation_factor;
       maximum_potential_iterations = settings.maximum_iterations;
@@ -1067,8 +1071,8 @@ namespace aspect
             Utilities::Coordinates::cartesian_to_spherical_coordinates(position);
           return sh_transform->synthesize(cos_coefficients,
                                           sin_coefficients,
-                                          {spherical_coordinates[2]},
-                                          {spherical_coordinates[1]})[0];
+          {spherical_coordinates[2]},
+          {spherical_coordinates[1]})[0];
         }
       else
         {
@@ -1287,7 +1291,8 @@ namespace aspect
         return true;
 
       const bool converged =
-        potential_relative_change <= potential_convergence_tolerance
+        !convergence_required
+        || potential_relative_change <= potential_convergence_tolerance
         || (absolute_coefficient_tolerance > 0.0
             && potential_absolute_change
             <= absolute_coefficient_tolerance);

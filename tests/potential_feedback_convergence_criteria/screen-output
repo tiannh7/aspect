@@ -1,0 +1,37 @@
+
+Number of active cells: 96 (on 1 levels)
+Number of degrees of freedom: 9,406 (2,910+150+970+768+768+768+768+768+768+768)
+
+Number of mesh deformation degrees of freedom: 2,910
+   Solving mesh displacement system... 0 iterations.
+*** Timestep 0:  t=0 seconds, dt=0 seconds
+   Solving mesh displacement system... 0 iterations.
+   Skipping temperature solve because RHS is zero.
+   Skipping ve_stress_xx assembly and solve because timestep 0.
+   Skipping ve_stress_yy assembly and solve because timestep 0.
+   Skipping ve_stress_zz assembly and solve because timestep 0.
+   Skipping ve_stress_xy assembly and solve because timestep 0.
+   Skipping ve_stress_xz assembly and solve because timestep 0.
+   Skipping ve_stress_yz assembly and solve because timestep 0.
+   Solving Stokes system (GMG)... 29+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=5.574358e+00
+      Potential-feedback velocity update: relative L2 change=1.000000e+00
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 1: 1.000000e+00
+
+   Solving Stokes system (GMG)... 2+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=3.630973e-08
+      Potential-feedback velocity update: relative L2 change=7.807452e-07
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 2: 2.801400e-05
+
+   Solving Stokes system (GMG)... 0+0 iterations.
+      Self-gravity potential update: relative SH coefficient change=2.808036e-16
+      Potential-feedback velocity update: relative L2 change=4.403995e-11
+      Relative nonlinear residual (Stokes system) after nonlinear iteration 3: 7.597811e-06
+
+
+   Postprocessing:
+
+Termination requested by criterion: end time
+
+
+

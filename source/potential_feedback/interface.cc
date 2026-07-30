@@ -83,6 +83,16 @@ namespace aspect
 
 
 
+    bool
+    Settings::convergence_criterion_is_active(const std::string &name) const
+    {
+      return std::find(convergence_criteria.begin(),
+                       convergence_criteria.end(),
+                       name) != convergence_criteria.end();
+    }
+
+
+
     void
     Settings::declare_parameters(ParameterHandler &prm)
     {
@@ -286,8 +296,53 @@ namespace aspect
         {
           prm.declare_entry("Relative tolerance", "1e-3",
                             Patterns::Double(0),
-                            "Relative change tolerance for mechanism-specific "
-                            "feedback-potential coefficient vectors.");
+                            "Fallback relative change tolerance for feedback "
+                            "criteria whose individual tolerance is zero.");
+          prm.declare_entry(
+            "Convergence criteria",
+            "self gravity, rotational feedback, glacial isostatic adjustment, center of mass",
+            Patterns::List(
+              Patterns::Selection(
+                "velocity update|self gravity|rotational feedback|glacial isostatic adjustment|center of mass")),
+            "Comma-separated feedback quantities that must converge before "
+            "the coupled Stokes iteration stops. `velocity update' is the "
+            "relative L2 change of consecutive Stokes velocity vectors and "
+            "matches CitcomSVE's dU/U criterion. The other entries monitor "
+            "the self-gravity potential, rotational potential, GIA total "
+            "surface load, and native center-of-mass reference-frame "
+            "coefficients, respectively. Inactive mechanisms are ignored.");
+          prm.declare_entry(
+            "Velocity update relative tolerance", "0",
+            Patterns::Double(0),
+            "Relative L2 change tolerance for consecutive Stokes velocity "
+            "vectors. A value of zero inherits Relative tolerance. This "
+            "quantity is independent of accumulated material displacement "
+            "and mesh displacement.");
+          prm.declare_entry(
+            "Self gravity relative tolerance", "0",
+            Patterns::Double(0),
+            "Relative L2 change tolerance for the combined surface and CMB "
+            "self-gravity Phi/g spherical-harmonic coefficients. A value of "
+            "zero inherits Relative tolerance.");
+          prm.declare_entry(
+            "Rotational feedback relative tolerance", "0",
+            Patterns::Double(0),
+            "Relative L2 change tolerance for rotational-feedback potential "
+            "coefficients. A value of zero inherits Relative tolerance.");
+          prm.declare_entry(
+            "Glacial isostatic adjustment relative tolerance", "0",
+            Patterns::Double(0),
+            "Relative L2 change tolerance for the retained ice-plus-ocean "
+            "GIA surface-load spherical-harmonic coefficients. During one "
+            "outer iteration the prescribed ice load is fixed, so this "
+            "primarily measures convergence of the sea-level-equation ocean "
+            "load. A value of zero inherits Relative tolerance.");
+          prm.declare_entry(
+            "Center of mass relative tolerance", "0",
+            Patterns::Double(0),
+            "Relative change tolerance for the native center-of-mass "
+            "translation coefficients and D-Mc constraint. A value of zero "
+            "inherits Relative tolerance.");
           prm.declare_entry("Maximum iterations", "20",
                             Patterns::Integer(1),
                             "Maximum number of self-consistent potential "
@@ -474,6 +529,30 @@ namespace aspect
         prm.enter_subsection("Potential iteration");
         {
           relative_tolerance = prm.get_double("Relative tolerance");
+          convergence_criteria =
+            Utilities::split_string_list(prm.get("Convergence criteria"));
+          velocity_update_relative_tolerance =
+            prm.get_double("Velocity update relative tolerance");
+          self_gravity_relative_tolerance =
+            prm.get_double("Self gravity relative tolerance");
+          rotational_feedback_relative_tolerance =
+            prm.get_double("Rotational feedback relative tolerance");
+          glacial_isostatic_adjustment_relative_tolerance =
+            prm.get_double(
+              "Glacial isostatic adjustment relative tolerance");
+          center_of_mass_relative_tolerance =
+            prm.get_double("Center of mass relative tolerance");
+          if (velocity_update_relative_tolerance == 0.0)
+            velocity_update_relative_tolerance = relative_tolerance;
+          if (self_gravity_relative_tolerance == 0.0)
+            self_gravity_relative_tolerance = relative_tolerance;
+          if (rotational_feedback_relative_tolerance == 0.0)
+            rotational_feedback_relative_tolerance = relative_tolerance;
+          if (glacial_isostatic_adjustment_relative_tolerance == 0.0)
+            glacial_isostatic_adjustment_relative_tolerance =
+              relative_tolerance;
+          if (center_of_mass_relative_tolerance == 0.0)
+            center_of_mass_relative_tolerance = relative_tolerance;
           maximum_iterations = prm.get_integer("Maximum iterations");
           freeze_feedback_after_timestep_zero =
             prm.get_bool("Freeze feedback after timestep zero");
@@ -482,6 +561,13 @@ namespace aspect
             prm.get_double("Relaxation factor");
           initial_displacement_timestep =
             prm.get_double("Initial displacement time step");
+          AssertThrow(
+            !convergence_criterion_is_active("velocity update")
+            || iterate_with_stokes,
+            ExcMessage(
+              "Potential feedback/Potential iteration/Convergence criteria "
+              "can include `velocity update' only when Iterate with Stokes "
+              "is true."));
         }
         prm.leave_subsection();
 

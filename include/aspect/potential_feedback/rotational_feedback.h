@@ -136,6 +136,7 @@ namespace aspect
         double fluid_love_number;
         double initial_displacement_timestep;
         double potential_convergence_tolerance;
+        bool convergence_required = true;
         double potential_relative_change;
         double potential_source_relative_difference;
         unsigned int maximum_potential_iterations;

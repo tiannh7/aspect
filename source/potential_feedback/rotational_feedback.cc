@@ -851,9 +851,18 @@ namespace aspect
     bool
     RotationalFeedback<dim>::potential_is_converged() const
     {
-      return !enabled
-             || potential_relative_change <= potential_convergence_tolerance
-             || potential_iteration_number >= maximum_potential_iterations;
+      const bool converged =
+        !enabled
+        || !convergence_required
+        || potential_relative_change <= potential_convergence_tolerance;
+      AssertThrow(
+        converged
+        || potential_iteration_number < maximum_potential_iterations,
+        ExcMessage(
+          "The rotational-feedback solve reached the maximum number of "
+          "potential iterations without satisfying the configured "
+          "coefficient-change tolerance."));
+      return converged;
     }
 
 
@@ -942,7 +951,10 @@ namespace aspect
       iterate_with_stokes = settings.iterate_with_stokes;
       initial_displacement_timestep =
         settings.initial_displacement_timestep;
-      potential_convergence_tolerance = settings.relative_tolerance;
+      potential_convergence_tolerance =
+        settings.rotational_feedback_relative_tolerance;
+      convergence_required =
+        settings.convergence_criterion_is_active("rotational feedback");
       maximum_potential_iterations = settings.maximum_iterations;
       enable_surface_potential_traction =
         settings.include_surface_feedback;

@@ -217,6 +217,7 @@ namespace aspect
         double density_water = 1000.0;
         double initial_displacement_timestep = 0.0;
         double potential_convergence_tolerance = 1e-3;
+        bool convergence_required = true;
         double absolute_coefficient_tolerance = 1e-4;
         double potential_relaxation_factor = 1.0;
         unsigned int maximum_degree = 32;

@@ -499,8 +499,11 @@ namespace aspect
         bool   freeze_potential_after_timestep_zero;
         double initial_displacement_timestep;
         double potential_convergence_tolerance;
+        double center_of_mass_convergence_tolerance;
         double potential_absolute_coefficient_tolerance = 0.0;
         double potential_iteration_relaxation_factor;
+        bool potential_change_convergence_required = true;
+        bool center_of_mass_convergence_required = true;
         double potential_relative_change;
         double potential_absolute_change =
           std::numeric_limits<double>::infinity();

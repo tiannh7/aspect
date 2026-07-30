@@ -2205,14 +2205,17 @@ namespace aspect
               this->get_pcout() << std::defaultfloat << std::endl;
 
               const bool center_of_mass_change_is_converged =
-                !native_center_of_mass_diagnostic.valid
+                !center_of_mass_convergence_required
+                || !native_center_of_mass_diagnostic.valid
                 || center_of_mass_relative_change
-                <= potential_convergence_tolerance
+                <= center_of_mass_convergence_tolerance
                 || (center_of_mass_absolute_tolerance > 0.0
                     && center_of_mass_absolute_change
                     <= center_of_mass_absolute_tolerance);
               const bool potential_change_is_converged =
-                potential_relative_change <= potential_convergence_tolerance
+                !potential_change_convergence_required
+                || potential_relative_change
+                <= potential_convergence_tolerance
                 || (potential_absolute_coefficient_tolerance > 0.0
                     && potential_absolute_change
                     <= potential_absolute_coefficient_tolerance);
@@ -2231,21 +2234,26 @@ namespace aspect
     bool
     SelfGravitation<dim>::potential_is_converged() const
     {
+      const bool potential_change_is_converged =
+        !potential_change_convergence_required
+        || potential_relative_change <= potential_convergence_tolerance
+        || (potential_absolute_coefficient_tolerance > 0.0
+            && potential_absolute_change
+            <= potential_absolute_coefficient_tolerance);
+
       if (degree_one_reference_frame ==
           DegreeOneReferenceFrame::center_of_mass)
         {
-          const bool potential_change_is_converged =
-            potential_relative_change <= potential_convergence_tolerance
-            || (potential_absolute_coefficient_tolerance > 0.0
-                && potential_absolute_change
-                <= potential_absolute_coefficient_tolerance);
+          const bool center_of_mass_change_is_converged =
+            !center_of_mass_convergence_required
+            || center_of_mass_relative_change
+            <= center_of_mass_convergence_tolerance
+            || (center_of_mass_absolute_tolerance > 0.0
+                && center_of_mass_absolute_change
+                <= center_of_mass_absolute_tolerance);
           const bool converged =
             potential_change_is_converged
-            && (center_of_mass_relative_change
-                <= potential_convergence_tolerance
-                || (center_of_mass_absolute_tolerance > 0.0
-                    && center_of_mass_absolute_change
-                    <= center_of_mass_absolute_tolerance));
+            && center_of_mass_change_is_converged;
           AssertThrow(converged
                       || potential_iteration_number
                       < maximum_potential_iterations,
@@ -2258,11 +2266,14 @@ namespace aspect
           return converged;
         }
 
-      return potential_relative_change <= potential_convergence_tolerance
-             || (potential_absolute_coefficient_tolerance > 0.0
-                 && potential_absolute_change
-                 <= potential_absolute_coefficient_tolerance)
-             || potential_iteration_number >= maximum_potential_iterations;
+      AssertThrow(
+        potential_change_is_converged
+        || potential_iteration_number < maximum_potential_iterations,
+        ExcMessage(
+          "The self-gravity feedback solve reached the maximum number of "
+          "potential iterations without satisfying the configured "
+          "self-gravity coefficient-change tolerance."));
+      return potential_change_is_converged;
     }
 
 
@@ -2879,7 +2890,14 @@ namespace aspect
         settings.freeze_feedback_after_timestep_zero;
       initial_displacement_timestep =
         settings.initial_displacement_timestep;
-      potential_convergence_tolerance = settings.relative_tolerance;
+      potential_convergence_tolerance =
+        settings.self_gravity_relative_tolerance;
+      center_of_mass_convergence_tolerance =
+        settings.center_of_mass_relative_tolerance;
+      potential_change_convergence_required =
+        settings.convergence_criterion_is_active("self gravity");
+      center_of_mass_convergence_required =
+        settings.convergence_criterion_is_active("center of mass");
       potential_absolute_coefficient_tolerance =
         settings.self_gravity_absolute_coefficient_tolerance;
       potential_iteration_relaxation_factor =
@@ -3162,6 +3180,8 @@ namespace aspect
             prm.get_double("Initial displacement time step");
           potential_convergence_tolerance =
             prm.get_double("Potential convergence tolerance");
+          center_of_mass_convergence_tolerance =
+            potential_convergence_tolerance;
           potential_absolute_coefficient_tolerance = 0.0;
           maximum_potential_iterations =
             prm.get_integer("Maximum potential iterations");

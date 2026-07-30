@@ -1,0 +1,19 @@
+# Exercise selectable potential-feedback convergence criteria, including the
+# CitcomSVE-compatible velocity update, and independent relative tolerances.
+# MPI: 2
+# Enable if: QUICK_TEST
+
+include $ASPECT_SOURCE_DIR/tests/potential_feedback_default_none.prm
+
+set Output directory = output-potential-feedback-convergence-criteria
+
+subsection Potential feedback
+  subsection Potential iteration
+    set Convergence criteria = velocity update, self gravity
+    set Velocity update relative tolerance = 1
+    set Self gravity relative tolerance = 1
+    set Rotational feedback relative tolerance = 2e-1
+    set Glacial isostatic adjustment relative tolerance = 3e-1
+    set Center of mass relative tolerance = 4e-1
+  end
+end

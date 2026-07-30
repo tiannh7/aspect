@@ -161,7 +161,13 @@ namespace aspect
 
       GlacialIsostaticAdjustmentSettings gia;
 
+      std::vector<std::string> convergence_criteria;
       double relative_tolerance = 0.0;
+      double velocity_update_relative_tolerance = 0.0;
+      double self_gravity_relative_tolerance = 0.0;
+      double rotational_feedback_relative_tolerance = 0.0;
+      double glacial_isostatic_adjustment_relative_tolerance = 0.0;
+      double center_of_mass_relative_tolerance = 0.0;
       unsigned int maximum_iterations = 0;
       bool freeze_feedback_after_timestep_zero = false;
       bool iterate_with_stokes = true;
@@ -177,6 +183,8 @@ namespace aspect
       bool citcomsve_degree_one_load_compensation = false;
 
       bool has_active_mechanisms() const;
+
+      bool convergence_criterion_is_active(const std::string &name) const;
 
       static void declare_parameters(ParameterHandler &prm);
       void parse_parameters(ParameterHandler &prm);

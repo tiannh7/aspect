@@ -126,6 +126,65 @@ namespace aspect
 
     template <int dim>
     void
+    PotentialFeedbackTraction<dim>::reset_velocity_update_reference()
+    {
+      const unsigned int velocity_block =
+        this->introspection().block_indices.velocities;
+      const LinearAlgebra::Vector &current_velocity =
+        this->get_solution().block(velocity_block);
+
+      previous_stokes_velocity.reinit(
+        this->introspection().index_sets.system_partitioning[velocity_block],
+        this->get_mpi_communicator());
+      previous_stokes_velocity = current_velocity;
+      velocity_update_relative_change =
+        std::numeric_limits<double>::infinity();
+      velocity_update_reference_is_initialized = true;
+    }
+
+
+
+    template <int dim>
+    void
+    PotentialFeedbackTraction<dim>::update_velocity_update_diagnostic()
+    {
+      if (&primary_provider() != this)
+        return;
+
+      if (!velocity_update_reference_is_initialized)
+        reset_velocity_update_reference();
+
+      const unsigned int velocity_block =
+        this->introspection().block_indices.velocities;
+      LinearAlgebra::Vector current_velocity(
+        this->introspection().index_sets.system_partitioning[velocity_block],
+        this->get_mpi_communicator());
+      current_velocity = this->get_solution().block(velocity_block);
+      LinearAlgebra::Vector velocity_difference(current_velocity);
+      velocity_difference.add(-1.0, previous_stokes_velocity);
+
+      const double velocity_norm = current_velocity.l2_norm();
+      const double difference_norm = velocity_difference.l2_norm();
+      velocity_update_relative_change =
+        (velocity_norm == 0.0 && difference_norm == 0.0)
+        ? 0.0
+        : difference_norm
+        / std::max(velocity_norm, std::numeric_limits<double>::min());
+
+      previous_stokes_velocity = current_velocity;
+
+      if (settings.convergence_criterion_is_active("velocity update"))
+        this->get_pcout()
+            << "      Potential-feedback velocity update: relative L2 change="
+            << std::scientific << std::setprecision(6)
+            << velocity_update_relative_change
+            << std::defaultfloat << std::endl;
+    }
+
+
+
+    template <int dim>
+    void
     PotentialFeedbackTraction<dim>::write_polar_wander_timing_diagnostic(
       const std::string &stage) const
     {
@@ -408,6 +467,7 @@ namespace aspect
                const SolverControl &,
                const SolverControl &)
       {
+        this->update_velocity_update_diagnostic();
         this->write_polar_wander_timing_diagnostic(
           "after_post_stokes_feedback_signals");
       });
@@ -421,6 +481,8 @@ namespace aspect
     {
       if (&primary_provider() != this)
         return;
+
+      reset_velocity_update_reference();
 
       write_polar_wander_timing_diagnostic("before_update");
 
@@ -805,13 +867,35 @@ namespace aspect
       if (&primary_provider() != this)
         return primary_provider().potential_is_converged();
 
-      return (!self_gravity_active || self_gravity.potential_is_converged())
+      const bool velocity_update_is_converged =
+        !settings.convergence_criterion_is_active("velocity update")
+        || !settings.iterate_with_stokes
+        || (settings.freeze_feedback_after_timestep_zero
+            && this->get_timestep_number() > 0)
+        || velocity_update_relative_change
+        <= settings.velocity_update_relative_tolerance;
+
+      return velocity_update_is_converged
+             &&
+             (!self_gravity_active || self_gravity.potential_is_converged())
              &&
              (!rotational_feedback_active
               || rotational_feedback.potential_is_converged())
              &&
              (!glacial_isostatic_adjustment_active
               || glacial_isostatic_adjustment.potential_is_converged());
+    }
+
+
+
+    template <int dim>
+    double
+    PotentialFeedbackTraction<dim>::
+    velocity_update_relative_change_value() const
+    {
+      if (&primary_provider() != this)
+        return primary_provider().velocity_update_relative_change_value();
+      return velocity_update_relative_change;
     }
 
 

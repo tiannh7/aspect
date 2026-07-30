@@ -115,6 +115,8 @@ namespace aspect
 
         bool potential_is_converged() const;
 
+        double velocity_update_relative_change_value() const;
+
         bool is_self_gravity_active() const
         {
           return self_gravity_active;
@@ -152,10 +154,19 @@ namespace aspect
 
         void write_polar_wander_timing_diagnostic(const std::string &stage) const;
 
+        void reset_velocity_update_reference();
+
+        void update_velocity_update_diagnostic();
+
         PotentialFeedback::Settings settings;
         bool self_gravity_active = false;
         bool rotational_feedback_active = false;
         bool glacial_isostatic_adjustment_active = false;
+
+        LinearAlgebra::Vector previous_stokes_velocity;
+        double velocity_update_relative_change =
+          std::numeric_limits<double>::infinity();
+        bool velocity_update_reference_is_initialized = false;
 
         PotentialFeedback::SelfGravitation<dim> self_gravity;
         PotentialFeedback::RotationalFeedback<dim> rotational_feedback;

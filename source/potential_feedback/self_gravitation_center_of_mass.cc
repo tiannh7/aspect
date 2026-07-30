@@ -228,6 +228,13 @@ namespace aspect
     bool
     SelfGravitation<3>::potential_is_converged() const
     {
+      const bool potential_change_is_converged =
+        !potential_change_convergence_required
+        || potential_relative_change <= potential_convergence_tolerance
+        || (potential_absolute_coefficient_tolerance > 0.0
+            && potential_absolute_change
+            <= potential_absolute_coefficient_tolerance);
+
       if (degree_one_reference_frame ==
           DegreeOneReferenceFrame::center_of_mass)
         {
@@ -253,17 +260,16 @@ namespace aspect
             }
 
           const bool center_of_mass_change_is_converged =
-            center_of_mass_relative_change <= potential_convergence_tolerance
+            !center_of_mass_convergence_required
+            || center_of_mass_relative_change
+            <= center_of_mass_convergence_tolerance
             || (center_of_mass_absolute_tolerance > 0.0
                 && center_of_mass_absolute_change
                 <= center_of_mass_absolute_tolerance);
-          const bool potential_change_is_converged =
-            potential_relative_change <= potential_convergence_tolerance
-            || (potential_absolute_coefficient_tolerance > 0.0
-                && potential_absolute_change
-                <= potential_absolute_coefficient_tolerance);
           const bool center_of_mass_constraint_is_converged =
-            constraint_relative_residual <= potential_convergence_tolerance
+            !center_of_mass_convergence_required
+            || constraint_relative_residual
+            <= center_of_mass_convergence_tolerance
             || (center_of_mass_absolute_tolerance > 0.0
                 && native_center_of_mass_diagnostic.valid
                 && native_center_of_mass_diagnostic.mass_dipole_post.norm()
@@ -285,11 +291,14 @@ namespace aspect
           return converged;
         }
 
-      return potential_relative_change <= potential_convergence_tolerance
-             || (potential_absolute_coefficient_tolerance > 0.0
-                 && potential_absolute_change
-                 <= potential_absolute_coefficient_tolerance)
-             || potential_iteration_number >= maximum_potential_iterations;
+      AssertThrow(
+        potential_change_is_converged
+        || potential_iteration_number < maximum_potential_iterations,
+        ExcMessage(
+          "The self-gravity feedback solve reached the maximum number of "
+          "potential iterations without satisfying the configured "
+          "self-gravity coefficient-change tolerance."));
+      return potential_change_is_converged;
     }
   }
 }
